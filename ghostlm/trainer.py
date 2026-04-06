@@ -58,6 +58,7 @@ class GhostTrainer:
 
         # State
         self.step = 0
+        self.accum_steps = getattr(config, 'grad_accum_steps', 4)
         self.best_val_loss = float("inf")
         self.log: list = []
 
@@ -93,10 +94,11 @@ class GhostTrainer:
             group["lr"] = lr
 
     def train_step(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> float:
-        """Execute a single training step.
+        """Execute a single training step with gradient accumulation.
 
-        Performs forward pass, computes loss, backpropagates gradients,
-        applies gradient clipping, and takes an optimizer step.
+        Accumulates gradients over self.accum_steps micro-steps before
+        updating weights, effectively multiplying the batch size without
+        increasing memory usage.
 
         Args:
             batch: Tuple of (input_ids, target_ids) tensors.
@@ -109,20 +111,29 @@ class GhostTrainer:
         y = y.to(self.device)
 
         self.model.train()
-        self.optimizer.zero_grad(set_to_none=True)
 
-        logits, loss = self.model(x, targets=y)
+        # Split batch into micro-batches for gradient accumulation
+        micro_x = x.split(max(1, x.size(0) // self.accum_steps), dim=0)
+        micro_y = y.split(max(1, y.size(0) // self.accum_steps), dim=0)
 
-        loss.backward()
+        total_loss = 0.0
 
+        for mx, my in zip(micro_x, micro_y):
+            _, loss = self.model(mx, targets=my)
+            # Scale loss by number of accumulation steps
+            scaled_loss = loss / len(micro_x)
+            scaled_loss.backward()
+            total_loss += loss.item()
+
+        # Gradient clipping and optimizer step after accumulation
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
-
         self.optimizer.step()
+        self.optimizer.zero_grad(set_to_none=True)
 
         self.step += 1
         self._set_lr()
 
-        return loss.item()
+        return total_loss / len(micro_x)
 
     def eval_step(self, val_loader, num_batches: int = 20) -> float:
         """Run evaluation over a number of validation batches.

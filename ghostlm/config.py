@@ -28,6 +28,7 @@ class GhostLMConfig:
     beta1: float = 0.9
     beta2: float = 0.95
     grad_clip: float = 1.0
+    grad_accum_steps: int = 4
     warmup_steps: int = 2000
     max_steps: int = 100000
     eval_interval: int = 500

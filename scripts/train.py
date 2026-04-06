@@ -63,6 +63,12 @@ def parse_args():
         help="Override config learning_rate",
     )
     parser.add_argument(
+        "--grad-accum",
+        type=int,
+        default=4,
+        help="Gradient accumulation steps",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default="auto",
@@ -97,6 +103,7 @@ def main():
         config.batch_size = args.batch_size
     if args.lr is not None:
         config.learning_rate = args.lr
+    config.grad_accum_steps = args.grad_accum
     if args.device != "auto":
         config.device = args.device
     if args.no_wandb:
