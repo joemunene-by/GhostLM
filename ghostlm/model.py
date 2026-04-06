@@ -330,14 +330,15 @@ class GhostLM(nn.Module):
                 elif pn.endswith("weight") and isinstance(m, blacklist):
                     no_decay.add(fpn)
 
-        # Validate that all parameters are accounted for
+        # Remove lm_head.weight from decay if present — it is tied to token_embedding.weight
+        decay.discard("lm_head.weight")
+        no_decay.discard("lm_head.weight")
+
+        # Validate all parameters are accounted for (excluding tied weight)
         param_dict = {pn: p for pn, p in self.named_parameters()}
-        inter_params = decay & no_decay
-        union_params = decay | no_decay
-        assert len(inter_params) == 0, f"Parameters {inter_params} in both decay and no_decay"
-        assert len(param_dict.keys() - union_params) == 0, (
-            f"Parameters {param_dict.keys() - union_params} not categorized"
-        )
+        all_params = decay | no_decay
+        uncategorized = {k for k in param_dict.keys() if k not in all_params and k != "lm_head.weight"}
+        assert len(uncategorized) == 0, f"Parameters {uncategorized} not categorized"
 
         optim_groups = [
             {
