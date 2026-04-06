@@ -335,9 +335,9 @@ class GhostLM(nn.Module):
         inter_params = decay & no_decay
         union_params = decay | no_decay
         assert len(inter_params) == 0, f"Parameters {inter_params} in both decay and no_decay"
-        assert len(param_dict - union_params) == 0, (
-            f"Parameters {param_dict.keys() - union_params} not categorized"
-        )
+    assert len(param_dict.keys() - union_params) == 0, (
+        f"Parameters {param_dict.keys() - union_params} not categorized"
+    )
 
         optim_groups = [
             {
