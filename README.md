@@ -18,18 +18,18 @@ GhostLM uses a decoder-only transformer architecture with:
 
 ### Model Presets
 
-| Preset         | Layers | Dim  | Heads | Use Case              |
-|----------------|--------|------|-------|-----------------------|
-| `ghost-tiny`   | 2      | 256  | 4     | Development & testing |
-| `ghost-small`  | 6      | 512  | 8     | Default training      |
-| `ghost-medium` | 12     | 768  | 12    | Production            |
+| Preset         | Layers | Dim  | Heads | Params   | Use Case              |
+|----------------|--------|------|-------|----------|-----------------------|
+| `ghost-tiny`   | 2      | 256  | 4     | ~3M      | Development & testing |
+| `ghost-small`  | 6      | 512  | 8     | ~55M     | Default training      |
+| `ghost-medium` | 12     | 768  | 12    | ~160M    | Production            |
 
 ## Project Structure
 
 ```
 GhostLM/
 ├── data/
-│   ├── collect.py          # Data collection pipeline (CVE, papers, CTF writeups)
+│   ├── collect.py          # Data collection pipeline (NVD API, papers, CTF)
 │   ├── raw/                # Raw downloaded data
 │   └── processed/          # Processed train/val JSONL files
 ├── ghostlm/
@@ -42,21 +42,47 @@ GhostLM/
 ├── scripts/
 │   ├── train.py            # Training entry point with CLI args
 │   ├── evaluate.py         # Perplexity + generation quality benchmarks
-│   └── generate.py         # Inference with checkpoint loading
+│   ├── generate.py         # Inference with checkpoint loading
+│   ├── benchmark.py        # Compare GhostLM vs GPT-2 perplexity
+│   ├── plot_training.py    # Plot training loss curves
+│   ├── chat.py             # Interactive terminal chat interface
+│   └── push_to_hub.py      # Upload to HuggingFace Hub
 ├── tests/
 │   └── test_model.py       # Pytest test suite
-└── notebooks/              # Experiment notebooks
+├── notebooks/
+│   └── exploration.ipynb   # Architecture exploration notebook
+├── Makefile                # Common development commands
+├── CONTRIBUTING.md         # Contribution guidelines
+├── MODEL_CARD.md           # HuggingFace-style model card
+└── LICENSE                 # Apache 2.0
 ```
 
-## Installation
+## Quick Start
 
 ```bash
 git clone https://github.com/joemunene-by/GhostLM.git
 cd GhostLM
-pip install -r requirements.txt
+make install
+make test
 ```
 
 ## Usage
+
+### Makefile Commands
+
+```bash
+make help          # Show all available commands
+make install       # Install all dependencies
+make test          # Run unit tests
+make data          # Download and prepare training data
+make train-tiny    # Train ghost-tiny (CPU-friendly, ~3M params)
+make train-small   # Train ghost-small (~55M params, GPU recommended)
+make generate      # Generate text from trained checkpoint
+make chat          # Interactive chat with trained model
+make benchmark     # Compare GhostLM vs GPT-2 perplexity
+make plot          # Plot training loss curve
+make clean         # Remove cache files
+```
 
 ### 1. Collect Data
 
@@ -64,7 +90,7 @@ pip install -r requirements.txt
 python data/collect.py
 ```
 
-Downloads CVE descriptions, security papers, and CTF writeups from HuggingFace datasets, then merges them into train/validation splits.
+Downloads CVE descriptions from the NVD REST API, curated cybersecurity paper abstracts, and CTF writeups. Merges into train/validation JSONL splits.
 
 ### 2. Train
 
@@ -72,8 +98,8 @@ Downloads CVE descriptions, security papers, and CTF writeups from HuggingFace d
 # Train with default (ghost-small)
 python scripts/train.py
 
-# Train with a different preset
-python scripts/train.py --preset ghost-tiny
+# Train ghost-tiny on CPU
+python scripts/train.py --preset ghost-tiny --max-steps 2000 --batch-size 2 --device cpu
 
 # Resume from checkpoint
 python scripts/train.py --checkpoint checkpoints/best_model.pt
@@ -88,7 +114,7 @@ python scripts/train.py --preset ghost-tiny --max-steps 10000 --batch-size 16 --
 python scripts/evaluate.py --checkpoint checkpoints/best_model.pt
 ```
 
-Computes perplexity on cybersecurity texts and generates responses to security prompts. Results saved to `logs/eval_results.json`.
+Computes perplexity on cybersecurity texts and generates responses to 8 security prompts. Results saved to `logs/eval_results.json`.
 
 ### 4. Generate
 
@@ -100,7 +126,33 @@ python scripts/generate.py \
   --temperature 0.8
 ```
 
-### 5. Run Tests
+### 5. Interactive Chat
+
+```bash
+python scripts/chat.py --checkpoint checkpoints/best_model.pt
+```
+
+### 6. Benchmark vs GPT-2
+
+```bash
+python scripts/benchmark.py --checkpoint checkpoints/best_model.pt
+```
+
+### 7. Plot Training Curve
+
+```bash
+python scripts/plot_training.py --output logs/training_curve.png
+```
+
+### 8. Upload to HuggingFace
+
+```bash
+python scripts/push_to_hub.py \
+  --checkpoint checkpoints/best_model.pt \
+  --repo-id joemunene/GhostLM-tiny
+```
+
+### 9. Run Tests
 
 ```bash
 pytest tests/ -v
@@ -114,6 +166,10 @@ pytest tests/ -v
 - [ ] Quantization and ONNX export
 - [ ] Web-based inference demo
 - [ ] Benchmark against existing security LLMs
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to contribute.
 
 ## License
 
