@@ -104,6 +104,7 @@ def main():
 
     # Set vocab size to match GhostTokenizer (base 50257 + 4 special tokens)
     config.vocab_size = 50261
+    config.context_length = 128  # Reduced for CPU training on low-RAM hardware
 
     # Print config
     print(repr(config))
