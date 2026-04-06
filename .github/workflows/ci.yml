@@ -1,0 +1,40 @@
+name: GhostLM CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install CPU-only PyTorch
+        run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install dependencies
+        run: pip install numpy tiktoken tqdm pytest requests datasets transformers tokenizers wandb
+
+      - name: Install package in editable mode
+        run: pip install -e .
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
