@@ -4,6 +4,7 @@ transformers
 datasets
 tokenizers
 tiktoken
+requests
 tqdm
 wandb
 pytest
