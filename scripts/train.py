@@ -75,6 +75,12 @@ def parse_args():
         help="Device to train on: auto, cpu, cuda, mps",
     )
     parser.add_argument(
+        "--context-length",
+        type=int,
+        default=None,
+        help="Override context length (default: preset value, use 128 for low-RAM CPU training)",
+    )
+    parser.add_argument(
         "--no-wandb",
         action="store_true",
         help="Disable wandb logging",
@@ -111,7 +117,8 @@ def main():
 
     # Set vocab size to match GhostTokenizer (base 50257 + 4 special tokens)
     config.vocab_size = 50261
-    config.context_length = 128  # Reduced for CPU training on low-RAM hardware
+    if args.context_length is not None:
+        config.context_length = args.context_length
 
     # Print config
     print(repr(config))
