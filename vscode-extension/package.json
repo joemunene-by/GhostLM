@@ -1,0 +1,87 @@
+{
+  "name": "ghostlm-security-review",
+  "displayName": "GhostLM Security Review",
+  "description": "AI-powered code security review using GhostLM — a cybersecurity-focused language model",
+  "version": "0.1.0",
+  "publisher": "joemunene",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/joemunene-by/GhostLM"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "security",
+    "cybersecurity",
+    "code review",
+    "vulnerability",
+    "ghostlm",
+    "ai"
+  ],
+  "activationEvents": [
+    "onCommand:ghostlm.reviewFile",
+    "onCommand:ghostlm.reviewSelection",
+    "onCommand:ghostlm.explainVulnerability"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ghostlm.reviewFile",
+        "title": "GhostLM: Review File for Security Issues"
+      },
+      {
+        "command": "ghostlm.reviewSelection",
+        "title": "GhostLM: Review Selection for Security Issues"
+      },
+      {
+        "command": "ghostlm.explainVulnerability",
+        "title": "GhostLM: Explain Vulnerability"
+      }
+    ],
+    "configuration": {
+      "title": "GhostLM Security Review",
+      "properties": {
+        "ghostlm.apiEndpoint": {
+          "type": "string",
+          "default": "http://localhost:8000",
+          "description": "GhostLM API server endpoint (run: python scripts/api.py)"
+        },
+        "ghostlm.maxTokens": {
+          "type": "number",
+          "default": 200,
+          "description": "Maximum tokens for GhostLM generation"
+        },
+        "ghostlm.temperature": {
+          "type": "number",
+          "default": 0.7,
+          "description": "Sampling temperature (lower = more focused)"
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "ghostlm.reviewSelection",
+          "when": "editorHasSelection",
+          "group": "ghostlm"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  }
+}

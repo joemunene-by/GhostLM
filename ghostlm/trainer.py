@@ -20,15 +20,19 @@ class GhostTrainer:
 
     Handles device placement, optimizer setup, cosine learning rate scheduling
     with warmup, gradient clipping, periodic evaluation, checkpoint saving,
-    and JSON-based training log persistence.
+    and JSON-based training log persistence. Supports mixed precision (AMP)
+    training on CUDA devices for faster throughput and lower memory usage.
     """
 
-    def __init__(self, model: GhostLM, config: GhostLMConfig):
+    def __init__(self, model: GhostLM, config: GhostLMConfig, use_amp: Optional[bool] = None):
         """Initialize the trainer.
 
         Args:
             model: GhostLM model instance to train.
             config: GhostLMConfig with training hyperparameters and paths.
+            use_amp: Enable mixed precision (AMP) training. Defaults to True
+                when running on CUDA, False otherwise. AMP is only supported
+                on CUDA devices — setting True on CPU/MPS will be ignored.
         """
         self.model = model
         self.config = config
@@ -45,6 +49,14 @@ class GhostTrainer:
             self.device = config.device
 
         self.model = self.model.to(self.device)
+
+        # Mixed precision (AMP) — only effective on CUDA
+        if use_amp is None:
+            self.use_amp = self.device == "cuda"
+        else:
+            self.use_amp = use_amp and self.device == "cuda"
+
+        self.grad_scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
 
         # Optimizer
         self.optimizer = self.model.configure_optimizers(config)
@@ -94,11 +106,12 @@ class GhostTrainer:
             group["lr"] = lr
 
     def train_step(self, batch: Tuple[torch.Tensor, torch.Tensor]) -> float:
-        """Execute a single training step with gradient accumulation.
+        """Execute a single training step with gradient accumulation and optional AMP.
 
         Accumulates gradients over self.accum_steps micro-steps before
         updating weights, effectively multiplying the batch size without
-        increasing memory usage.
+        increasing memory usage. When AMP is enabled, the forward pass runs
+        in float16 and the GradScaler handles loss scaling for stable training.
 
         Args:
             batch: Tuple of (input_ids, target_ids) tensors.
@@ -119,15 +132,19 @@ class GhostTrainer:
         total_loss = 0.0
 
         for mx, my in zip(micro_x, micro_y):
-            _, loss = self.model(mx, targets=my)
-            # Scale loss by number of accumulation steps
-            scaled_loss = loss / len(micro_x)
-            scaled_loss.backward()
+            with torch.amp.autocast("cuda", enabled=self.use_amp):
+                _, loss = self.model(mx, targets=my)
+                # Scale loss by number of accumulation steps
+                scaled_loss = loss / len(micro_x)
+
+            self.grad_scaler.scale(scaled_loss).backward()
             total_loss += loss.item()
 
         # Gradient clipping and optimizer step after accumulation
+        self.grad_scaler.unscale_(self.optimizer)
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
-        self.optimizer.step()
+        self.grad_scaler.step(self.optimizer)
+        self.grad_scaler.update()
         self.optimizer.zero_grad(set_to_none=True)
 
         self.step += 1
@@ -157,7 +174,8 @@ class GhostTrainer:
                 x = x.to(self.device)
                 y = y.to(self.device)
 
-                _, loss = self.model(x, targets=y)
+                with torch.amp.autocast("cuda", enabled=self.use_amp):
+                    _, loss = self.model(x, targets=y)
                 total_loss += loss.item()
                 count += 1
 
@@ -178,6 +196,7 @@ class GhostTrainer:
             "val_loss": val_loss,
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
+            "grad_scaler_state_dict": self.grad_scaler.state_dict(),
             "config": asdict(self.config),
         }
 
@@ -205,6 +224,8 @@ class GhostTrainer:
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if "grad_scaler_state_dict" in checkpoint:
+            self.grad_scaler.load_state_dict(checkpoint["grad_scaler_state_dict"])
         self.step = checkpoint["step"]
         self.best_val_loss = checkpoint["val_loss"]
 
@@ -234,6 +255,7 @@ class GhostTrainer:
             val_loader: DataLoader yielding (input_ids, target_ids) validation batches.
         """
         print(f"Training on device: {self.device}")
+        print(f"Mixed precision (AMP): {'enabled' if self.use_amp else 'disabled'}")
         print(f"Model size: {self.model.num_params():,} parameters")
         print(f"Training from step {self.step} to {self.config.max_steps}")
 
