@@ -1,4 +1,9 @@
-"""GhostLM transformer model — decoder-only architecture built from scratch in PyTorch."""
+"""GhostLM transformer model — decoder-only architecture built from scratch in PyTorch.
+
+Architecture upgrades:
+- RoPE (Rotary Position Embeddings) instead of learned positional embeddings
+- SwiGLU activation instead of GELU in the feed-forward network
+"""
 
 import math
 
@@ -9,22 +14,74 @@ import torch.nn.functional as F
 from ghostlm.config import GhostLMConfig
 
 
-class CausalSelfAttention(nn.Module):
-    """Multi-head causal self-attention with autoregressive masking.
+class RotaryPositionalEmbedding(nn.Module):
+    """Rotary Position Embedding (RoPE) for encoding position information.
 
-    Uses a single combined QKV projection for efficiency, then splits
-    the result into separate query, key, and value tensors. Scaled
-    dot-product attention is computed manually with explicit causal
-    masking via torch.tril.
+    Applies rotation to query and key vectors using sinusoidal frequencies,
+    enabling relative position encoding without learned parameters.
+    """
+
+    def __init__(self, head_dim: int, context_length: int, base: float = 10000.0):
+        super().__init__()
+        assert head_dim % 2 == 0, "head_dim must be even for RoPE"
+
+        # Precompute inverse frequencies: theta_i = 1 / (base^(2i/d))
+        inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+        # Precompute cos/sin cache for all positions
+        t = torch.arange(context_length).float()
+        freqs = torch.outer(t, inv_freq)  # (context_length, head_dim/2)
+        emb = torch.cat([freqs, freqs], dim=-1)  # (context_length, head_dim)
+        self.register_buffer("cos_cached", emb.cos(), persistent=False)
+        self.register_buffer("sin_cached", emb.sin(), persistent=False)
+
+    def forward(self, x, seq_len: int):
+        """Return cos and sin for positions [0, seq_len).
+
+        Args:
+            x: Input tensor (used only for device/dtype).
+            seq_len: Number of positions to return.
+
+        Returns:
+            Tuple of (cos, sin) each of shape (seq_len, head_dim).
+        """
+        return self.cos_cached[:seq_len], self.sin_cached[:seq_len]
+
+
+def apply_rope(q, k, cos, sin):
+    """Apply rotary position embeddings to query and key tensors.
+
+    Args:
+        q: Query tensor of shape (B, n_heads, T, head_dim).
+        k: Key tensor of shape (B, n_heads, T, head_dim).
+        cos: Cosine values of shape (T, head_dim).
+        sin: Sine values of shape (T, head_dim).
+
+    Returns:
+        Tuple of (rotated_q, rotated_k) with same shapes as input.
+    """
+    cos = cos.unsqueeze(0).unsqueeze(0)  # (1, 1, T, head_dim)
+    sin = sin.unsqueeze(0).unsqueeze(0)
+
+    def rotate_half(x):
+        x1, x2 = x.chunk(2, dim=-1)
+        return torch.cat([-x2, x1], dim=-1)
+
+    q_rot = q * cos + rotate_half(q) * sin
+    k_rot = k * cos + rotate_half(k) * sin
+    return q_rot, k_rot
+
+
+class CausalSelfAttention(nn.Module):
+    """Multi-head causal self-attention with RoPE and autoregressive masking.
+
+    Uses a single combined QKV projection for efficiency, applies Rotary
+    Position Embeddings to queries and keys, then computes scaled
+    dot-product attention with explicit causal masking.
     """
 
     def __init__(self, config: GhostLMConfig):
-        """Initialize causal self-attention.
-
-        Args:
-            config: GhostLMConfig containing d_model, n_heads, dropout,
-                    context_length, and bias settings.
-        """
         super().__init__()
         assert config.d_model % config.n_heads == 0, "d_model must be divisible by n_heads"
 
@@ -36,11 +93,14 @@ class CausalSelfAttention(nn.Module):
         self.c_qkv = nn.Linear(config.d_model, 3 * config.d_model, bias=config.bias)
         self.proj = nn.Linear(config.d_model, config.d_model, bias=config.bias)
 
+        # RoPE
+        self.rope = RotaryPositionalEmbedding(self.head_dim, config.context_length)
+
         # Dropout applied to attention weights
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
 
-        # Causal mask buffer (lower triangular, filled with -inf)
+        # Causal mask buffer
         self.register_buffer(
             "causal_mask",
             torch.tril(torch.ones(config.context_length, config.context_length))
@@ -49,7 +109,7 @@ class CausalSelfAttention(nn.Module):
         )
 
     def forward(self, x):
-        """Forward pass through causal self-attention.
+        """Forward pass through causal self-attention with RoPE.
 
         Args:
             x: Input tensor of shape (B, T, d_model).
@@ -68,11 +128,15 @@ class CausalSelfAttention(nn.Module):
         k = k.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
 
+        # Apply RoPE to queries and keys
+        cos, sin = self.rope(q, T)
+        q, k = apply_rope(q, k, cos, sin)
+
         # Scaled dot-product attention: (B, n_heads, T, T)
         scale = 1.0 / math.sqrt(self.head_dim)
         att = (q @ k.transpose(-2, -1)) * scale
 
-        # Apply causal mask (truncate to actual sequence length)
+        # Apply causal mask
         att = att.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float("-inf"))
 
         # Softmax + dropout
@@ -89,26 +153,24 @@ class CausalSelfAttention(nn.Module):
         return y
 
 
-class FeedForward(nn.Module):
-    """Position-wise feed-forward network with GELU activation.
+class SwiGLUFeedForward(nn.Module):
+    """Position-wise feed-forward network with SwiGLU activation.
 
-    Two linear layers with an intermediate GELU non-linearity:
-    d_model -> d_ff -> d_model, with dropout after the second layer.
+    Uses a gated linear unit with SiLU (Swish) activation:
+    output = W_down(SiLU(W_gate(x)) * W_up(x))
+
+    This typically outperforms standard GELU FFN at the same parameter count.
     """
 
     def __init__(self, config: GhostLMConfig):
-        """Initialize the feed-forward network.
-
-        Args:
-            config: GhostLMConfig containing d_model, d_ff, dropout, and bias.
-        """
         super().__init__()
-        self.fc1 = nn.Linear(config.d_model, config.d_ff, bias=config.bias)
-        self.fc2 = nn.Linear(config.d_ff, config.d_model, bias=config.bias)
+        self.w_gate = nn.Linear(config.d_model, config.d_ff, bias=config.bias)
+        self.w_up = nn.Linear(config.d_model, config.d_ff, bias=config.bias)
+        self.w_down = nn.Linear(config.d_ff, config.d_model, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
-        """Forward pass through the feed-forward network.
+        """Forward pass through SwiGLU feed-forward network.
 
         Args:
             x: Input tensor of shape (B, T, d_model).
@@ -116,9 +178,9 @@ class FeedForward(nn.Module):
         Returns:
             Output tensor of shape (B, T, d_model).
         """
-        x = self.fc1(x)
-        x = F.gelu(x)
-        x = self.fc2(x)
+        gate = F.silu(self.w_gate(x))
+        up = self.w_up(x)
+        x = self.w_down(gate * up)
         x = self.dropout(x)
         return x
 
@@ -126,22 +188,17 @@ class FeedForward(nn.Module):
 class TransformerBlock(nn.Module):
     """Single transformer decoder block with pre-normalization.
 
-    Applies LayerNorm before both the self-attention and feed-forward
+    Applies LayerNorm before both the self-attention and SwiGLU feed-forward
     sub-layers (pre-norm architecture), with residual connections
     around each sub-layer.
     """
 
     def __init__(self, config: GhostLMConfig):
-        """Initialize the transformer block.
-
-        Args:
-            config: GhostLMConfig passed to sub-modules.
-        """
         super().__init__()
         self.ln_1 = nn.LayerNorm(config.d_model)
         self.attn = CausalSelfAttention(config)
         self.ln_2 = nn.LayerNorm(config.d_model)
-        self.ffn = FeedForward(config)
+        self.ffn = SwiGLUFeedForward(config)
 
     def forward(self, x):
         """Forward pass through the transformer block.
@@ -162,22 +219,16 @@ class TransformerBlock(nn.Module):
 class GhostLM(nn.Module):
     """GhostLM decoder-only transformer language model.
 
-    Built from scratch in PyTorch with learned positional embeddings,
-    stacked transformer blocks, and weight-tied output projection.
+    Built from scratch in PyTorch with RoPE (Rotary Position Embeddings),
+    SwiGLU feed-forward layers, and weight-tied output projection.
     """
 
     def __init__(self, config: GhostLMConfig):
-        """Initialize the GhostLM model.
-
-        Args:
-            config: GhostLMConfig with all model hyperparameters.
-        """
         super().__init__()
         self.config = config
 
-        # Embeddings
+        # Token embedding only — positional encoding handled by RoPE in attention
         self.token_embedding = nn.Embedding(config.vocab_size, config.d_model)
-        self.pos_embedding = nn.Embedding(config.context_length, config.d_model)
         self.dropout = nn.Dropout(config.dropout)
 
         # Transformer blocks
@@ -197,7 +248,7 @@ class GhostLM(nn.Module):
 
         # Apply scaled residual initialization for deeper models
         for pn, p in self.named_parameters():
-            if pn.endswith("proj.weight") or pn.endswith("fc2.weight"):
+            if pn.endswith("proj.weight") or pn.endswith("w_down.weight"):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * config.n_layers))
 
     def _init_weights(self, module):
@@ -232,11 +283,8 @@ class GhostLM(nn.Module):
             f"Sequence length {T} exceeds context length {self.config.context_length}"
         )
 
-        # Token + positional embeddings
-        pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
-        tok_emb = self.token_embedding(idx)
-        pos_emb = self.pos_embedding(pos)
-        x = self.dropout(tok_emb + pos_emb)
+        # Token embeddings only — RoPE handles position in attention layers
+        x = self.dropout(self.token_embedding(idx))
 
         # Transformer blocks
         for block in self.blocks:

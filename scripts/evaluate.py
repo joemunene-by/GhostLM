@@ -130,6 +130,217 @@ def compute_perplexity(
     return math.exp(avg_loss)
 
 
+# --- Domain-specific evaluation tasks ---
+
+CVE_TO_CWE_SAMPLES = [
+    {
+        "cve_text": "A vulnerability in the web interface allows an authenticated attacker to inject arbitrary SQL commands via the search parameter, leading to unauthorized data access.",
+        "expected_cwe": "CWE-89",
+        "cwe_name": "SQL Injection",
+    },
+    {
+        "cve_text": "The application does not properly sanitize user input in the comment field, allowing attackers to inject malicious JavaScript that executes in other users' browsers.",
+        "expected_cwe": "CWE-79",
+        "cwe_name": "Cross-site Scripting",
+    },
+    {
+        "cve_text": "A stack-based buffer overflow in the parsing function allows remote attackers to execute arbitrary code via a crafted input file that exceeds the allocated buffer size.",
+        "expected_cwe": "CWE-787",
+        "cwe_name": "Out-of-bounds Write",
+    },
+    {
+        "cve_text": "The application constructs OS commands using unsanitized user input, allowing attackers to inject additional commands via shell metacharacters in the filename parameter.",
+        "expected_cwe": "CWE-78",
+        "cwe_name": "OS Command Injection",
+    },
+    {
+        "cve_text": "The web application allows users to upload files without verifying the file type, enabling attackers to upload executable scripts that run on the server.",
+        "expected_cwe": "CWE-434",
+        "cwe_name": "Unrestricted Upload of File with Dangerous Type",
+    },
+    {
+        "cve_text": "The application uses external input to construct file paths without properly neutralizing '../' sequences, allowing attackers to read arbitrary files outside the intended directory.",
+        "expected_cwe": "CWE-22",
+        "cwe_name": "Path Traversal",
+    },
+    {
+        "cve_text": "A use-after-free vulnerability in the memory management routine allows attackers to execute arbitrary code by triggering specific allocation patterns after a free operation.",
+        "expected_cwe": "CWE-416",
+        "cwe_name": "Use After Free",
+    },
+    {
+        "cve_text": "The application deserializes untrusted data from user requests without integrity checks, allowing attackers to achieve remote code execution by crafting malicious serialized objects.",
+        "expected_cwe": "CWE-502",
+        "cwe_name": "Deserialization of Untrusted Data",
+    },
+]
+
+ATTACK_TECHNIQUE_SAMPLES = [
+    {
+        "text": "The adversary used PowerShell scripts to download and execute additional malware payloads on the compromised system.",
+        "expected_technique": "T1059",
+        "technique_name": "Command and Scripting Interpreter",
+        "tactic": "Execution",
+    },
+    {
+        "text": "The attackers obtained valid employee credentials through a previous breach and used them to access the corporate VPN without triggering alerts.",
+        "expected_technique": "T1078",
+        "technique_name": "Valid Accounts",
+        "tactic": "Initial Access",
+    },
+    {
+        "text": "The threat actor exploited a known vulnerability in the public-facing Apache Struts web server to gain initial access to the network.",
+        "expected_technique": "T1190",
+        "technique_name": "Exploit Public-Facing Application",
+        "tactic": "Initial Access",
+    },
+    {
+        "text": "The malware communicated with its command and control server by embedding data in DNS TXT record queries to avoid detection by network security tools.",
+        "expected_technique": "T1071",
+        "technique_name": "Application Layer Protocol",
+        "tactic": "Command and Control",
+    },
+    {
+        "text": "The ransomware encrypted all files on the victim's system using AES-256 and demanded payment in cryptocurrency for the decryption key.",
+        "expected_technique": "T1486",
+        "technique_name": "Data Encrypted for Impact",
+        "tactic": "Impact",
+    },
+    {
+        "text": "The attacker created a scheduled task that executed the backdoor every time the system booted, ensuring persistent access to the compromised machine.",
+        "expected_technique": "T1053",
+        "technique_name": "Scheduled Task/Job",
+        "tactic": "Persistence",
+    },
+    {
+        "text": "The malware injected its code into the address space of a legitimate running process to evade detection by endpoint security products.",
+        "expected_technique": "T1055",
+        "technique_name": "Process Injection",
+        "tactic": "Defense Evasion",
+    },
+    {
+        "text": "The payload was heavily obfuscated using multiple layers of base64 encoding and XOR encryption to avoid detection by antivirus software.",
+        "expected_technique": "T1027",
+        "technique_name": "Obfuscated Files or Information",
+        "tactic": "Defense Evasion",
+    },
+]
+
+
+def evaluate_cve_to_cwe(
+    model: GhostLM,
+    tokenizer: GhostTokenizer,
+    device: str,
+    max_tokens: int = 60,
+) -> dict:
+    """Evaluate the model's ability to classify CVE descriptions to CWE categories.
+
+    Prompts the model with CVE descriptions and checks if the generated
+    text contains the expected CWE identifier or related keywords.
+
+    Args:
+        model: GhostLM model in eval mode.
+        tokenizer: GhostTokenizer instance.
+        device: Device string.
+        max_tokens: Max tokens to generate per sample.
+
+    Returns:
+        Dict with accuracy, total, correct, and per-sample results.
+    """
+    results = []
+    correct = 0
+
+    for sample in CVE_TO_CWE_SAMPLES:
+        prompt = f"Classify this vulnerability: {sample['cve_text']}\nCWE category:"
+        prompt_ids = tokenizer.encode(prompt)
+        input_tensor = torch.tensor(prompt_ids, dtype=torch.long, device=device).unsqueeze(0)
+
+        generated = model.generate(input_tensor, max_new_tokens=max_tokens, temperature=0.5, top_k=20)
+        generated_text = tokenizer.decode(generated[0].tolist())
+
+        # Check if expected CWE ID or name appears in output
+        output_text = generated_text[len(prompt):].lower()
+        expected_id = sample["expected_cwe"].lower()
+        expected_name = sample["cwe_name"].lower()
+        hit = expected_id in output_text or expected_name in output_text
+
+        if hit:
+            correct += 1
+
+        results.append({
+            "cve_text": sample["cve_text"][:100] + "...",
+            "expected": f"{sample['expected_cwe']} ({sample['cwe_name']})",
+            "generated": generated_text[len(prompt):][:200],
+            "correct": hit,
+        })
+
+    accuracy = correct / len(CVE_TO_CWE_SAMPLES) if CVE_TO_CWE_SAMPLES else 0
+    return {
+        "task": "cve_to_cwe_classification",
+        "accuracy": round(accuracy, 4),
+        "correct": correct,
+        "total": len(CVE_TO_CWE_SAMPLES),
+        "samples": results,
+    }
+
+
+def evaluate_attack_tagging(
+    model: GhostLM,
+    tokenizer: GhostTokenizer,
+    device: str,
+    max_tokens: int = 60,
+) -> dict:
+    """Evaluate the model's ability to tag ATT&CK techniques from threat descriptions.
+
+    Prompts the model with threat activity descriptions and checks
+    if the generated text identifies the correct ATT&CK technique.
+
+    Args:
+        model: GhostLM model in eval mode.
+        tokenizer: GhostTokenizer instance.
+        device: Device string.
+        max_tokens: Max tokens to generate per sample.
+
+    Returns:
+        Dict with accuracy, total, correct, and per-sample results.
+    """
+    results = []
+    correct = 0
+
+    for sample in ATTACK_TECHNIQUE_SAMPLES:
+        prompt = f"Identify the MITRE ATT&CK technique: {sample['text']}\nTechnique:"
+        prompt_ids = tokenizer.encode(prompt)
+        input_tensor = torch.tensor(prompt_ids, dtype=torch.long, device=device).unsqueeze(0)
+
+        generated = model.generate(input_tensor, max_new_tokens=max_tokens, temperature=0.5, top_k=20)
+        generated_text = tokenizer.decode(generated[0].tolist())
+
+        output_text = generated_text[len(prompt):].lower()
+        expected_id = sample["expected_technique"].lower()
+        expected_name = sample["technique_name"].lower()
+        hit = expected_id in output_text or expected_name in output_text
+
+        if hit:
+            correct += 1
+
+        results.append({
+            "text": sample["text"][:100] + "...",
+            "expected": f"{sample['expected_technique']} ({sample['technique_name']})",
+            "tactic": sample["tactic"],
+            "generated": generated_text[len(prompt):][:200],
+            "correct": hit,
+        })
+
+    accuracy = correct / len(ATTACK_TECHNIQUE_SAMPLES) if ATTACK_TECHNIQUE_SAMPLES else 0
+    return {
+        "task": "attack_technique_tagging",
+        "accuracy": round(accuracy, 4),
+        "correct": correct,
+        "total": len(ATTACK_TECHNIQUE_SAMPLES),
+        "samples": results,
+    }
+
+
 CYBERSEC_PROMPTS = [
     "A SQL injection attack works by",
     "The CVE scoring system rates vulnerabilities based on",
@@ -255,6 +466,15 @@ def main():
         print(f"      Generated: {gen['generated']}")
         print(f"      Tokens: {gen['tokens']}")
 
+    # Domain-specific evaluations
+    print("\nRunning CVE-to-CWE classification...")
+    cve_cwe_results = evaluate_cve_to_cwe(model, tokenizer, device)
+    print(f"  Accuracy: {cve_cwe_results['accuracy']:.1%} ({cve_cwe_results['correct']}/{cve_cwe_results['total']})")
+
+    print("\nRunning ATT&CK technique tagging...")
+    attack_results = evaluate_attack_tagging(model, tokenizer, device)
+    print(f"  Accuracy: {attack_results['accuracy']:.1%} ({attack_results['correct']}/{attack_results['total']})")
+
     # Build results
     checkpoint_data = torch.load(args.checkpoint, map_location=device, weights_only=False)
     step = checkpoint_data.get("step", 0)
@@ -266,6 +486,8 @@ def main():
         "model_size": f"{config.n_layers} layers, {config.d_model} dim",
         "parameters": model.num_params(),
         "generations": generations,
+        "cve_to_cwe": cve_cwe_results,
+        "attack_tagging": attack_results,
     }
 
     # Save results

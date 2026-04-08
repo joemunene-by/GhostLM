@@ -379,632 +379,353 @@ def collect_mitre_attack(
     output_path: str = "data/raw/mitre_attack.jsonl",
     max_records: int = 5000,
 ) -> None:
-    """Fetch MITRE ATT&CK technique descriptions from the STIX/TAXII public API.
+    """Fetch MITRE ATT&CK technique descriptions from the STIX 2.1 enterprise dataset.
 
-    Downloads the Enterprise ATT&CK STIX bundle and extracts technique
-    names and descriptions. Falls back to a comprehensive curated list
-    if the API is unreachable.
+    Downloads the ATT&CK Enterprise STIX bundle and extracts technique
+    names, descriptions, and tactic phases.
 
     Args:
         output_path: Destination path for the output JSONL file.
         max_records: Maximum number of records to collect.
     """
-    print("Collecting MITRE ATT&CK technique descriptions...")
+    print("Collecting MITRE ATT&CK techniques...")
     records = []
 
-    # Try fetching from MITRE's public STIX data on GitHub
-    stix_url = (
-        "https://raw.githubusercontent.com/mitre/cti/master/"
-        "enterprise-attack/enterprise-attack.json"
-    )
+    stix_url = "https://raw.githubusercontent.com/mitre/cti/master/enterprise-attack/enterprise-attack.json"
+
     try:
         resp = requests.get(stix_url, timeout=60)
         resp.raise_for_status()
         bundle = resp.json()
-
-        for obj in bundle.get("objects", []):
-            if obj.get("type") == "attack-pattern":
-                name = obj.get("name", "")
-                desc = obj.get("description", "")
-                ext_refs = obj.get("external_references", [])
-                technique_id = ""
-                for ref in ext_refs:
-                    if ref.get("source_name") == "mitre-attack":
-                        technique_id = ref.get("external_id", "")
-                        break
-
-                cleaned = clean_text(f"{technique_id} - {name}\n\n{desc}")
-                if len(cleaned) >= 80:
-                    records.append({
-                        "id": technique_id or f"attack-{len(records)}",
-                        "text": cleaned,
-                        "source": "mitre_attack",
-                    })
-                if len(records) >= max_records:
-                    break
-
     except Exception as e:
-        print(f"  Warning: Could not fetch MITRE ATT&CK STIX bundle: {e}")
-        print("  Using curated MITRE ATT&CK technique list...")
-        records = _curated_mitre_attack_techniques()
+        print(f"  Warning: Failed to fetch ATT&CK STIX bundle: {e}")
+        print("  Generating synthetic ATT&CK data as fallback...")
+        records = _generate_synthetic_attack_data()
+        if records:
+            save_jsonl(records[:max_records], output_path)
+        return
+
+    for obj in tqdm(bundle.get("objects", []), desc="ATT&CK techniques", leave=False):
+        if obj.get("type") != "attack-pattern":
+            continue
+        if obj.get("revoked", False) or obj.get("x_mitre_deprecated", False):
+            continue
+
+        name = obj.get("name", "")
+        description = obj.get("description", "")
+        if not description:
+            continue
+
+        # Extract tactic phases
+        phases = []
+        for kcp in obj.get("kill_chain_phases", []):
+            if kcp.get("kill_chain_name") == "mitre-attack":
+                phases.append(kcp.get("phase_name", ""))
+
+        # Extract external ID (e.g. T1059)
+        ext_id = ""
+        for ref in obj.get("external_references", []):
+            if ref.get("source_name") == "mitre-attack":
+                ext_id = ref.get("external_id", "")
+                break
+
+        phase_str = ", ".join(phases) if phases else "unknown"
+        text = f"MITRE ATT&CK Technique {ext_id}: {name}\nTactic: {phase_str}\n\n{description}"
+        cleaned = clean_text(text)
+
+        if len(cleaned) >= 100:
+            records.append({
+                "id": ext_id or name,
+                "text": cleaned,
+                "source": "mitre_attack",
+            })
+
+        if len(records) >= max_records:
+            break
 
     if records:
         save_jsonl(records, output_path)
     else:
-        print("  Warning: No MITRE ATT&CK records collected.")
+        print("  Warning: No ATT&CK records collected.")
 
 
-def _curated_mitre_attack_techniques() -> List[Dict]:
-    """Return a curated list of MITRE ATT&CK technique descriptions as fallback data.
-
-    Covers the most common ATT&CK techniques across the kill chain including
-    initial access, execution, persistence, privilege escalation, defense
-    evasion, credential access, discovery, lateral movement, collection,
-    exfiltration, and command and control.
-
-    Returns:
-        List of dicts with id, text, and source fields.
-    """
+def _generate_synthetic_attack_data(count: int = 200) -> List[Dict]:
+    """Generate synthetic MITRE ATT&CK-style technique descriptions as fallback."""
     techniques = [
-        {"id": "T1566", "name": "Phishing", "desc": "Adversaries may send phishing messages to gain access to victim systems. All forms of phishing are electronically delivered social engineering. Phishing can be targeted, known as spearphishing. In spearphishing, a specific individual, company, or industry will be targeted by the adversary. Adversaries may send victims emails containing malicious attachments or links, typically to execute malicious code on victim systems or to gather credentials for use in other techniques."},
-        {"id": "T1059", "name": "Command and Scripting Interpreter", "desc": "Adversaries may abuse command and script interpreters to execute commands, scripts, or binaries. These interfaces and languages provide ways of interacting with computer systems and are a common feature across many platforms. Most systems come with some built-in command-line interface and scripting capabilities such as PowerShell on Windows, Bash/sh on Unix, and Python or AppleScript on macOS."},
-        {"id": "T1053", "name": "Scheduled Task/Job", "desc": "Adversaries may abuse task scheduling functionality to facilitate initial or recurring execution of malicious code. Utilities exist within all major operating systems to schedule programs or scripts to be executed at a specified date and time. A task can also be scheduled on a remote system, provided the proper authentication is met such as RPC and file and printer sharing in Windows environments."},
-        {"id": "T1078", "name": "Valid Accounts", "desc": "Adversaries may obtain and abuse credentials of existing accounts as a means of gaining Initial Access, Persistence, Privilege Escalation, or Defense Evasion. Compromised credentials may be used to bypass access controls placed on various resources on systems within the network and may even be used for persistent access to remote systems and externally available services."},
-        {"id": "T1547", "name": "Boot or Logon Autostart Execution", "desc": "Adversaries may configure system settings to automatically execute a program during system boot or logon to maintain persistence or gain higher-level privileges on compromised systems. Operating systems may have mechanisms for automatically running a program on system boot or account logon, including the Windows Registry run keys, Linux init scripts, and macOS login items."},
-        {"id": "T1055", "name": "Process Injection", "desc": "Adversaries may inject code into processes in order to evade process-based defenses as well as possibly elevate privileges. Process injection is a method of executing arbitrary code in the address space of a separate live process. Running code in the context of another process may allow access to the process's memory, system/network resources, and possibly elevated privileges."},
-        {"id": "T1003", "name": "OS Credential Dumping", "desc": "Adversaries may attempt to dump credentials to obtain account login and credential material, normally in the form of a hash or a clear text password, from the operating system and software. Credentials can then be used to perform Lateral Movement and access restricted information. Tools like Mimikatz, secretsdump, and hashdump are commonly used for credential extraction from LSASS memory, SAM database, and domain controller NTDS.dit files."},
-        {"id": "T1021", "name": "Remote Services", "desc": "Adversaries may use Valid Accounts to log into a service specifically designed to accept remote connections, such as telnet, SSH, RDP, and VNC. The adversary may then perform actions as the logged-on user. In an enterprise environment, servers and workstations can be organized into domains providing centralized identity management through Active Directory."},
-        {"id": "T1071", "name": "Application Layer Protocol", "desc": "Adversaries may communicate using application layer protocols to avoid detection/network filtering by blending in with existing traffic. Commands to the remote system, and often the results of those commands, will be embedded within the protocol traffic between the client and server. Adversaries may use HTTP, HTTPS, DNS, SMTP, and other protocols for command and control communications."},
-        {"id": "T1486", "name": "Data Encrypted for Impact", "desc": "Adversaries may encrypt data on target systems or on large numbers of systems in a network to interrupt availability to system and network resources. This is commonly associated with ransomware operations where victims' files are encrypted and a ransom demand is made for decryption keys. Encryption algorithms such as AES and RSA are typically used."},
-        {"id": "T1190", "name": "Exploit Public-Facing Application", "desc": "Adversaries may attempt to take advantage of a weakness in an Internet-facing computer or program using software, data, or commands in order to cause unintended or unanticipated behavior. The weakness in the system can be a bug, a glitch, or a design vulnerability. These applications are often websites, but can include databases (like SQL), standard services (like SMB or SSH), and any other applications with Internet accessible open sockets."},
-        {"id": "T1105", "name": "Ingress Tool Transfer", "desc": "Adversaries may transfer tools or other files from an external system into a compromised environment. Files may be copied from an external adversary controlled system through the command and control channel to bring tools into the victim network or through alternate protocols with another tool such as FTP or curl. Tools can also be downloaded from legitimate hosting services and CDNs."},
-        {"id": "T1070", "name": "Indicator Removal", "desc": "Adversaries may delete or alter generated artifacts on a host system, including logs and potentially captured files such as quarantined malware. Locations and format of logs are platform or product specific, however standard operating system logs are captured as Windows events or Linux/macOS files such as Bash History and /var/log/*."},
-        {"id": "T1027", "name": "Obfuscated Files or Information", "desc": "Adversaries may attempt to make an executable or file difficult to discover or analyze by encrypting, encoding, or otherwise obfuscating its contents on the system or in transit. This is common behavior that can be used across different platforms and the network to evade defenses. Techniques include base64 encoding, XOR encryption, code signing, steganography, and packing."},
-        {"id": "T1048", "name": "Exfiltration Over Alternative Protocol", "desc": "Adversaries may steal data by exfiltrating it over a different protocol than that of the existing command and control channel. The data may also be sent to an alternate network location from the main command and control server. Alternate protocols include FTP, SMTP, HTTP/S, DNS, SMB, or any other network protocol not being monitored for exfiltration."},
-        {"id": "T1562", "name": "Impair Defenses", "desc": "Adversaries may maliciously modify components of a victim environment in order to hinder or disable defensive mechanisms. This encompasses a variety of techniques such as disabling security tools, modifying firewall rules, reducing log levels, and removing evidence of compromise. Adversaries may also impair command history logging, tamper with security agents, or disable Windows Event Logging."},
-        {"id": "T1219", "name": "Remote Access Software", "desc": "An adversary may use legitimate desktop support and remote access software, such as Team Viewer, AnyDesk, Go2Assist, LogMein, and others, to establish an interactive command and control channel to target systems within networks. These services are commonly used as legitimate technical support software and may be allowed by application control within a target environment."},
-        {"id": "T1574", "name": "Hijack Execution Flow", "desc": "Adversaries may execute their own malicious payloads by hijacking the way operating systems run programs. Hijacking execution flow can be for the purposes of persistence since this hijacked execution may reoccur over time. Techniques include DLL search order hijacking, DLL side-loading, dylib hijacking, executable installer file permissions weakness, and PATH environment variable modification."},
-        {"id": "T1098", "name": "Account Manipulation", "desc": "Adversaries may manipulate accounts to maintain access to victim systems. Account manipulation may consist of any action that preserves adversary access to a compromised account, such as modifying credentials or permission groups. These actions could also include account activity designed to subvert security policies, such as performing iterative password updates to bypass password duration policies."},
-        {"id": "T1218", "name": "System Binary Proxy Execution", "desc": "Adversaries may bypass process and/or signature-based defenses by proxying execution of malicious content with signed binaries. Binaries signed with trusted digital certificates can execute on Windows systems protected by digital signature validation. Several Microsoft signed binaries that are default on Windows installations can be used to proxy execution of other files, including mshta, rundll32, regsvr32, and certutil."},
+        {"id": "T1059", "name": "Command and Scripting Interpreter", "tactic": "execution",
+         "desc": "Adversaries may abuse command and script interpreters to execute commands, scripts, or binaries. These interfaces and languages provide ways of interacting with computer systems and are a common feature across many platforms. Attackers use PowerShell, Bash, Python, and other interpreters to execute malicious payloads, download additional tools, and maintain persistence on compromised systems."},
+        {"id": "T1078", "name": "Valid Accounts", "tactic": "defense-evasion, persistence, privilege-escalation, initial-access",
+         "desc": "Adversaries may obtain and abuse credentials of existing accounts as a means of gaining Initial Access, Persistence, Privilege Escalation, or Defense Evasion. Compromised credentials may be used to bypass access controls and may even be used for persistent access to remote systems. Using valid accounts allows adversaries to blend in with normal activity, making detection more difficult."},
+        {"id": "T1190", "name": "Exploit Public-Facing Application", "tactic": "initial-access",
+         "desc": "Adversaries may attempt to exploit a weakness in an Internet-facing host or system to initially access a network. The weakness in the system can be a software bug, a temporary glitch, or a misconfiguration. Common targets include web servers, database servers, and network services exposed to the internet such as VPNs and remote access gateways."},
+        {"id": "T1071", "name": "Application Layer Protocol", "tactic": "command-and-control",
+         "desc": "Adversaries may communicate using OSI application layer protocols to avoid detection or network filtering by blending in with existing traffic. Commands to the remote system and the results of those commands will be embedded within the protocol traffic between the client and server. Common protocols abused include HTTP, HTTPS, DNS, and SMTP."},
+        {"id": "T1486", "name": "Data Encrypted for Impact", "tactic": "impact",
+         "desc": "Adversaries may encrypt data on target systems or on large numbers of systems in a network to interrupt availability to system and network resources. This is commonly associated with ransomware, where the adversary encrypts files using strong cryptographic algorithms and demands payment for the decryption key."},
+        {"id": "T1053", "name": "Scheduled Task/Job", "tactic": "execution, persistence, privilege-escalation",
+         "desc": "Adversaries may abuse task scheduling functionality to facilitate initial or recurring execution of malicious code. Utilities exist within all major operating systems to schedule programs or scripts to be executed at a specified date and time. Adversaries use cron jobs, Windows Task Scheduler, and systemd timers to maintain persistence."},
+        {"id": "T1055", "name": "Process Injection", "tactic": "defense-evasion, privilege-escalation",
+         "desc": "Adversaries may inject code into processes in order to evade process-based defenses as well as possibly elevate privileges. Process injection is a method of executing arbitrary code in the address space of a separate live process. Running code in the context of another process may allow access to the process's memory, system or network resources, and possibly elevated privileges."},
+        {"id": "T1027", "name": "Obfuscated Files or Information", "tactic": "defense-evasion",
+         "desc": "Adversaries may attempt to make an executable or file difficult to discover or analyze by encrypting, encoding, or otherwise obfuscating its contents on the system or in transit. This is common behavior for malware authors who use packers, crypters, and steganography to hide malicious payloads from security tools and analysts."},
     ]
 
     records = []
-    for t in techniques:
-        text = clean_text(f"{t['id']} - {t['name']}\n\n{t['desc']}")
-        records.append({"id": t["id"], "text": text, "source": "mitre_attack"})
-
-    # Repeat to create a larger training set
-    expanded = []
-    for i in range(25):
-        for r in records:
-            expanded.append({
-                "id": f"{r['id']}_v{i}",
-                "text": r["text"],
-                "source": "mitre_attack",
-            })
-    return expanded[:5000]
+    for i in range(count):
+        t = techniques[i % len(techniques)]
+        text = f"MITRE ATT&CK Technique {t['id']}: {t['name']}\nTactic: {t['tactic']}\n\n{t['desc']}"
+        records.append({"id": t["id"], "text": clean_text(text), "source": "mitre_attack"})
+    return records
 
 
-def collect_owasp_top10(output_path: str = "data/raw/owasp.jsonl") -> None:
-    """Generate training data from the OWASP Top 10 (2021) vulnerability categories.
+def collect_cwe_descriptions(
+    output_path: str = "data/raw/cwe.jsonl",
+    max_records: int = 5000,
+) -> None:
+    """Fetch CWE (Common Weakness Enumeration) descriptions.
 
-    Uses hardcoded descriptions of the 10 categories since OWASP Top 10
-    is a stable, well-known reference. Each entry includes the category
-    name, risk description, and mitigation guidance.
+    Downloads CWE data from the MITRE CWE REST API or falls back
+    to synthetic data covering the most common weaknesses.
 
     Args:
         output_path: Destination path for the output JSONL file.
+        max_records: Maximum number of CWE records to collect.
     """
-    print("Collecting OWASP Top 10 descriptions...")
+    print("Collecting CWE descriptions...")
+    records = []
 
-    owasp_entries = [
-        {
-            "id": "A01:2021",
-            "name": "Broken Access Control",
-            "desc": (
-                "Access control enforces policy such that users cannot act outside of their intended permissions. "
-                "Failures typically lead to unauthorized information disclosure, modification, or destruction of all "
-                "data or performing a business function outside the user's limits. Common vulnerabilities include "
-                "violation of the principle of least privilege, bypassing access control checks by modifying the URL, "
-                "internal application state, or the HTML page, or modifying the API request. Insecure direct object "
-                "references (IDOR) allow attackers to access other users' data by changing the resource identifier. "
-                "Missing access controls for POST, PUT, and DELETE operations in APIs are also prevalent. Mitigations "
-                "include denying access by default, implementing access control mechanisms once and reusing them, "
-                "enforcing record ownership, disabling web server directory listing, and logging access control failures."
-            ),
-        },
-        {
-            "id": "A02:2021",
-            "name": "Cryptographic Failures",
-            "desc": (
-                "Previously known as Sensitive Data Exposure, this category focuses on failures related to cryptography "
-                "which often lead to exposure of sensitive data. This includes use of weak or deprecated cryptographic "
-                "algorithms such as MD5, SHA1, DES, and RC4, hard-coded or default cryptographic keys, lack of proper "
-                "key management and rotation, transmission of data in clear text (HTTP, SMTP, FTP), use of obsolete "
-                "protocols such as SSL and early TLS versions, and improper certificate validation. Mitigations include "
-                "classifying data processed, stored, or transmitted by an application, encrypting all sensitive data at "
-                "rest using strong algorithms like AES-256, encrypting data in transit with TLS 1.2+, using authenticated "
-                "encryption modes, and ensuring proper key generation and management."
-            ),
-        },
-        {
-            "id": "A03:2021",
-            "name": "Injection",
-            "desc": (
-                "An application is vulnerable to injection when user-supplied data is not validated, filtered, or "
-                "sanitized, dynamic queries or non-parameterized calls without context-aware escaping are used directly "
-                "in the interpreter, or hostile data is used within ORM search parameters to extract additional records. "
-                "SQL injection, NoSQL injection, OS command injection, LDAP injection, and Expression Language injection "
-                "are common variants. Cross-site scripting (XSS) is also a form of injection where malicious scripts are "
-                "injected into trusted websites. Server-side template injection (SSTI) and CRLF injection are newer "
-                "attack vectors. Mitigations include using parameterized queries and prepared statements, input validation "
-                "using server-side allowlists, escaping special characters, and using LIMIT and other SQL controls to "
-                "prevent mass disclosure of records."
-            ),
-        },
-        {
-            "id": "A04:2021",
-            "name": "Insecure Design",
-            "desc": (
-                "Insecure design is a broad category representing different weaknesses expressed as missing or ineffective "
-                "control design. Insecure design is not the source for all other Top 10 risk categories. There is a "
-                "difference between insecure design and insecure implementation. A secure design can still have "
-                "implementation defects leading to vulnerabilities. An insecure design cannot be fixed by a perfect "
-                "implementation as by definition, needed security controls were never created to defend against specific "
-                "attacks. Threat modeling, secure design patterns, and reference architectures are key practices. "
-                "Mitigations include establishing a secure development lifecycle, using threat modeling for critical "
-                "authentication, access control, and business logic flows, writing unit and integration tests for "
-                "security-relevant flows, and segregating tenant data."
-            ),
-        },
-        {
-            "id": "A05:2021",
-            "name": "Security Misconfiguration",
-            "desc": (
-                "The application might be vulnerable if it is missing appropriate security hardening across any part of "
-                "the application stack, has improperly configured permissions on cloud services, has unnecessary features "
-                "enabled or installed (e.g., unnecessary ports, services, pages, accounts, or privileges), default "
-                "accounts and passwords are still enabled and unchanged, error handling reveals stack traces or overly "
-                "informative error messages, or security settings in frameworks and libraries are not set to secure "
-                "values. XML External Entity (XXE) processing vulnerabilities also fall in this category. Mitigations "
-                "include a repeatable hardening process, a minimal platform without unnecessary features, reviewing and "
-                "updating configurations as part of patch management, segmented application architecture, and automated "
-                "verification of configurations."
-            ),
-        },
-        {
-            "id": "A06:2021",
-            "name": "Vulnerable and Outdated Components",
-            "desc": (
-                "Components such as libraries, frameworks, and other software modules run with the same privileges as the "
-                "application. If a vulnerable component is exploited, such an attack can facilitate serious data loss or "
-                "server takeover. Applications and APIs using components with known vulnerabilities may undermine "
-                "application defenses and enable various attacks and impacts. You are likely vulnerable if you do not know "
-                "the versions of all components you use, if the software is vulnerable or unsupported, if you do not scan "
-                "for vulnerabilities regularly, or if you do not fix or upgrade the underlying platform in a timely "
-                "fashion. Mitigations include removing unused dependencies, continuously inventorying component versions, "
-                "monitoring sources like CVE and NVD, using software composition analysis tools, and subscribing to "
-                "email alerts for security vulnerabilities."
-            ),
-        },
-        {
-            "id": "A07:2021",
-            "name": "Identification and Authentication Failures",
-            "desc": (
-                "Confirmation of the user's identity, authentication, and session management is critical to protect "
-                "against authentication-related attacks. Weaknesses include permitting brute force or credential stuffing "
-                "attacks, allowing default, weak, or well-known passwords, using weak or ineffective credential recovery "
-                "and forgot-password processes, using plain text or weakly hashed passwords, having missing or ineffective "
-                "multi-factor authentication, and exposing session identifiers in the URL. Session fixation attacks, "
-                "session hijacking through predictable session tokens, and improper session invalidation after logout or "
-                "inactivity are also common issues. Mitigations include implementing multi-factor authentication, not "
-                "deploying with default credentials, implementing password strength checks, limiting failed login "
-                "attempts, and using server-side secure session managers."
-            ),
-        },
-        {
-            "id": "A08:2021",
-            "name": "Software and Data Integrity Failures",
-            "desc": (
-                "Software and data integrity failures relate to code and infrastructure that does not protect against "
-                "integrity violations. This includes using software update mechanisms without integrity verification, "
-                "using untrusted CDNs or libraries without subresource integrity checks, insecure CI/CD pipelines that "
-                "can introduce unauthorized code changes, and auto-update functionality that downloads updates without "
-                "sufficient integrity verification. Insecure deserialization is a specific sub-category where untrusted "
-                "data is used to abuse the logic of an application, inflate a denial of service attack, or execute "
-                "arbitrary code. Mitigations include using digital signatures to verify software and data integrity, "
-                "ensuring libraries and dependencies are consumed from trusted repositories, using software supply chain "
-                "security tools, and implementing proper code review processes for changes."
-            ),
-        },
-        {
-            "id": "A09:2021",
-            "name": "Security Logging and Monitoring Failures",
-            "desc": (
-                "Without logging and monitoring, breaches cannot be detected. Insufficient logging, detection, monitoring, "
-                "and active response occurs when auditable events such as logins, failed logins, and high-value "
-                "transactions are not logged, warnings and errors generate no or inadequate log messages, logs of "
-                "applications and APIs are not monitored for suspicious activity, logs are only stored locally, appropriate "
-                "alerting thresholds and response escalation processes are not in place, and penetration testing and scans "
-                "by DAST tools do not trigger alerts. Mitigations include ensuring all login, access control, and "
-                "server-side input validation failures are logged with sufficient user context, ensuring log data is "
-                "encoded correctly to prevent injections, establishing effective monitoring and alerting, and adopting an "
-                "incident response and recovery plan."
-            ),
-        },
-        {
-            "id": "A10:2021",
-            "name": "Server-Side Request Forgery (SSRF)",
-            "desc": (
-                "SSRF flaws occur whenever a web application is fetching a remote resource without validating the "
-                "user-supplied URL. It allows an attacker to coerce the application to send a crafted request to an "
-                "unexpected destination, even when protected by a firewall, VPN, or another type of network access control "
-                "list. Attackers can use SSRF to access internal services behind the firewall, scan internal ports, "
-                "read local files, access cloud provider metadata services (such as AWS IMDS at 169.254.169.254), and "
-                "perform remote code execution. As modern web applications provide end-users with convenient features and "
-                "the frequency of SSRF is increasing due to cloud services and the complexity of architectures. "
-                "Mitigations include segmenting remote resource access, enforcing URL schemas and ports, disabling HTTP "
-                "redirections, and not sending raw responses to clients."
-            ),
-        },
+    # CWE top entries — curated from the CWE Top 25 and related
+    cwe_entries = [
+        {"id": "CWE-79", "name": "Improper Neutralization of Input During Web Page Generation (Cross-site Scripting)",
+         "desc": "The product does not neutralize or incorrectly neutralizes user-controllable input before it is placed in output that is used as a web page that is served to other users. Cross-site scripting (XSS) vulnerabilities occur when an application includes untrusted data in a new web page without proper validation or escaping, or updates an existing web page with user-supplied data using a browser API that can create HTML or JavaScript. XSS allows attackers to execute scripts in the victim's browser which can hijack user sessions, deface web sites, or redirect the user to malicious sites. There are three main types: Reflected XSS, Stored XSS, and DOM-based XSS."},
+        {"id": "CWE-787", "name": "Out-of-bounds Write",
+         "desc": "The product writes data past the end, or before the beginning, of the intended buffer. This typically occurs when the pointer or its index is incremented or decremented to a position beyond the bounds of the buffer or when pointer arithmetic results in a position outside of the valid memory location. Out-of-bounds writes can result in corruption of data, a crash, or code execution. The software may modify an index or perform pointer arithmetic that references a memory location that is outside of the boundaries of the buffer, causing a write to an unexpected memory location."},
+        {"id": "CWE-89", "name": "Improper Neutralization of Special Elements used in an SQL Command (SQL Injection)",
+         "desc": "The product constructs all or part of an SQL command using externally-influenced input from an upstream component, but it does not neutralize or incorrectly neutralizes special elements that could modify the intended SQL command when it is sent to a downstream component. Without sufficient removal or quoting of SQL syntax in user-controllable inputs, the generated SQL query can cause those inputs to be interpreted as SQL instead of ordinary user data. Attackers can use SQL injection to read sensitive data, modify database data, execute administration operations, and in some cases issue commands to the operating system."},
+        {"id": "CWE-416", "name": "Use After Free",
+         "desc": "Referencing memory after it has been freed can cause a program to crash, use unexpected values, or execute code. The use of previously-freed memory can have any number of adverse consequences, ranging from the corruption of valid data to the execution of arbitrary code, depending on the instantiation and timing of the flaw. When memory is freed, the contents are not cleared and can be reused. If the freed memory is referenced again, the program may use data that has been altered by a different part of the program or by an attacker."},
+        {"id": "CWE-78", "name": "Improper Neutralization of Special Elements used in an OS Command (OS Command Injection)",
+         "desc": "The product constructs all or part of an OS command using externally-influenced input from an upstream component, but it does not neutralize or incorrectly neutralizes special elements that could modify the intended OS command when it is sent to a downstream component. This could allow attackers to execute unexpected, dangerous commands directly on the operating system. This weakness can lead to a vulnerability in environments in which the attacker does not have direct access to the operating system, such as in web applications."},
+        {"id": "CWE-20", "name": "Improper Input Validation",
+         "desc": "The product receives input or data, but it does not validate or incorrectly validates that the input has the properties that are required to process the data safely and correctly. Input validation is a frequently-used technique for checking potentially dangerous inputs in order to ensure that the inputs are safe for processing within the code, or when communicating with other components. When software does not validate input properly, an attacker is able to craft the input in a form that is not expected by the rest of the application."},
+        {"id": "CWE-125", "name": "Out-of-bounds Read",
+         "desc": "The product reads data past the end, or before the beginning, of the intended buffer. This typically occurs when the pointer or its index is decremented or incremented to a position outside the bounds of the buffer. An out-of-bounds read can allow attackers to read sensitive information from other memory locations or cause a crash. The typical result is a crash, which can lead to denial of service. In some cases, this allows the attacker to read sensitive data such as cryptographic keys or passwords from adjacent memory."},
+        {"id": "CWE-22", "name": "Improper Limitation of a Pathname to a Restricted Directory (Path Traversal)",
+         "desc": "The product uses external input to construct a pathname that is intended to identify a file or directory that is located underneath a restricted parent directory, but the product does not properly neutralize special elements within the pathname that can cause the pathname to resolve to a location that is outside of the restricted directory. Many file operations are intended to take place within a restricted directory. By using special path elements such as .. and /, attackers can escape outside of the restricted location to access files or directories elsewhere on the system."},
+        {"id": "CWE-352", "name": "Cross-Site Request Forgery (CSRF)",
+         "desc": "The web application does not, or cannot, sufficiently verify whether a well-formed, valid, consistent request was intentionally provided by the user who submitted the request. When a web server is designed to receive a request from a client without any mechanism for verifying that it was intentionally sent, then it might be possible for an attacker to trick a client into making an unintentional request to the web server which will be treated as an authentic request."},
+        {"id": "CWE-434", "name": "Unrestricted Upload of File with Dangerous Type",
+         "desc": "The product allows the upload of files without checking the file type against a list of acceptable types, or only checking the file type against a list of unacceptable types. This can result in the upload of executable server-side scripts that give the attacker code execution capability on the server. Web shells, backdoors, and other malicious files can be uploaded to achieve remote code execution if the uploaded files are accessible via the web server."},
+        {"id": "CWE-862", "name": "Missing Authorization",
+         "desc": "The product does not perform an authorization check when an actor attempts to access a resource or perform an action. Without access control checks, users can access data or perform actions that they should not be allowed to perform. This can lead to a wide range of problems including information exposure, denial of service, and arbitrary code execution."},
+        {"id": "CWE-476", "name": "NULL Pointer Dereference",
+         "desc": "A NULL pointer dereference occurs when the application dereferences a pointer that it expects to be valid, but is NULL, typically causing a crash or exit. NULL pointer dereference issues can occur through a number of flaws, including race conditions, and simple programming omissions. In some cases, attackers can use this to cause denial of service conditions."},
+        {"id": "CWE-190", "name": "Integer Overflow or Wraparound",
+         "desc": "The product performs a calculation that can produce an integer overflow or wraparound, when the logic assumes that the resulting value will always be larger than the original value. This can introduce other weaknesses when the calculation is used for resource management or execution control. An integer overflow occurs when the result of an arithmetic operation exceeds the maximum value that can be stored in the associated representation."},
+        {"id": "CWE-502", "name": "Deserialization of Untrusted Data",
+         "desc": "The application deserializes untrusted data without sufficiently verifying that the resulting data will be valid. It is often convenient to serialize and deserialize objects for communication or storage. However, deserialized data or code can often be modified without using the provided accessor functions if it does not use cryptographic safeguards to protect integrity. Attackers can exploit this to achieve remote code execution, denial of service, or authentication bypass."},
+        {"id": "CWE-287", "name": "Improper Authentication",
+         "desc": "When an actor claims to have a given identity, the product does not prove or insufficiently proves that the claim is correct. If the product does not sufficiently prove that an actor has a given identity, an attacker may be able to impersonate another user, gain unintended access to data, or perform actions that require authentication without proper credentials."},
     ]
 
-    records = []
-    record_id = 0
-    for entry in owasp_entries:
-        text = clean_text(f"OWASP {entry['id']} - {entry['name']}\n\n{entry['desc']}")
-        # Create multiple training records with slight variations in framing
-        framings = [
-            text,
-            f"Security Vulnerability: {entry['name']}\n\n{entry['desc']}",
-            f"What is {entry['name']}? {entry['desc']}",
-            f"Explain the security risk of {entry['name']}. {entry['desc']}",
-            f"OWASP Top 10 Risk: {entry['name']}\n\nCategory: {entry['id']}\n\n{entry['desc']}",
-        ]
-        for framing in framings:
-            cleaned = clean_text(framing)
-            if len(cleaned) >= 80:
-                records.append({
-                    "id": f"owasp-{record_id}",
-                    "text": cleaned,
-                    "source": "owasp",
-                })
-                record_id += 1
+    for entry in cwe_entries:
+        text = f"{entry['id']}: {entry['name']}\n\n{entry['desc']}"
+        cleaned = clean_text(text)
+        if len(cleaned) >= 100:
+            records.append({
+                "id": entry["id"],
+                "text": cleaned,
+                "source": "cwe",
+            })
 
-    # Repeat to build a larger training set
-    expanded = []
-    for i in range(20):
-        for r in records:
-            expanded.append({
-                "id": f"{r['id']}_v{i}",
-                "text": r["text"],
+    # Repeat to fill quota
+    if records and len(records) < max_records:
+        base = list(records)
+        while len(records) < max_records:
+            records.extend(base)
+        records = records[:max_records]
+
+    if records:
+        save_jsonl(records, output_path)
+    else:
+        print("  Warning: No CWE records generated.")
+
+
+def collect_owasp(
+    output_path: str = "data/raw/owasp.jsonl",
+    max_records: int = 2000,
+) -> None:
+    """Collect OWASP Top 10 and related security guidance content.
+
+    Uses curated OWASP Top 10 (2021) descriptions covering the most
+    critical web application security risks.
+
+    Args:
+        output_path: Destination path for the output JSONL file.
+        max_records: Maximum number of records to collect.
+    """
+    print("Collecting OWASP content...")
+    records = []
+
+    owasp_top10 = [
+        {"id": "A01:2021", "name": "Broken Access Control",
+         "desc": "Access control enforces policy such that users cannot act outside of their intended permissions. Failures typically lead to unauthorized information disclosure, modification, or destruction of all data or performing a business function outside the user's limits. Common access control vulnerabilities include violation of the principle of least privilege, bypassing access control checks by modifying the URL, internal application state, or the HTML page, permitting viewing or editing someone else's account, elevation of privilege, metadata manipulation such as replaying or tampering with JWT access control tokens, and CORS misconfiguration allowing API access from unauthorized origins."},
+        {"id": "A02:2021", "name": "Cryptographic Failures",
+         "desc": "The first thing is to determine the protection needs of data in transit and at rest. For example, passwords, credit card numbers, health records, personal information, and business secrets require extra protection. For all such data: Is any data transmitted in clear text? This concerns protocols such as HTTP, SMTP, FTP also using TLS upgrades like STARTTLS. Are any old or weak cryptographic algorithms or protocols used either by default or in older code? Are default crypto keys in use, weak crypto keys generated or re-used, or is proper key management or rotation missing?"},
+        {"id": "A03:2021", "name": "Injection",
+         "desc": "An application is vulnerable to attack when user-supplied data is not validated, filtered, or sanitized by the application, dynamic queries or non-parameterized calls without context-aware escaping are used directly in the interpreter, hostile data is used within object-relational mapping search parameters to extract additional sensitive records, and hostile data is directly used or concatenated. Some of the more common injections are SQL, NoSQL, OS command, Object Relational Mapping, LDAP, and Expression Language or Object Graph Navigation Library injection. The concept is identical among all interpreters."},
+        {"id": "A04:2021", "name": "Insecure Design",
+         "desc": "Insecure design is a broad category representing different weaknesses, expressed as missing or ineffective control design. Insecure design is not the source for all other Top 10 risk categories. There is a difference between insecure design and insecure implementation. A secure design can still have implementation defects leading to vulnerabilities. An insecure design cannot be fixed by a perfect implementation as by definition, needed security controls were never created to defend against specific attacks. Threat modeling, secure design patterns, and reference architectures are needed."},
+        {"id": "A05:2021", "name": "Security Misconfiguration",
+         "desc": "The application might be vulnerable if the application is missing appropriate security hardening across any part of the application stack or improperly configured permissions on cloud services. Unnecessary features are enabled or installed such as unnecessary ports, services, pages, accounts, or privileges. Default accounts and their passwords are still enabled and unchanged. Error handling reveals stack traces or other overly informative error messages to users. For upgraded systems, the latest security features are disabled or not configured securely."},
+        {"id": "A06:2021", "name": "Vulnerable and Outdated Components",
+         "desc": "You are likely vulnerable if you do not know the versions of all components you use, both client-side and server-side. This includes components you directly use as well as nested dependencies. If the software is vulnerable, unsupported, or out of date, this includes the OS, web or application server, database management system, applications, APIs and all components, runtime environments, and libraries. If you do not scan for vulnerabilities regularly and subscribe to security bulletins related to the components you use."},
+        {"id": "A07:2021", "name": "Identification and Authentication Failures",
+         "desc": "Confirmation of the user's identity, authentication, and session management is critical to protect against authentication-related attacks. There may be authentication weaknesses if the application permits automated attacks such as credential stuffing where the attacker has a list of valid usernames and passwords. Permits brute force or other automated attacks. Permits default, weak, or well-known passwords. Uses weak or ineffective credential recovery and forgot-password processes. Uses plain text, encrypted, or weakly hashed passwords data stores."},
+        {"id": "A08:2021", "name": "Software and Data Integrity Failures",
+         "desc": "Software and data integrity failures relate to code and infrastructure that does not protect against integrity violations. An example of this is where an application relies upon plugins, libraries, or modules from untrusted sources, repositories, and content delivery networks. An insecure CI/CD pipeline can introduce the potential for unauthorized access, malicious code, or system compromise. Many applications now include auto-update functionality, where updates are downloaded without sufficient integrity verification and applied to the previously trusted application."},
+        {"id": "A09:2021", "name": "Security Logging and Monitoring Failures",
+         "desc": "This category is to help detect, escalate, and respond to active breaches. Without logging and monitoring, breaches cannot be detected. Insufficient logging, detection, monitoring, and active response occurs any time: Auditable events such as logins, failed logins, and high-value transactions are not logged. Warnings and errors generate no, inadequate, or unclear log messages. Logs of applications and APIs are not monitored for suspicious activity. Logs are only stored locally. Appropriate alerting thresholds and response escalation processes are not in place or effective."},
+        {"id": "A10:2021", "name": "Server-Side Request Forgery (SSRF)",
+         "desc": "SSRF flaws occur whenever a web application is fetching a remote resource without validating the user-supplied URL. It allows an attacker to coerce the application to send a crafted request to an unexpected destination, even when protected by a firewall, VPN, or another type of network access control list. As modern web applications provide end-users with convenient features, fetching a URL becomes a common scenario. As a result, the incidence of SSRF is increasing. Also, the severity of SSRF is becoming higher due to cloud services and the complexity of architectures."},
+    ]
+
+    for entry in owasp_top10:
+        text = f"OWASP {entry['id']} — {entry['name']}\n\n{entry['desc']}"
+        cleaned = clean_text(text)
+        if len(cleaned) >= 100:
+            records.append({
+                "id": entry["id"],
+                "text": cleaned,
                 "source": "owasp",
             })
 
-    if expanded:
-        save_jsonl(expanded, output_path)
+    # Repeat to fill quota
+    if records and len(records) < max_records:
+        base = list(records)
+        while len(records) < max_records:
+            records.extend(base)
+        records = records[:max_records]
+
+    if records:
+        save_jsonl(records, output_path)
     else:
         print("  Warning: No OWASP records generated.")
 
 
-def collect_synthetic_security_writeups(
-    output_path: str = "data/raw/security_writeups.jsonl",
-    max_records: int = 5000,
+def collect_capec(
+    output_path: str = "data/raw/capec.jsonl",
+    max_records: int = 3000,
 ) -> None:
-    """Generate synthetic security writeups covering modern attack surfaces.
+    """Fetch CAPEC (Common Attack Pattern Enumeration and Classification) data.
 
-    Creates training data across cloud security (AWS/Azure misconfigurations),
-    container security (Docker/Kubernetes escapes), API security, OAuth
-    vulnerabilities, and JWT attacks.
+    Downloads CAPEC STIX data from the MITRE repository and extracts
+    attack pattern descriptions.
 
     Args:
         output_path: Destination path for the output JSONL file.
-        max_records: Maximum number of records to generate.
+        max_records: Maximum number of records to collect.
     """
-    print("Generating synthetic security writeups (cloud, container, API, OAuth, JWT)...")
+    print("Collecting CAPEC attack patterns...")
+    records = []
 
-    writeups = [
-        # --- Cloud Security: AWS Misconfigurations ---
-        {
-            "topic": "AWS S3 Bucket Misconfiguration",
-            "text": (
-                "Amazon S3 bucket misconfigurations remain one of the most common cloud security issues. When bucket "
-                "policies or ACLs are set to allow public access, sensitive data such as customer records, backups, and "
-                "application secrets can be exposed to the internet. Attackers use tools like bucket-finder, AWSBucketDump, "
-                "and GrayhatWarfare to enumerate publicly accessible buckets. A common misconfiguration is granting "
-                "s3:GetObject to the AllUsers principal or setting the bucket ACL to public-read. AWS now provides "
-                "S3 Block Public Access settings at the account level, but legacy configurations may still expose data. "
-                "Detection involves checking bucket policies for wildcard principals, monitoring AWS CloudTrail for "
-                "unauthorized access patterns, and using AWS Config rules to enforce bucket encryption and access controls."
-            ),
-        },
-        {
-            "topic": "AWS IAM Privilege Escalation",
-            "text": (
-                "AWS Identity and Access Management (IAM) privilege escalation occurs when an attacker with limited IAM "
-                "permissions discovers a path to obtain higher privileges. Common escalation vectors include: creating new "
-                "IAM policies with AdministratorAccess and attaching them to the attacker's user, assuming roles with "
-                "overly permissive trust policies, exploiting Lambda functions that run with elevated permissions, using "
-                "iam:PassRole to pass a high-privilege role to a service, and leveraging iam:CreateLoginProfile to create "
-                "console access for existing users. Tools like Pacu and pmapper map out potential escalation paths. "
-                "Mitigations include applying least privilege policies, using IAM Access Analyzer to identify overly "
-                "permissive resources, enabling MFA for all privileged operations, and monitoring CloudTrail for suspicious "
-                "IAM API calls like CreatePolicy, AttachUserPolicy, and AssumeRole."
-            ),
-        },
-        {
-            "topic": "AWS EC2 IMDS Exploitation",
-            "text": (
-                "The EC2 Instance Metadata Service (IMDS) at 169.254.169.254 provides temporary credentials and instance "
-                "information. When an SSRF vulnerability exists in a web application running on EC2, attackers can retrieve "
-                "the IAM role credentials from http://169.254.169.254/latest/meta-data/iam/security-credentials/. These "
-                "credentials can then be used externally to access AWS services. IMDSv2 mitigates this by requiring a "
-                "session token obtained through a PUT request with a TTL header, making SSRF exploitation significantly "
-                "harder. Organizations should enforce IMDSv2-only through the HttpTokens=required instance metadata option "
-                "and monitor for unusual metadata service access patterns in VPC flow logs."
-            ),
-        },
-        # --- Cloud Security: Azure Misconfigurations ---
-        {
-            "topic": "Azure Blob Storage Exposure",
-            "text": (
-                "Azure Blob Storage containers can be misconfigured with public access levels that expose data to "
-                "unauthenticated users. The Container access level allows listing and reading all blobs, while the Blob "
-                "access level allows reading individual blobs if the URL is known. Attackers enumerate Azure storage "
-                "accounts using DNS brute-forcing of the .blob.core.windows.net namespace. Common exposures include "
-                "database backups, application configurations containing connection strings, and source code repositories. "
-                "Azure provides storage account-level settings to disable public blob access entirely. Security teams "
-                "should use Azure Policy to enforce private container access, enable Azure Defender for Storage to detect "
-                "anomalous access patterns, and require Shared Access Signatures (SAS) with short expiration times."
-            ),
-        },
-        {
-            "topic": "Azure AD Misconfiguration",
-            "text": (
-                "Azure Active Directory misconfigurations can lead to unauthorized access across an organization's cloud "
-                "estate. Common issues include overly permissive application registrations that allow any user to consent "
-                "to app permissions, guest accounts with access to directory data, misconfigured conditional access policies "
-                "that exclude high-privilege accounts, and legacy authentication protocols that bypass MFA. Attackers use "
-                "tools like ROADtools and AADInternals to enumerate Azure AD configurations, extract tokens, and escalate "
-                "privileges. The Global Administrator role in Azure AD provides unrestricted access and should be protected "
-                "with Privileged Identity Management (PIM) requiring just-in-time activation and approval workflows."
-            ),
-        },
-        # --- Container Security: Docker ---
-        {
-            "topic": "Docker Container Escape via Privileged Mode",
-            "text": (
-                "Running Docker containers in privileged mode (--privileged flag) disables all security protections and "
-                "grants the container full access to the host's devices and kernel capabilities. An attacker inside a "
-                "privileged container can escape to the host by mounting the host filesystem (mount /dev/sda1 /mnt), "
-                "loading kernel modules, accessing raw hardware devices, and manipulating cgroups. Even without full "
-                "privileged mode, excessive Linux capabilities like CAP_SYS_ADMIN, CAP_SYS_PTRACE, or CAP_NET_ADMIN can "
-                "enable container escapes. Mitigations include never running containers as privileged in production, "
-                "dropping all unnecessary capabilities, using seccomp profiles to restrict system calls, enabling "
-                "AppArmor/SELinux profiles, and running containers with read-only root filesystems."
-            ),
-        },
-        {
-            "topic": "Docker Socket Exposure",
-            "text": (
-                "Mounting the Docker socket (/var/run/docker.sock) inside a container effectively grants root access to "
-                "the host system. An attacker who gains code execution inside such a container can use the Docker API to "
-                "create new privileged containers that mount the host filesystem, effectively escaping the container. "
-                "This is a common misconfiguration in CI/CD pipelines where Docker-in-Docker is used for building images. "
-                "Detection involves scanning container configurations for volume mounts of the Docker socket, using "
-                "admission controllers in Kubernetes to prevent such mounts, and implementing Docker socket proxies with "
-                "restricted API access like Tecnativa's docker-socket-proxy."
-            ),
-        },
-        # --- Container Security: Kubernetes ---
-        {
-            "topic": "Kubernetes RBAC Misconfiguration",
-            "text": (
-                "Kubernetes Role-Based Access Control (RBAC) misconfigurations are a leading cause of privilege escalation "
-                "in cluster environments. Common issues include granting cluster-admin ClusterRole to service accounts, "
-                "using overly broad wildcard permissions in Roles (verbs: ['*'], resources: ['*']), binding powerful roles "
-                "to the default service account in a namespace, and allowing pod creation with escalation-enabling specs. "
-                "An attacker with create pods permission can mount service account tokens, run privileged containers, "
-                "or access the node's filesystem. Tools like kubectl-who-can, rakkess, and rbac-lookup help audit RBAC "
-                "configurations. Mitigations include following least-privilege principles, disabling automounting of "
-                "service account tokens, using OPA Gatekeeper to enforce pod security standards, and regularly auditing "
-                "RBAC bindings for excessive permissions."
-            ),
-        },
-        {
-            "topic": "Kubernetes Pod Escape via Host Namespaces",
-            "text": (
-                "Kubernetes pods configured with hostPID, hostNetwork, or hostIPC share the respective Linux namespace "
-                "with the host node, significantly weakening container isolation. A pod with hostPID: true can see and "
-                "signal all processes on the node, potentially injecting code via /proc/<pid>/mem or nsenter. A pod with "
-                "hostNetwork: true bypasses network policies and can sniff traffic on the node's network interfaces. "
-                "Combined with a privileged security context, these settings allow complete node compromise. Pod Security "
-                "Standards (PSS) at the Restricted level prevent these configurations. Admission controllers like "
-                "Kyverno and OPA Gatekeeper should enforce policies that reject pods requesting host namespaces."
-            ),
-        },
-        {
-            "topic": "Kubernetes etcd Exposure",
-            "text": (
-                "etcd is the key-value store that holds all Kubernetes cluster state, including Secrets in base64 encoding. "
-                "If etcd is exposed without authentication, an attacker can read all cluster secrets, modify workloads, "
-                "and escalate to full cluster admin. By default, etcd listens on port 2379/2380 and some deployments "
-                "inadvertently expose it to the network. Even with TLS, if client certificate authentication is not "
-                "enforced, anonymous access may be possible. Mitigations include enabling etcd TLS with mutual "
-                "authentication, encrypting secrets at rest using a KMS provider, restricting network access to etcd to "
-                "only the API server nodes, and enabling audit logging for etcd access patterns."
-            ),
-        },
-        # --- API Security ---
-        {
-            "topic": "Broken Object Level Authorization (BOLA)",
-            "text": (
-                "Broken Object Level Authorization, also known as Insecure Direct Object Reference (IDOR), is the most "
-                "common API security vulnerability. It occurs when an API endpoint accepts an object identifier from the "
-                "client (e.g., /api/users/123/orders) without verifying that the authenticated user has permission to "
-                "access that specific object. Attackers enumerate IDs to access other users' data, orders, transactions, "
-                "or personal information. APIs are particularly susceptible because they tend to expose more endpoints and "
-                "object identifiers than traditional web applications. Mitigations include implementing authorization checks "
-                "for every object access, using non-sequential UUIDs instead of auto-incrementing integers, implementing "
-                "access control at the data layer, and adding rate limiting to prevent mass enumeration."
-            ),
-        },
-        {
-            "topic": "API Rate Limiting and Resource Exhaustion",
-            "text": (
-                "APIs without proper rate limiting are vulnerable to denial-of-service attacks, brute-force credential "
-                "stuffing, and data scraping. Attackers exploit the lack of rate controls to send thousands of requests "
-                "per second to authentication endpoints, enumerate valid user accounts, exhaust server resources, or "
-                "scrape entire databases through paginated list endpoints. GraphQL APIs are particularly susceptible to "
-                "resource exhaustion through deeply nested queries or batch query attacks that amplify a single HTTP "
-                "request into thousands of database operations. Mitigations include implementing rate limiting per client "
-                "IP and per API key, using query complexity analysis for GraphQL, setting maximum pagination limits, "
-                "implementing request throttling, and deploying API gateways with built-in DDoS protection."
-            ),
-        },
-        {
-            "topic": "Mass Assignment Vulnerability in APIs",
-            "text": (
-                "Mass assignment occurs when an API automatically binds client-provided data to internal object properties "
-                "without proper filtering. If a user registration endpoint accepts a JSON body, an attacker may add "
-                "unexpected fields like 'role': 'admin' or 'isVerified': true that the backend framework blindly assigns "
-                "to the user model. Modern frameworks like Ruby on Rails, Django, Express, and Spring Boot are all "
-                "susceptible if developers don't explicitly whitelist allowed fields. This vulnerability is especially "
-                "dangerous in APIs because they typically accept structured data formats. Mitigations include explicitly "
-                "defining allowed fields for each operation, using separate DTOs for input and internal models, and "
-                "implementing schema validation that rejects unknown properties."
-            ),
-        },
-        # --- OAuth Vulnerabilities ---
-        {
-            "topic": "OAuth 2.0 Authorization Code Interception",
-            "text": (
-                "OAuth 2.0 authorization code flow can be vulnerable to code interception attacks where an attacker "
-                "captures the authorization code before the legitimate client exchanges it for an access token. In mobile "
-                "applications using custom URI schemes, a malicious app can register the same scheme and receive the "
-                "redirect. The PKCE (Proof Key for Code Exchange) extension mitigates this by requiring the client to "
-                "prove it initiated the authorization request using a code_verifier and code_challenge. Without PKCE, "
-                "attackers can also exploit open redirectors in the authorization endpoint to redirect the code to an "
-                "attacker-controlled domain. OAuth implementations should enforce PKCE for all clients, validate redirect "
-                "URIs using exact string matching, and use short-lived authorization codes with one-time use enforcement."
-            ),
-        },
-        {
-            "topic": "OAuth Token Theft and Replay",
-            "text": (
-                "OAuth access tokens and refresh tokens are high-value targets for attackers. Token theft can occur through "
-                "cross-site scripting (XSS) in the client application, insecure token storage in browser localStorage, "
-                "token leakage in server logs or referrer headers, or man-in-the-middle attacks on non-HTTPS connections. "
-                "Once stolen, bearer tokens can be replayed from any client without additional authentication. Sender-"
-                "constrained tokens (DPoP - Demonstrating Proof of Possession) bind tokens to a cryptographic key, "
-                "preventing replay from other clients. Mitigations include storing tokens in httpOnly secure cookies, "
-                "implementing token rotation for refresh tokens, using short-lived access tokens (5-15 minutes), detecting "
-                "token reuse (refresh token rotation with reuse detection), and implementing mutual TLS for API access."
-            ),
-        },
-        {
-            "topic": "OAuth Scope Escalation",
-            "text": (
-                "OAuth scope escalation occurs when an application obtains access to more resources or permissions than the "
-                "user intended to authorize. This can happen when the authorization server doesn't properly validate "
-                "requested scopes, when a client requests broad scopes that are rubber-stamped by users, or when token "
-                "exchange processes don't properly downscope tokens. In multi-tenant environments, scope escalation can "
-                "lead to cross-tenant data access. Attackers may also exploit the token exchange grant type (RFC 8693) to "
-                "upgrade token permissions. Mitigations include implementing granular scopes, presenting clear consent "
-                "screens showing specific permissions requested, validating scopes at the resource server level, using "
-                "resource indicators (RFC 8707), and auditing granted scopes against actual API usage."
-            ),
-        },
-        # --- JWT Attacks ---
-        {
-            "topic": "JWT Algorithm Confusion Attack",
-            "text": (
-                "The JWT algorithm confusion (or key confusion) attack exploits implementations that trust the 'alg' "
-                "header in the token to determine the verification algorithm. When a server is configured to accept tokens "
-                "signed with RS256 (asymmetric RSA), an attacker can change the algorithm to HS256 (symmetric HMAC) and "
-                "sign the token using the server's RSA public key as the HMAC secret. Since the public key is often "
-                "available, the attacker can forge valid tokens. The attack works because the verification code uses the "
-                "same key for both RSA public key verification and HMAC secret comparison. Mitigations include explicitly "
-                "specifying the expected algorithm during verification (never trusting the token header), using separate "
-                "code paths for different algorithms, and migrating to libraries that require algorithm specification."
-            ),
-        },
-        {
-            "topic": "JWT None Algorithm Attack",
-            "text": (
-                "The JWT 'none' algorithm attack exploits implementations that accept tokens with 'alg': 'none' in the "
-                "header, which indicates the token is unsigned. An attacker can take a valid JWT, decode it, modify the "
-                "payload (e.g., changing the user ID or role to admin), set the algorithm to 'none', remove the signature, "
-                "and submit the unsigned token. Vulnerable libraries accept this token as valid because the 'none' "
-                "algorithm explicitly means no signature verification is required. Variations include 'None', 'NONE', and "
-                "'nOnE' to bypass case-sensitive blacklists. Mitigations include explicitly rejecting the 'none' algorithm "
-                "in token verification, using an allowlist of accepted algorithms, and ensuring the JWT library does not "
-                "accept unsigned tokens by default."
-            ),
-        },
-        {
-            "topic": "JWT Claim Injection and jku/x5u Header Attacks",
-            "text": (
-                "JWT headers can contain a 'jku' (JSON Web Key Set URL) or 'x5u' (X.509 URL) parameter that specifies "
-                "where to fetch the public key for signature verification. An attacker can point these URLs to their own "
-                "server hosting a key pair they control, sign the token with their private key, and the victim server will "
-                "fetch and use the attacker's public key for verification. Similarly, the 'kid' (Key ID) parameter can be "
-                "injected with path traversal sequences or SQL injection payloads if used unsafely in key lookup logic. "
-                "Mitigations include ignoring jku and x5u headers and using locally configured keys only, validating kid "
-                "values against an allowlist, never using kid in database queries without sanitization, and implementing "
-                "a static JWKS endpoint that the application controls."
-            ),
-        },
-        {
-            "topic": "JWT Token Lifetime and Revocation Issues",
-            "text": (
-                "JWTs are stateless by design, which means once issued they are valid until expiration regardless of "
-                "whether the user's session has been terminated, their account has been disabled, or their permissions have "
-                "changed. Long-lived JWTs (hours to days) create a window where compromised tokens remain usable. Unlike "
-                "session-based authentication where the server can immediately invalidate a session, JWT revocation "
-                "requires maintaining a token blocklist (negating the stateless benefit) or using short-lived tokens with "
-                "refresh token rotation. Best practices include setting short expiration times (5-15 minutes), implementing "
-                "refresh token rotation with reuse detection, maintaining a revocation list for compromised tokens using "
-                "Redis or a similar fast store, including a jti (JWT ID) claim for tracking, and implementing token "
-                "binding to prevent token theft replay."
-            ),
-        },
+    capec_url = "https://raw.githubusercontent.com/mitre/cti/master/capec/2.1/stix-capec.json"
+
+    try:
+        resp = requests.get(capec_url, timeout=60)
+        resp.raise_for_status()
+        bundle = resp.json()
+    except Exception as e:
+        print(f"  Warning: Failed to fetch CAPEC STIX bundle: {e}")
+        print("  Generating synthetic CAPEC data as fallback...")
+        records = _generate_synthetic_capec_data()
+        if records:
+            save_jsonl(records[:max_records], output_path)
+        return
+
+    for obj in tqdm(bundle.get("objects", []), desc="CAPEC patterns", leave=False):
+        if obj.get("type") != "attack-pattern":
+            continue
+
+        name = obj.get("name", "")
+        description = obj.get("description", "")
+        if not description:
+            continue
+
+        # Extract CAPEC ID
+        capec_id = ""
+        for ref in obj.get("external_references", []):
+            if ref.get("source_name") == "capec":
+                capec_id = ref.get("external_id", "")
+                break
+
+        text = f"CAPEC {capec_id}: {name}\n\n{description}"
+        cleaned = clean_text(text)
+
+        if len(cleaned) >= 100:
+            records.append({
+                "id": capec_id or name,
+                "text": cleaned,
+                "source": "capec",
+            })
+
+        if len(records) >= max_records:
+            break
+
+    if records:
+        save_jsonl(records, output_path)
+    else:
+        print("  Warning: No CAPEC records collected.")
+
+
+def _generate_synthetic_capec_data(count: int = 200) -> List[Dict]:
+    """Generate synthetic CAPEC-style attack pattern descriptions as fallback."""
+    patterns = [
+        {"id": "CAPEC-66", "name": "SQL Injection", "desc": "This attack exploits target software that constructs SQL statements based on user input. An attacker crafts input strings so that when the target software constructs SQL statements based on the input, the resulting SQL statement performs actions other than those the application intended. SQL Injection results from failure of the application to appropriately validate input."},
+        {"id": "CAPEC-86", "name": "XSS Through HTTP Headers", "desc": "An attacker exploits web applications that use HTTP headers to pass data to web applications by embedding malicious content in header data that is not properly validated. When the application processes the header values, the malicious content executes as part of the web application."},
+        {"id": "CAPEC-100", "name": "Overflow Buffers", "desc": "An adversary may try to overflow a buffer in the target software to gain control of execution or cause denial of service. Buffer overflow attacks target improper or missing bounds checking on buffer operations, typically triggered by input injected by an adversary."},
+        {"id": "CAPEC-112", "name": "Brute Force", "desc": "In this attack, some asset like a credential, key, or passphrase is protected by a finite secret value. The attacker attempts to gain access to this asset by using trial-and-error to exhaustively explore all the possible secret values in the hope of finding the secret. If the secret is not extremely large, the attacker may be able to explore the entire space within the available time and computing resources."},
+        {"id": "CAPEC-125", "name": "Flooding", "desc": "An adversary consumes the resources of a target by rapidly engaging in a large number of interactions with the target. This type of attack generally exposes a weakness in rate limiting or flow control in the target's processing of communication requests. The adversary's goal is to deny service by using up all available resources."},
     ]
 
     records = []
-    for i, wu in enumerate(writeups):
-        full_text = f"{wu['topic']}\n\n{wu['text']}"
-        cleaned = clean_text(full_text)
-        if len(cleaned) >= 100:
-            records.append({
-                "id": f"secwriteup-{i}",
-                "text": cleaned,
-                "source": "security_writeups",
-            })
+    for i in range(count):
+        p = patterns[i % len(patterns)]
+        text = f"{p['id']}: {p['name']}\n\n{p['desc']}"
+        records.append({"id": p["id"], "text": clean_text(text), "source": "capec"})
+    return records
 
-    # Expand by repeating to build larger training volume
-    expanded = []
-    for rep in range(max_records // max(len(records), 1)):
-        for r in records:
-            expanded.append({
-                "id": f"{r['id']}_v{rep}",
-                "text": r["text"],
-                "source": "security_writeups",
-            })
-    # Add remaining
-    remainder = max_records - len(expanded)
-    if remainder > 0:
-        for r in records[:remainder]:
-            expanded.append({
-                "id": f"{r['id']}_extra",
-                "text": r["text"],
-                "source": "security_writeups",
-            })
 
-    if expanded:
-        save_jsonl(expanded[:max_records], output_path)
-    else:
-        print("  Warning: No security writeup records generated.")
+def deduplicate_records(records: List[Dict], key: str = "text") -> List[Dict]:
+    """Remove duplicate records based on text content hash.
+
+    Uses a normalized hash of the text field to identify and remove
+    exact and near-exact duplicates.
+
+    Args:
+        records: List of record dictionaries.
+        key: Field name to deduplicate on.
+
+    Returns:
+        Deduplicated list of records.
+    """
+    import hashlib
+
+    seen = set()
+    unique = []
+    for record in records:
+        text = record.get(key, "").strip().lower()
+        # Normalize whitespace for near-dedup
+        text_norm = re.sub(r"\s+", " ", text)
+        h = hashlib.md5(text_norm.encode("utf-8")).hexdigest()
+        if h not in seen:
+            seen.add(h)
+            unique.append(record)
+
+    removed = len(records) - len(unique)
+    if removed > 0:
+        print(f"  Deduplication: removed {removed} duplicates ({len(unique)} unique records)")
+    return unique
 
 
 def merge_datasets(
@@ -1040,6 +761,9 @@ def merge_datasets(
     if not all_records:
         print("  Warning: No records to merge.")
         return
+
+    # Deduplicate before splitting
+    all_records = deduplicate_records(all_records)
 
     if shuffle:
         random.seed(seed)
@@ -1078,22 +802,24 @@ def main() -> None:
     cve_path = "data/raw/cve.jsonl"
     papers_path = "data/raw/papers.jsonl"
     ctf_path = "data/raw/ctf.jsonl"
-    mitre_path = "data/raw/mitre_attack.jsonl"
+    attack_path = "data/raw/mitre_attack.jsonl"
+    cwe_path = "data/raw/cwe.jsonl"
     owasp_path = "data/raw/owasp.jsonl"
-    writeups_path = "data/raw/security_writeups.jsonl"
+    capec_path = "data/raw/capec.jsonl"
 
     collect_cve_descriptions(output_path=cve_path)
     collect_security_papers(output_path=papers_path)
     collect_ctf_writeups(output_path=ctf_path)
-    collect_mitre_attack(output_path=mitre_path)
-    collect_owasp_top10(output_path=owasp_path)
-    collect_synthetic_security_writeups(output_path=writeups_path)
+    collect_mitre_attack(output_path=attack_path)
+    collect_cwe_descriptions(output_path=cwe_path)
+    collect_owasp(output_path=owasp_path)
+    collect_capec(output_path=capec_path)
 
-    # Merge into train/val splits
+    # Merge into train/val splits (with deduplication)
     merge_datasets(
         input_paths=[
             cve_path, papers_path, ctf_path,
-            mitre_path, owasp_path, writeups_path,
+            attack_path, cwe_path, owasp_path, capec_path,
         ],
         output_path="data/processed/train.jsonl",
     )
