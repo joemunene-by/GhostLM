@@ -50,18 +50,39 @@ Format: [Version] — Date — Description
 
 ---
 
+## [0.2.0] — 2026-04-09 — Phase 1 Training Complete (10K Steps)
+
+### Training Milestone
+- ghost-tiny (14.5M params) trained to 10,000 steps on CPU
+- Final training loss: ~1.97
+- Final validation loss: ~2.74
+- No overfitting observed — stable loss curves throughout
+
+### Evaluation Results
+- Cybersecurity perplexity: 2,183.94 (vs GPT-2 baseline: 26.76)
+- CVE Severity Classification: 20.0% accuracy
+- Vulnerability Type Detection: 10.0% accuracy
+- Attack Technique Identification: 10.0% accuracy
+- Overall security eval score: 13.3%
+- Model generates security domain vocabulary but lacks reasoning capability at this scale
+
+### Architecture
+- Simplified model: learned positional embeddings + GELU FFN
+- 2 layers, 256 dim, 4 heads, 1024 context length
+
+### Updated
+- MODEL_CARD.md with full evaluation results and benchmark comparison
+- Training curve plots and benchmark logs
+
+---
+
 ## [Unreleased] — Upcoming
 
-### Planned for v0.2.0
-- ghost-tiny trained to 10,000+ steps
+### Planned for v0.3.0
+- Phase 2 training: 100K steps on Mac Mini M4
 - Real arXiv cs.CR paper dataset integration
 - HuggingFace Hub model weights release
 - Gradio web demo
-
-### Planned for v0.3.0
-- ghost-small training on GPU/TPU
-- Benchmark results vs GPT-2 on cybersecurity tasks
-- HuggingFace Spaces live demo
 
 ### Planned for v1.0.0
 - ghost-small fully trained weights released

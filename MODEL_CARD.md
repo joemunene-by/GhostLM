@@ -34,7 +34,7 @@ model-index:
 | **License** | Apache 2.0 |
 | **Language** | English |
 | **Framework** | PyTorch (built from scratch, no pretrained weights) |
-| **Version** | 0.1.0 (pre-training) |
+| **Version** | 0.1.0 (Phase 1 — 10K steps complete) |
 
 ## Model Description
 
@@ -46,7 +46,7 @@ The model is trained on CVE vulnerability descriptions from the National Vulnera
 
 | Variant | Layers | d_model | Heads | d_ff | Context | Params | Status |
 |---|---|---|---|---|---|---|---|
-| `ghostlm/ghost-tiny` | 2 | 256 | 4 | 1024 | 1024 | ~14.5M | Training |
+| `ghostlm/ghost-tiny` | 2 | 256 | 4 | 1024 | 1024 | ~14.5M | Phase 1 complete (10K steps) |
 | `ghostlm/ghost-small` | 6 | 512 | 8 | 2048 | 1024 | ~55M | Pre-training |
 | `ghostlm/ghost-medium` | 12 | 768 | 12 | 3072 | 1024 | ~160M | Planned |
 
@@ -152,11 +152,35 @@ output = model.generate(input_tensor, max_new_tokens=100, temperature=0.8, top_k
 print(tokenizer.decode(output[0].tolist()))
 ```
 
-## Evaluation
+## Evaluation (Phase 1 — 10K Steps)
 
-- **Metric:** Perplexity on cybersecurity holdout set
-- **Benchmark:** Generation quality on 8 cybersecurity prompts (SQL injection, XSS, buffer overflow, privilege escalation, etc.)
-- **Results:** To be published after training completes
+### Perplexity
+
+| Model | Params | Cybersecurity Perplexity |
+|---|---|---|
+| GPT-2 (baseline) | 117M | 26.76 |
+| GhostLM ghost-tiny | 14.5M | 2,183.94 |
+
+> GhostLM is 8x smaller than GPT-2 and trained on ~515K tokens vs GPT-2's ~10B tokens. The perplexity gap is expected. Phase 2 (100K steps) should significantly close it.
+
+### Security Domain Tasks
+
+| Task | Accuracy | Details |
+|---|---|---|
+| CVE Severity Classification | 20.0% (2/10) | Tends to predict "High" for all severities |
+| Vulnerability Type Detection | 10.0% (1/10) | Defaults to "XSS" classification |
+| Attack Technique Identification | 10.0% (1/10) | Limited technique vocabulary |
+| **Overall Security Score** | **13.3% (4/30)** | |
+
+### Generation Quality
+
+The model generates security-related text with correct domain vocabulary (CVEs, XSS, buffer overflows, etc.) but primarily produces pattern-matched fragments from training data rather than coherent reasoning. This is expected behavior for Phase 1.
+
+### Training Curves
+
+- **Final training loss:** ~1.97
+- **Final validation loss:** ~2.74
+- **No overfitting observed** — validation loss remained stable throughout training
 
 ## Citation
 
