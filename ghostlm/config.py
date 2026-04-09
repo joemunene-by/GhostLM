@@ -58,9 +58,8 @@ class GhostLMConfig:
         attention_params = self.n_layers * (
             4 * self.d_model * self.d_model + 2 * self.d_model
         )
-        # SwiGLU has 3 linear layers: w_gate, w_up (d_model->d_ff), w_down (d_ff->d_model)
         ffn_params = self.n_layers * (
-            3 * self.d_model * self.d_ff + self.d_model + 2 * self.d_ff
+            2 * self.d_model * self.d_ff + self.d_model + self.d_ff
         )
         layer_norm_params = self.n_layers * 4 * self.d_model
         output_head_params = self.d_model * self.vocab_size
