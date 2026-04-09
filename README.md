@@ -1,4 +1,4 @@
-![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-pre--training-yellow.svg)
+![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-Phase%201%20Complete-green.svg)
 
 # GhostLM 🔐
 
@@ -43,7 +43,7 @@ Built with:
 
 | Variant | Layers | Dim | Params | Status |
 |---|---|---|---|---|
-| ghost-tiny | 2 | 256 | ~14.5M | ✅ Training |
+| ghost-tiny | 2 | 256 | ~14.5M | ✅ Phase 1 Complete (10K steps) |
 | ghost-small | 6 | 512 | ~55M | 🔄 Planned |
 | ghost-medium | 12 | 768 | ~160M | 🔜 Future |
 
@@ -110,8 +110,21 @@ make benchmark
 
 | Run | Steps | Train Loss | Val Loss | Status |
 |---|---|---|---|---|
-| ghost-tiny v1 | 500 | 6.73 | 6.27 | ✅ Complete |
-| ghost-tiny v2 | 2000 | TBD | TBD | 🔄 Running |
+| ghost-tiny Phase 1 | 10,000 | 1.97 | 2.74 | ✅ Complete |
+| ghost-tiny Phase 2 | 100,000 | — | — | 🔄 Next (Mac Mini M4) |
+
+## Evaluation Results (Phase 1)
+
+| Metric | Score |
+|---|---|
+| Cybersecurity Perplexity | 2,183.94 |
+| GPT-2 Baseline (117M) | 26.76 |
+| CVE Severity Classification | 20.0% |
+| Vulnerability Type Detection | 10.0% |
+| Attack Technique ID | 10.0% |
+| **Overall Security Score** | **13.3%** |
+
+> The model generates security-domain text with correct vocabulary but can't reason yet at this scale. Phase 2 (100K steps) will close the gap.
 
 ---
 
@@ -146,17 +159,19 @@ GhostLM/
 - Training pipeline verified
 - 10,925 cybersecurity records
 
-### 🔄 v0.2.0 — Pre-training
-- ghost-tiny trained to 10,000+ steps
-- HuggingFace Hub weights release
-- Gradio demo live
+### ✅ v0.2.0 — Phase 1 Training Complete
+- ghost-tiny trained to 10,000 steps on CPU
+- Full evaluation suite with benchmark vs GPT-2
+- MODEL_CARD with detailed results
 
-### 🔜 v0.3.0 — Scale
-- ghost-small on GPU/TPU
-- Benchmark vs GPT-2
+### 🔄 v0.3.0 — Phase 2 Training
+- 100K steps on Mac Mini M4
+- HuggingFace Hub weights release
+- Gradio web demo
 
 ### 🏁 v1.0.0 — Release
 - Public weights + REST API
+- Fine-tuning scripts
 
 ---
 
