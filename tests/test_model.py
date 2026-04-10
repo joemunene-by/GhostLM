@@ -128,3 +128,107 @@ def test_model_num_params():
 
     assert n_params > 0
     assert n_params < 50_000_000
+
+
+def test_model_with_rope():
+    """Test that model works with RoPE enabled."""
+    config = GhostLMConfig.from_preset("ghost-tiny")
+    config.vocab_size = 50261
+    config.context_length = 64
+    config.use_rope = True
+
+    model = GhostLM(config)
+    x = torch.randint(0, 50261, (2, 32))
+
+    logits, loss = model(x)
+    assert logits.shape == (2, 32, 50261)
+
+    # RoPE model should not have pos_embedding
+    assert not hasattr(model, "pos_embedding")
+
+
+def test_model_with_rope_and_loss():
+    """Test that RoPE model computes loss correctly."""
+    config = GhostLMConfig.from_preset("ghost-tiny")
+    config.vocab_size = 50261
+    config.context_length = 64
+    config.use_rope = True
+
+    model = GhostLM(config)
+    x = torch.randint(0, 50261, (2, 32))
+
+    logits, loss = model(x, targets=x)
+    assert loss is not None
+    assert loss.item() > 0
+
+
+def test_model_with_flash_attention():
+    """Test that model works with Flash Attention enabled."""
+    config = GhostLMConfig.from_preset("ghost-tiny")
+    config.vocab_size = 50261
+    config.context_length = 64
+    config.use_flash_attention = True
+
+    model = GhostLM(config)
+    x = torch.randint(0, 50261, (2, 32))
+
+    logits, loss = model(x, targets=x)
+    assert logits.shape == (2, 32, 50261)
+    assert loss is not None
+    assert loss.item() > 0
+
+
+def test_model_with_rope_and_flash_attention():
+    """Test that RoPE and Flash Attention work together."""
+    config = GhostLMConfig.from_preset("ghost-tiny")
+    config.vocab_size = 50261
+    config.context_length = 64
+    config.use_rope = True
+    config.use_flash_attention = True
+
+    model = GhostLM(config)
+    x = torch.randint(0, 50261, (2, 32))
+
+    logits, loss = model(x, targets=x)
+    assert logits.shape == (2, 32, 50261)
+    assert loss is not None
+
+
+def test_rope_and_learned_pos_output_differ():
+    """Test that RoPE and learned positional embeddings produce different outputs."""
+    torch.manual_seed(42)
+    config_rope = GhostLMConfig.from_preset("ghost-tiny")
+    config_rope.vocab_size = 50261
+    config_rope.context_length = 64
+    config_rope.use_rope = True
+
+    torch.manual_seed(42)
+    config_learned = GhostLMConfig.from_preset("ghost-tiny")
+    config_learned.vocab_size = 50261
+    config_learned.context_length = 64
+    config_learned.use_rope = False
+
+    model_rope = GhostLM(config_rope)
+    model_learned = GhostLM(config_learned)
+
+    x = torch.randint(0, 50261, (1, 16))
+
+    logits_rope, _ = model_rope(x)
+    logits_learned, _ = model_learned(x)
+
+    # Outputs should differ since position encoding method is different
+    assert not torch.allclose(logits_rope, logits_learned)
+
+
+def test_model_generate_with_rope():
+    """Test autoregressive generation works with RoPE."""
+    config = GhostLMConfig.from_preset("ghost-tiny")
+    config.vocab_size = 50261
+    config.context_length = 64
+    config.use_rope = True
+
+    model = GhostLM(config)
+    x = torch.randint(0, 50261, (1, 10))
+
+    generated = model.generate(x, max_new_tokens=20)
+    assert generated.shape == (1, 30)

@@ -20,6 +20,8 @@ class GhostLMConfig:
     d_ff: int = 2048
     dropout: float = 0.1
     bias: bool = True
+    use_rope: bool = False
+    use_flash_attention: bool = False
 
     # Training
     batch_size: int = 32

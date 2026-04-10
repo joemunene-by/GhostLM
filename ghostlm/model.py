@@ -9,13 +9,61 @@ import torch.nn.functional as F
 from ghostlm.config import GhostLMConfig
 
 
+class RotaryEmbedding(nn.Module):
+    """Rotary Position Embedding (RoPE).
+
+    Encodes relative position information directly into the attention
+    computation by rotating query and key vectors. Used by LLaMA, Mistral,
+    and most modern transformer architectures.
+    """
+
+    def __init__(self, head_dim: int, context_length: int, base: float = 10000.0):
+        super().__init__()
+        inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+
+        # Precompute cos/sin for all positions
+        t = torch.arange(context_length).float()
+        freqs = torch.outer(t, inv_freq)
+        emb = torch.cat((freqs, freqs), dim=-1)
+        self.register_buffer("cos_cached", emb.cos(), persistent=False)
+        self.register_buffer("sin_cached", emb.sin(), persistent=False)
+
+    def forward(self, seq_len: int):
+        return self.cos_cached[:seq_len], self.sin_cached[:seq_len]
+
+
+def _rotate_half(x):
+    """Rotate the second half of the last dimension and negate it."""
+    x1, x2 = x.chunk(2, dim=-1)
+    return torch.cat((-x2, x1), dim=-1)
+
+
+def apply_rotary_pos_emb(q, k, cos, sin):
+    """Apply rotary position embeddings to query and key tensors.
+
+    Args:
+        q: Query tensor of shape (B, n_heads, T, head_dim).
+        k: Key tensor of shape (B, n_heads, T, head_dim).
+        cos: Cosine frequencies of shape (T, head_dim).
+        sin: Sine frequencies of shape (T, head_dim).
+
+    Returns:
+        Tuple of (rotated_q, rotated_k).
+    """
+    cos = cos.unsqueeze(0).unsqueeze(0)  # (1, 1, T, head_dim)
+    sin = sin.unsqueeze(0).unsqueeze(0)
+    q_embed = (q * cos) + (_rotate_half(q) * sin)
+    k_embed = (k * cos) + (_rotate_half(k) * sin)
+    return q_embed, k_embed
+
+
 class CausalSelfAttention(nn.Module):
     """Multi-head causal self-attention with autoregressive masking.
 
     Uses a single combined QKV projection for efficiency, then splits
-    the result into separate query, key, and value tensors. Scaled
-    dot-product attention is computed manually with explicit causal
-    masking via torch.tril.
+    the result into separate query, key, and value tensors. Supports
+    optional RoPE (Rotary Position Embeddings) and Flash Attention.
     """
 
     def __init__(self, config: GhostLMConfig):
@@ -23,7 +71,7 @@ class CausalSelfAttention(nn.Module):
 
         Args:
             config: GhostLMConfig containing d_model, n_heads, dropout,
-                    context_length, and bias settings.
+                    context_length, bias, use_rope, and use_flash_attention.
         """
         super().__init__()
         assert config.d_model % config.n_heads == 0, "d_model must be divisible by n_heads"
@@ -31,22 +79,30 @@ class CausalSelfAttention(nn.Module):
         self.n_heads = config.n_heads
         self.head_dim = config.d_model // config.n_heads
         self.context_length = config.context_length
+        self.use_rope = config.use_rope
+        self.use_flash_attention = config.use_flash_attention
+        self.dropout_p = config.dropout
 
         # Single combined QKV projection
         self.c_qkv = nn.Linear(config.d_model, 3 * config.d_model, bias=config.bias)
         self.proj = nn.Linear(config.d_model, config.d_model, bias=config.bias)
 
-        # Dropout applied to attention weights
+        # Dropout applied to attention weights (manual path only)
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
 
-        # Causal mask buffer (lower triangular, filled with -inf)
-        self.register_buffer(
-            "causal_mask",
-            torch.tril(torch.ones(config.context_length, config.context_length))
-            .view(1, 1, config.context_length, config.context_length),
-            persistent=False,
-        )
+        # RoPE
+        if self.use_rope:
+            self.rope = RotaryEmbedding(self.head_dim, config.context_length)
+
+        # Causal mask buffer (only needed for manual attention path)
+        if not self.use_flash_attention:
+            self.register_buffer(
+                "causal_mask",
+                torch.tril(torch.ones(config.context_length, config.context_length))
+                .view(1, 1, config.context_length, config.context_length),
+                persistent=False,
+            )
 
     def forward(self, x):
         """Forward pass through causal self-attention.
@@ -68,19 +124,27 @@ class CausalSelfAttention(nn.Module):
         k = k.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
 
-        # Scaled dot-product attention: (B, n_heads, T, T)
-        scale = 1.0 / math.sqrt(self.head_dim)
-        att = (q @ k.transpose(-2, -1)) * scale
+        # Apply RoPE to Q and K (not V)
+        if self.use_rope:
+            cos, sin = self.rope(T)
+            q, k = apply_rotary_pos_emb(q, k, cos, sin)
 
-        # Apply causal mask (truncate to actual sequence length)
-        att = att.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float("-inf"))
-
-        # Softmax + dropout
-        att = F.softmax(att, dim=-1)
-        att = self.attn_dropout(att)
-
-        # Weighted sum of values
-        y = att @ v  # (B, n_heads, T, head_dim)
+        if self.use_flash_attention:
+            # PyTorch 2.0+ scaled_dot_product_attention with automatic backend selection
+            y = F.scaled_dot_product_attention(
+                q, k, v,
+                attn_mask=None,
+                dropout_p=self.dropout_p if self.training else 0.0,
+                is_causal=True,
+            )
+        else:
+            # Manual attention path
+            scale = 1.0 / math.sqrt(self.head_dim)
+            att = (q @ k.transpose(-2, -1)) * scale
+            att = att.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float("-inf"))
+            att = F.softmax(att, dim=-1)
+            att = self.attn_dropout(att)
+            y = att @ v
 
         # Reassemble heads and project
         y = y.transpose(1, 2).contiguous().view(B, T, C)
@@ -177,7 +241,8 @@ class GhostLM(nn.Module):
 
         # Embeddings
         self.token_embedding = nn.Embedding(config.vocab_size, config.d_model)
-        self.pos_embedding = nn.Embedding(config.context_length, config.d_model)
+        if not config.use_rope:
+            self.pos_embedding = nn.Embedding(config.context_length, config.d_model)
         self.dropout = nn.Dropout(config.dropout)
 
         # Transformer blocks
@@ -233,10 +298,13 @@ class GhostLM(nn.Module):
         )
 
         # Token + positional embeddings
-        pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
         tok_emb = self.token_embedding(idx)
-        pos_emb = self.pos_embedding(pos)
-        x = self.dropout(tok_emb + pos_emb)
+        if self.config.use_rope:
+            x = self.dropout(tok_emb)
+        else:
+            pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
+            pos_emb = self.pos_embedding(pos)
+            x = self.dropout(tok_emb + pos_emb)
 
         # Transformer blocks
         for block in self.blocks:
