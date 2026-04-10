@@ -1,4 +1,4 @@
-.PHONY: all install test data train-tiny train-small generate chat benchmark plot clean help
+.PHONY: all install test data train-tiny train-small generate chat benchmark plot export clean help
 
 help:
 	@echo "GhostLM — Cybersecurity Language Model"
@@ -41,6 +41,9 @@ chat:
 
 benchmark:
 	python scripts/benchmark.py --checkpoint checkpoints/best_model.pt
+
+export:
+	python scripts/export.py --checkpoint checkpoints/best_model.pt --format both
 
 plot:
 	python scripts/plot_training.py --output logs/training_curve.png
