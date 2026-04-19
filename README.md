@@ -1,6 +1,6 @@
 ![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-Phase%201%20Complete-green.svg)
 
-# GhostLM 🔐
+# GhostLM
 
 > An open-source cybersecurity-focused language model built entirely from scratch in PyTorch.
 
@@ -12,11 +12,11 @@ GhostLM is a decoder-only transformer language model trained on CVE vulnerabilit
 
 Security researchers currently rely on generic models (GPT-4, Llama) that weren't trained with security context. GhostLM is purpose-built for:
 
-- 🛡️ CVE analysis and vulnerability explanation
-- 🚩 CTF challenge reasoning
-- 🔍 Penetration testing assistance
-- 💀 Exploit and attack pattern understanding
-- 📚 Security concept explanation
+- CVE analysis and vulnerability explanation
+- CTF challenge reasoning
+- Penetration testing assistance
+- Exploit and attack pattern understanding
+- Security concept explanation
 
 ### Why from scratch and not a fine-tune?
 
@@ -52,9 +52,9 @@ Built with:
 
 | Variant | Layers | Dim | Params | Status |
 |---|---|---|---|---|
-| ghost-tiny | 2 | 256 | ~14.5M | ✅ Phase 1 Complete (10K steps) |
-| ghost-small | 6 | 512 | ~55M | 🔄 Planned |
-| ghost-medium | 12 | 768 | ~160M | 🔜 Future |
+| ghost-tiny | 2 | 256 | ~14.5M | Phase 1 complete (10K steps) |
+| ghost-small | 6 | 512 | ~55M | Planned |
+| ghost-medium | 12 | 768 | ~160M | Future |
 
 ---
 
@@ -133,8 +133,8 @@ make plot
 
 | Run | Steps | Train Loss | Val Loss | Status |
 |---|---|---|---|---|
-| ghost-tiny Phase 1 | 10,000 | 1.97 | 2.74 | ✅ Complete |
-| ghost-tiny Phase 2 | 100,000 | — | — | 🔄 Next (Mac Mini M4) |
+| ghost-tiny Phase 1 | 10,000 | 1.97 | 2.74 | Complete |
+| ghost-tiny Phase 2 | 100,000 | — | — | Next (Mac Mini M4) |
 
 ## Evaluation Results (Phase 1)
 
@@ -184,29 +184,29 @@ GhostLM/
 
 ## Roadmap
 
-### ✅ v0.1.0 — Architecture Complete
+### v0.1.0 — Architecture complete
 - Full transformer from scratch
 - Training pipeline verified
 - 10,925 cybersecurity records
 
-### ✅ v0.2.0 — Phase 1 Training Complete
+### v0.2.0 — Phase 1 training complete
 - ghost-tiny trained to 10,000 steps on CPU
 - Full evaluation suite with benchmark vs GPT-2
 - MODEL_CARD with detailed results
 
-### ✅ v0.2.1 — Phase 2 Readiness
+### v0.2.1 — Phase 2 readiness
 - RoPE (Rotary Position Embeddings) — config-toggled
 - Flash Attention via `scaled_dot_product_attention` — config-toggled
 - Safetensors export with config.json sidecar and SHA-256 checksum
 - Pinned dependency versions + PEP 639 license metadata
 - Test suite grown from 10 → 16 tests
 
-### 🔄 v0.3.0 — Phase 2 Training
+### v0.3.0 — Phase 2 Training (in progress)
 - 100K steps on Mac Mini M4 with RoPE + Flash Attention enabled
 - HuggingFace Hub weights release (safetensors)
 - Gradio web demo
 
-### 🏁 v1.0.0 — Release
+### v1.0.0 — Release (planned)
 - Public weights + REST API
 - Fine-tuning scripts
 
@@ -228,4 +228,4 @@ MIT — see [LICENSE](LICENSE)
 
 **Joe Munene** — [Complex Developers](https://github.com/joemunene-by)
 
-Built in Nairobi, Kenya 🇰🇪
+Built in Nairobi, Kenya.

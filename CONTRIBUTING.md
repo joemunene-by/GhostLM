@@ -82,6 +82,6 @@ data: add exploit-db scraper to collect.py
 ## Questions?
 Open an issue on GitHub or reach out directly.
 
-Built with ❤️ by Joe Munene — Complex Developers
+Maintained by Joe Munene — Complex Developers.
 
 GitHub: https://github.com/joemunene-by/GhostLM
