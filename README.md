@@ -34,10 +34,13 @@ Security researchers currently rely on generic models (GPT-4, Llama) that weren'
 
 Built with:
 - Multi-head causal self-attention (manual implementation)
+- **RoPE** (Rotary Position Embeddings) — opt-in via `use_rope=True`, replaces learned positional embeddings with the relative-position encoding used by LLaMA / Mistral
+- **Flash Attention** — opt-in via `use_flash_attention=True`, routes through PyTorch 2.0+ `scaled_dot_product_attention` for `O(n)` memory
 - Pre-norm transformer blocks with residual connections
 - Cosine LR schedule with linear warmup
 - Weight-tied output projection
 - AdamW with weight decay separation
+- **Safetensors** export for safe, arbitrary-code-free weight distribution (see `scripts/export.py`)
 
 ## Model Variants
 
@@ -93,6 +96,20 @@ python demo/app.py
 make benchmark
 ```
 
+### Export Weights (safetensors or PyTorch)
+```bash
+# Safe, pickle-free weights for HuggingFace Hub distribution
+python scripts/export.py --format safetensors
+
+# Classic PyTorch checkpoint
+python scripts/export.py --format pt
+```
+
+### Plot Training Curves
+```bash
+make plot
+```
+
 ---
 
 ## Training Data
@@ -132,22 +149,29 @@ make benchmark
 
 ```
 GhostLM/
-├── ghostlm/          # Core library
-│   ├── model.py      # Transformer architecture
-│   ├── config.py     # Hyperparameters
-│   ├── tokenizer.py  # GPT-2 BPE wrapper
-│   ├── dataset.py    # PyTorch dataset
-│   └── trainer.py    # Training loop
-├── scripts/          # CLI tools
-│   ├── train.py      # Training entry point
-│   ├── generate.py   # Text generation
-│   ├── chat.py       # Interactive chat
-│   ├── evaluate.py   # Evaluation
-│   └── benchmark.py  # GPT-2 comparison
-├── data/             # Data pipeline
-├── demo/             # Gradio web demo
-├── tests/            # 10 unit tests
-└── Makefile          # One-command workflow
+├── ghostlm/           # Core library
+│   ├── model.py       # Transformer architecture (RoPE + Flash Attention toggles)
+│   ├── config.py      # Hyperparameters + ghost-tiny/small/medium presets
+│   ├── tokenizer.py   # GPT-2 BPE wrapper
+│   ├── dataset.py     # PyTorch dataset
+│   └── trainer.py     # Training loop
+├── scripts/           # CLI tools
+│   ├── train.py       # Training entry point
+│   ├── generate.py    # Text generation
+│   ├── chat.py        # Interactive chat
+│   ├── evaluate.py    # Evaluation
+│   ├── eval_security.py  # Security-specific evaluation
+│   ├── benchmark.py   # GPT-2 comparison
+│   ├── export.py      # Weights export (safetensors / pt) + SHA-256 + config.json
+│   ├── api.py         # REST API server
+│   ├── data_stats.py  # Training-data statistics
+│   ├── plot_training.py  # Loss-curve plotter
+│   ├── push_to_hub.py # HuggingFace Hub publisher
+│   └── resume_train.sh   # Resume an interrupted training run
+├── data/              # Data pipeline
+├── demo/              # Gradio web demo (demo/app.py)
+├── tests/             # 16 unit tests
+└── Makefile           # One-command workflow
 ```
 
 ---
@@ -164,9 +188,16 @@ GhostLM/
 - Full evaluation suite with benchmark vs GPT-2
 - MODEL_CARD with detailed results
 
+### ✅ v0.2.1 — Phase 2 Readiness
+- RoPE (Rotary Position Embeddings) — config-toggled
+- Flash Attention via `scaled_dot_product_attention` — config-toggled
+- Safetensors export with config.json sidecar and SHA-256 checksum
+- Pinned dependency versions + PEP 639 license metadata
+- Test suite grown from 10 → 16 tests
+
 ### 🔄 v0.3.0 — Phase 2 Training
-- 100K steps on Mac Mini M4
-- HuggingFace Hub weights release
+- 100K steps on Mac Mini M4 with RoPE + Flash Attention enabled
+- HuggingFace Hub weights release (safetensors)
 - Gradio web demo
 
 ### 🏁 v1.0.0 — Release
