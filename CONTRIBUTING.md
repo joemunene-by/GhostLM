@@ -11,15 +11,21 @@ Thank you for your interest in contributing to GhostLM — the open-source cyber
 
 ### 2. Model Architecture
 - Experiment with attention mechanisms (grouped query attention, sliding window)
-- Implement Flash Attention for faster training
-- Add RoPE (Rotary Position Embeddings) instead of learned positional embeddings
-- Try SwiGLU activation instead of GELU in FeedForward
+- Try SwiGLU activation instead of GELU in FeedForward (see issue #9)
+- Add RMSNorm as an alternative to LayerNorm
+- Experiment with MoE (Mixture of Experts) layers
+
+> RoPE and Flash Attention already landed in PR #13 — both are config-toggled on
+> `GhostConfig` via `use_rope=True` and `use_flash_attention=True`.
 
 ### 3. Training
 - Improve the learning rate schedule
 - Add gradient accumulation for larger effective batch sizes
-- Implement mixed precision training (`torch.autocast`)
-- Add distributed training support (`torch.distributed`)
+- Add distributed training support (`torch.distributed`) — see issue #8
+- Add seed handling for reproducible runs
+- Add checkpoint resumption robustness (LR scheduler state, RNG state)
+
+> Mixed precision training (`torch.autocast`) already landed in an earlier PR.
 
 ### 4. Evaluation
 - Add cybersecurity-specific benchmarks

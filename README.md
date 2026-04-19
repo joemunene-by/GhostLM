@@ -18,6 +18,12 @@ Security researchers currently rely on generic models (GPT-4, Llama) that weren'
 - 💀 Exploit and attack pattern understanding
 - 📚 Security concept explanation
 
+### Why from scratch and not a fine-tune?
+
+Two reasons. **First**, most offensive-security content that the best general models have seen was filtered or RLHF-nudged away during alignment — a fine-tune on top fights that prior. Training the tokenizer and weights from zero with security text in the mix lets the model treat CVE IDs, shell one-liners, and exploit technique names as first-class tokens rather than something to refuse. **Second**, GhostLM is also a study project. Every layer — attention, positional encoding, LR schedule, BPE — is hand-written so the codebase doubles as a readable reference for how a transformer is actually put together. A fine-tune hides that behind `AutoModel.from_pretrained`.
+
+It is explicitly *not* trying to beat Llama on general benchmarks. It's trying to be the right tool for one narrow job, and a transparent one.
+
 ---
 
 ## Architecture
