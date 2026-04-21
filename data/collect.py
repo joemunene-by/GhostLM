@@ -1,16 +1,18 @@
 """GhostLM data collection — downloads and preprocesses cybersecurity training data from public sources."""
 
+import datetime
+import hashlib
 import json
 import os
 import random
 import re
 import time
 import unicodedata
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Optional
 
 import requests
-from datasets import load_dataset
 from tqdm import tqdm
 
 
@@ -92,45 +94,85 @@ def load_jsonl(path: str) -> List[Dict]:
 def collect_cve_descriptions(
     output_path: str = "data/raw/cve.jsonl",
     max_records: int = 10000,
+    start_year: int = 1999,
+    end_year: Optional[int] = None,
+    per_year_cap: int = 500,
+    append: bool = False,
 ) -> None:
-    """Fetch CVE descriptions from the NVD REST API v2.0.
+    """Fetch CVE descriptions from the NVD REST API v2.0, balanced across years.
 
-    Paginates through the NVD API in batches of 2000 records,
-    extracting CVE IDs and descriptions. Respects rate limits
-    with a 1-second delay between requests.
+    NVD caps any ``pubStartDate``/``pubEndDate`` range at 120 consecutive days,
+    so each year is fetched in 120-day windows (Jan–Apr, May–Aug, Sep–Dec).
+    Reads ``NVD_API_KEY`` from the environment for a higher rate limit.
 
     Args:
         output_path: Destination path for the output JSONL file.
-        max_records: Maximum number of CVE records to collect.
+        max_records: Total cap across all years.
+        start_year: First year window to query (inclusive).
+        end_year: Last year window (defaults to current UTC year).
+        per_year_cap: Max records accepted per year (prevents single-year dominance).
+        append: If True, load existing records at ``output_path`` and merge
+            (dedup-by-id), rather than overwriting.
     """
-    print("Collecting CVE descriptions from NVD API...")
-    records = []
+    print("Collecting CVE descriptions from NVD API (120-day windowed)...")
     base_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-    page_size = 2000
-    max_pages = 5
+    api_key = os.environ.get("NVD_API_KEY")
+    delay = 0.7 if api_key else 6.0
+    headers = {"apiKey": api_key} if api_key else {}
 
-    for page in range(max_pages):
-        start_index = page * page_size
-        url = f"{base_url}?resultsPerPage={page_size}&startIndex={start_index}"
+    if end_year is None:
+        end_year = datetime.datetime.utcnow().year
 
+    existing: Dict[str, Dict] = {}
+    if append and Path(output_path).exists():
+        for rec in load_jsonl(output_path):
+            existing[rec.get("id", "")] = rec
+        print(f"  append mode: {len(existing)} existing records loaded")
+
+    # NVD caps date ranges at 120 days and returns HTTP 404 when exceeded
+    # (reason surfaced in the `message` response header). Using 119-day
+    # chunks leaves a safety margin and covers leap years cleanly.
+    windows = []
+    for year in range(start_year, end_year + 1):
+        day = datetime.date(year, 1, 1)
+        year_end = datetime.date(year, 12, 31)
+        while day <= year_end:
+            window_end = min(day + datetime.timedelta(days=118), year_end)
+            start_str = day.strftime("%Y-%m-%dT00:00:00.000")
+            end_str = window_end.strftime("%Y-%m-%dT23:59:59.999")
+            windows.append((start_str, end_str, year))
+            day = window_end + datetime.timedelta(days=1)
+
+    year_counts: Dict[int, int] = {}
+    new_records: List[Dict] = []
+
+    for pub_start, pub_end, year in windows:
+        if len(new_records) + len(existing) >= max_records:
+            break
+        if year_counts.get(year, 0) >= per_year_cap:
+            continue
+        params = {
+            "pubStartDate": pub_start,
+            "pubEndDate": pub_end,
+            "resultsPerPage": 2000,
+            "startIndex": 0,
+        }
         try:
-            resp = requests.get(url, timeout=30)
+            resp = requests.get(base_url, params=params, headers=headers, timeout=60)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
-            print(f"  Warning: Failed to fetch NVD page {page + 1}: {e}")
-            break
+            print(f"  {pub_start[:10]}..{pub_end[:10]}: fetch failed ({e})")
+            time.sleep(delay)
+            continue
 
-        vulnerabilities = data.get("vulnerabilities", [])
-        if not vulnerabilities:
-            print(f"  No more CVE records at page {page + 1}.")
-            break
-
-        for item in tqdm(vulnerabilities, desc=f"CVE page {page + 1}", leave=False):
+        added = 0
+        for item in data.get("vulnerabilities", []):
             try:
                 cve_id = item.get("cve", {}).get("id", "")
+                if not cve_id or cve_id in existing:
+                    continue
                 descriptions = item.get("cve", {}).get("descriptions", [])
-
                 description = ""
                 for desc in descriptions:
                     if isinstance(desc, dict) and desc.get("lang") == "en":
@@ -138,47 +180,96 @@ def collect_cve_descriptions(
                         break
                 if not description and descriptions:
                     description = descriptions[0].get("value", "")
-
                 cleaned = clean_text(description)
-
-                if len(cleaned) >= 50:
-                    records.append({
-                        "id": cve_id,
-                        "text": cleaned,
-                        "source": "nvd",
-                    })
-
-                if len(records) >= max_records:
+                if len(cleaned) < 50:
+                    continue
+                rec = {"id": cve_id, "text": cleaned, "source": "nvd"}
+                new_records.append(rec)
+                existing[cve_id] = rec
+                year_counts[year] = year_counts.get(year, 0) + 1
+                added += 1
+                if year_counts[year] >= per_year_cap or len(new_records) + len(existing) >= max_records:
                     break
             except Exception:
                 continue
+        total = len(existing)
+        print(f"  {pub_start[:10]}..{pub_end[:10]}: +{added}  (total {total})")
+        time.sleep(delay)
 
-        if len(records) >= max_records:
-            break
-
-        time.sleep(1)
-
-    if records:
-        save_jsonl(records, output_path)
+    all_records = list(existing.values())
+    if all_records:
+        save_jsonl(all_records, output_path)
+        years_seen = sorted({int(CVE_YEAR_RE.search(r["id"]).group(1))
+                             for r in all_records
+                             if CVE_YEAR_RE.search(r.get("id", ""))})
+        if years_seen:
+            print(f"  year span: {years_seen[0]}–{years_seen[-1]} ({len(years_seen)} years)")
     else:
         print("  Warning: No valid CVE records collected.")
 
 
+CVE_YEAR_RE = re.compile(r"CVE-(\d{4})-\d+")
+
+
 def collect_security_papers(
     output_path: str = "data/raw/papers.jsonl",
-    max_records: int = 5000,
+    max_records: int = 2000,
 ) -> None:
-    """Generate curated synthetic cybersecurity paper content for training.
+    """Fetch real cs.CR paper abstracts from the arXiv API.
 
-    Uses a set of high-quality synthetic paper abstracts covering key
-    cybersecurity research areas, repeated to reach the desired dataset size.
+    Queries arXiv's Atom export endpoint for the cs.CR (cryptography and
+    security) category in descending date order. Falls back to a small
+    curated synthetic set only if the API is unreachable.
 
     Args:
         output_path: Destination path for the output JSONL file.
         max_records: Maximum number of paper records to collect.
     """
-    print("Collecting security papers (using curated synthetic cybersecurity content)...")
+    print("Collecting security papers from arXiv cs.CR...")
+    records: List[Dict] = []
+    batch = 200
+    ns = {"atom": "http://www.w3.org/2005/Atom"}
 
+    for start in range(0, max_records, batch):
+        url = (
+            "http://export.arxiv.org/api/query"
+            f"?search_query=cat:cs.CR"
+            f"&start={start}"
+            f"&max_results={min(batch, max_records - start)}"
+            "&sortBy=submittedDate&sortOrder=descending"
+        )
+        try:
+            resp = requests.get(url, timeout=60)
+            resp.raise_for_status()
+            root = ET.fromstring(resp.text)
+        except Exception as e:
+            print(f"  arXiv fetch failed at start={start}: {e}")
+            break
+        entries = root.findall("atom:entry", ns)
+        if not entries:
+            break
+        for entry in entries:
+            id_el = entry.find("atom:id", ns)
+            title_el = entry.find("atom:title", ns)
+            summary_el = entry.find("atom:summary", ns)
+            if summary_el is None or not summary_el.text:
+                continue
+            arxiv_id = id_el.text.strip() if id_el is not None and id_el.text else ""
+            title = title_el.text.strip() if title_el is not None and title_el.text else ""
+            summary = summary_el.text.strip()
+            text = f"{title}\n\n{summary}" if title else summary
+            cleaned = clean_text(text)
+            if len(cleaned) >= 100:
+                records.append({"id": arxiv_id, "text": cleaned, "source": "arxiv"})
+        print(f"  arXiv start={start}: +{len(entries)} entries ({len(records)} kept)")
+        # arXiv asks for one request per 3 seconds
+        time.sleep(3)
+
+    if records:
+        save_jsonl(records, output_path)
+        return
+
+    print("  arXiv unavailable — falling back to curated synthetic abstracts (small set, no padding).")
     synthetic_papers = [
         {"title": "Automated Vulnerability Detection Using Deep Learning", "abstract": "We present a deep learning approach to automatically detect security vulnerabilities in source code. Our model achieves 94% precision on the NIST NVD dataset, outperforming traditional static analysis tools. The approach combines abstract syntax tree analysis with transformer-based sequence modeling to identify common vulnerability patterns including buffer overflows, SQL injection, and cryptographic weaknesses."},
         {"title": "Adversarial Machine Learning in Cybersecurity", "abstract": "This paper surveys adversarial attacks against machine learning models deployed in security-critical systems. We analyze evasion attacks, poisoning attacks, and model extraction techniques targeting intrusion detection systems and malware classifiers. Our findings indicate that ensemble defenses and adversarial training significantly improve robustness against adaptive attackers."},
@@ -190,10 +281,9 @@ def collect_security_papers(
         {"title": "Supply Chain Security in Software Development", "abstract": "Software supply chain attacks have become a significant threat vector, compromising trusted development pipelines to distribute malicious code. We analyze recent supply chain incidents including SolarWinds and XZ Utils, identifying common attack patterns and proposing automated detection mechanisms based on code signing, dependency pinning, and behavioral monitoring of build processes."},
         {"title": "Memory Safety Vulnerabilities in Systems Programming Languages", "abstract": "Memory safety bugs including buffer overflows, use-after-free, and null pointer dereferences remain a primary source of security vulnerabilities in systems software. We conduct a longitudinal study of CVEs in C and C++ projects, analyzing root causes and evaluating the effectiveness of sanitizers, static analysis, and memory-safe language migration as mitigation strategies."},
         {"title": "Web Application Firewall Evasion Techniques", "abstract": "Web application firewalls serve as a critical defense layer against injection attacks and web-based exploits. We systematically evaluate evasion techniques including encoding variations, SQL comment injection, and HTTP protocol manipulation against commercial and open-source WAF solutions. Our results demonstrate significant gaps in detection coverage and propose improved signature generation methods."},
-    ] * 50  # repeat to get 500 records
+    ]
 
-    records = []
-    for i, paper in enumerate(synthetic_papers[:max_records]):
+    for i, paper in enumerate(synthetic_papers):
         combined = f"{paper['title']}\n\n{paper['abstract']}"
         cleaned = clean_text(combined)
         if len(cleaned) >= 100:
@@ -219,7 +309,16 @@ def collect_ctf_writeups(output_path: str = "data/raw/ctf.jsonl") -> None:
     print("Collecting CTF writeups...")
     records = []
 
-    # Try primary dataset
+    # Try primary dataset (lazy import — keeps CVE/paper collectors working without `datasets`)
+    try:
+        from datasets import load_dataset
+    except ImportError:
+        print("  `datasets` not installed — skipping HuggingFace sources, using synthetic fallback.")
+        records = _generate_synthetic_ctf_data()
+        if records:
+            save_jsonl(records, output_path)
+        return
+
     try:
         dataset = load_dataset("0xJustin/Dungeons-and-Hackers", split="train")
         for i, item in tqdm(enumerate(dataset), desc="CTF writeups", total=len(dataset)):
@@ -274,15 +373,16 @@ def collect_ctf_writeups(output_path: str = "data/raw/ctf.jsonl") -> None:
 
 
 def _generate_synthetic_ctf_data(count: int = 500) -> List[Dict]:
-    """Generate synthetic CTF-style training records covering security topics.
+    """Generate synthetic CTF-style training records — unique texts only, no padding.
 
-    Creates realistic training text covering common CTF challenge types
-    including SQL injection, XSS, buffer overflow, privilege escalation,
-    reverse engineering, cryptography, network forensics, steganography,
-    web vulnerabilities, and binary exploitation.
+    Emits each template text at most once. The ``count`` argument is treated
+    as an upper bound. The record total will be the number of distinct
+    templates, not ``count``, so the corpus never reports duplicates as new
+    examples. For real CTF writeups, point ``collect_ctf_writeups`` at a
+    HuggingFace dataset.
 
     Args:
-        count: Number of synthetic records to generate.
+        count: Maximum number of synthetic records to emit.
 
     Returns:
         List of dicts with id, text, and source fields.
@@ -361,16 +461,19 @@ def _generate_synthetic_ctf_data(count: int = 500) -> List[Dict]:
         },
     ]
 
-    records = []
-    for i in range(count):
-        topic_data = topics[i % len(topics)]
-        text_options = topic_data["texts"]
-        text = text_options[i % len(text_options)]
-        records.append({
-            "id": i,
-            "text": text,
-            "source": "synthetic",
-        })
+    records: List[Dict] = []
+    seen = set()
+    rng = random.Random(42)
+    flat = [(t["topic"], txt) for t in topics for txt in t["texts"]]
+    rng.shuffle(flat)
+    for i, (topic, text) in enumerate(flat):
+        if len(records) >= count:
+            break
+        key = hashlib.md5(text.strip().lower().encode("utf-8")).hexdigest()
+        if key in seen:
+            continue
+        seen.add(key)
+        records.append({"id": i, "text": text, "source": "synthetic", "topic": topic})
 
     return records
 
@@ -737,18 +840,19 @@ def merge_datasets(
 ) -> None:
     """Merge multiple JSONL datasets and split into train/validation sets.
 
-    Loads all specified input JSONL files, optionally shuffles them,
-    then splits into training and validation subsets.
+    Dedupes across all inputs by content hash, then assigns each record to
+    train or val deterministically by hashing its text — identical texts
+    always land in the same split, so val cannot leak into train.
 
     Args:
         input_paths: List of paths to JSONL files to merge.
         output_path: Destination path for the training split JSONL.
         val_split: Fraction of data to reserve for validation (0.0 to 1.0).
-        shuffle: Whether to shuffle records before splitting.
+        shuffle: Whether to shuffle train records (affects order only).
         seed: Random seed for shuffling.
     """
     print("Merging datasets...")
-    all_records = []
+    all_records: List[Dict] = []
 
     for path in input_paths:
         if os.path.exists(path):
@@ -762,26 +866,37 @@ def merge_datasets(
         print("  Warning: No records to merge.")
         return
 
-    # Deduplicate before splitting
     all_records = deduplicate_records(all_records)
+
+    val_bucket_max = max(1, int(round(val_split * 100)))
+    train_records: List[Dict] = []
+    val_records: List[Dict] = []
+    for r in all_records:
+        text_norm = re.sub(r"\s+", " ", r.get("text", "").strip().lower())
+        bucket = int(hashlib.md5(text_norm.encode("utf-8")).hexdigest(), 16) % 100
+        if bucket < val_bucket_max:
+            val_records.append(r)
+        else:
+            train_records.append(r)
 
     if shuffle:
         random.seed(seed)
-        random.shuffle(all_records)
-
-    split_idx = int(len(all_records) * (1 - val_split))
-    train_records = all_records[:split_idx]
-    val_records = all_records[split_idx:]
+        random.shuffle(train_records)
+        random.shuffle(val_records)
 
     val_path = str(Path(output_path).with_name(Path(output_path).stem.replace("train", "val") + ".jsonl"))
-
     save_jsonl(train_records, output_path)
     save_jsonl(val_records, val_path)
+
+    # Post-split leakage check — deterministic split should guarantee 0, verify anyway.
+    val_texts = {r.get("text", "") for r in val_records}
+    leakage = sum(1 for r in train_records if r.get("text", "") in val_texts)
 
     print(f"\n  Dataset stats:")
     print(f"    Total records: {len(all_records)}")
     print(f"    Train: {len(train_records)}")
     print(f"    Validation: {len(val_records)}")
+    print(f"    Leakage check: {leakage} val texts found in train (expected 0)")
 
 
 def main() -> None:
