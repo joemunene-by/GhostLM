@@ -120,12 +120,15 @@ make plot
 
 ## Training Data
 
-| Source | Records | Type |
-|---|---|---|
-| NVD CVE Database | 9,925 | Real |
-| Security Research Papers | 500 | Synthetic |
-| CTF Writeups | 500 | Synthetic |
-| **Total** | **10,925** | |
+| Source | Records | Type | Coverage |
+|---|---|---|---|
+| NVD CVE Database | 19,925 | Real | 1999–2025 (27 years, balanced per-year cap) |
+| arXiv cs.CR Abstracts | 1,000 | Real | Recent-first (submittedDate descending) |
+| CTF Writeups | 21 | Synthetic | Unique templates only, no padding |
+| **Total (pre-dedup)** | **20,946** | | |
+| **Total (post-dedup, training)** | **20,070** | | ~1.52M tokens |
+
+The pipeline produces a deterministic, leakage-proof split — train and validation are assigned by content hash so identical texts always land in the same split. `scripts/data_audit.py` runs the diagnostics (length percentiles, dedup rate, CVE-year distribution, CTF category share, token share, leakage check) and writes a 4-panel chart to `logs/data_audit.png`.
 
 ---
 
@@ -133,21 +136,11 @@ make plot
 
 | Run | Steps | Train Loss | Val Loss | Status |
 |---|---|---|---|---|
-| ghost-tiny Phase 1 | 10,000 | 1.97 | 2.74 | Complete |
+| ghost-tiny Phase 1 (initial) | 10,000 | 1.97 | 2.74 | Superseded — trained on pre-audit corpus (archived) |
+| ghost-tiny Phase 1 (re-run) | 10,000 | — | — | Pending — rebalanced corpus, leakage-free split |
 | ghost-tiny Phase 2 | 100,000 | — | — | Next (Mac Mini M4) |
 
-## Evaluation Results (Phase 1)
-
-| Metric | Score |
-|---|---|
-| Cybersecurity Perplexity | 2,183.94 |
-| GPT-2 Baseline (117M) | 26.76 |
-| CVE Severity Classification | 20.0% |
-| Vulnerability Type Detection | 10.0% |
-| Attack Technique ID | 10.0% |
-| **Overall Security Score** | **13.3%** |
-
-> The model generates security-domain text with correct vocabulary but can't reason yet at this scale. Phase 2 (100K steps) will close the gap.
+> The initial Phase 1 run completed before the data audit surfaced heavy duplication (~98% in papers/CTF) and ~9% train/val leakage. Those checkpoints and logs are preserved under `archive/` for reference, and Phase 1 is being re-run on the rebalanced corpus before Phase 2 begins. Evaluation numbers will be refreshed when the re-run completes.
 
 ---
 
@@ -187,7 +180,7 @@ GhostLM/
 ### v0.1.0 — Architecture complete
 - Full transformer from scratch
 - Training pipeline verified
-- 10,925 cybersecurity records
+- Initial 10,925-record corpus (later rebalanced — see v0.2.2)
 
 ### v0.2.0 — Phase 1 training complete
 - ghost-tiny trained to 10,000 steps on CPU
@@ -200,6 +193,13 @@ GhostLM/
 - Safetensors export with config.json sidecar and SHA-256 checksum
 - Pinned dependency versions + PEP 639 license metadata
 - Test suite grown from 10 → 16 tests
+
+### v0.2.2 — Data audit + corpus rebalancing
+- New `scripts/data_audit.py` — length percentiles, dedup rate, CVE-year distribution, CTF category share, token share, train/val leakage check
+- CVE collector rewritten to 119-day NVD windows with append mode — coverage extended from 1999–2005 to 1999–2025 (27 years)
+- Paper collector switched from hand-written synthetic `× 50` padding to the arXiv cs.CR Atom API — 1,000 real abstracts
+- Synthetic CTF generator emits unique templates only (fixed a rotation bug that limited output to 12 of ~22 templates)
+- `merge_datasets` now uses a deterministic MD5-bucket split — identical texts always land in the same split, eliminating train/val leakage
 
 ### v0.3.0 — Phase 2 Training (in progress)
 - 100K steps on Mac Mini M4 with RoPE + Flash Attention enabled
