@@ -1,11 +1,14 @@
 """GhostLM data collection — downloads and preprocesses cybersecurity training data from public sources."""
 
+import csv
 import datetime
 import hashlib
 import json
 import os
 import random
 import re
+import subprocess
+import tempfile
 import time
 import unicodedata
 import xml.etree.ElementTree as ET
@@ -552,6 +555,94 @@ def collect_mitre_attack(
         print("  Warning: No ATT&CK records collected.")
 
 
+def collect_exploitdb(
+    output_path: str = "data/raw/exploitdb.jsonl",
+    max_records: int = 5000,
+) -> None:
+    """Fetch exploit texts from a shallow-cloned Exploit-DB repository.
+
+    Shallow clones the Exploit-DB repository, reads `files_exploits.csv`,
+    prepends metadata headers to exploit files, and stores cleaned records.
+
+    Args:
+        output_path: Destination path for the output JSONL file.
+        max_records: Maximum number of records to collect.
+    """
+    print("Collecting Exploit-DB records...")
+    records = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo_dir = Path(tmp) / "exploitdb"
+        try:
+            subprocess.run(
+                [
+                    "git",
+                    "clone",
+                    "--depth",
+                    "1",
+                    "https://gitlab.com/exploit-database/exploitdb.git",
+                    str(repo_dir),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except Exception as e:
+            print(f"  Warning: Failed to clone Exploit-DB repository: {e}")
+            return
+
+        csv_path = repo_dir / "files_exploits.csv"
+        if not csv_path.exists():
+            print("  Warning: files_exploits.csv not found in cloned repository.")
+            return
+
+        try:
+            with open(csv_path, "r", encoding="utf-8", errors="ignore", newline="") as f:
+                rows = list(csv.DictReader(f))
+        except Exception as e:
+            print(f"  Warning: Failed to parse Exploit-DB CSV: {e}")
+            return
+
+        for row in tqdm(rows, desc="Exploit-DB files", leave=False):
+            file_path = (row.get("file") or "").strip()
+            if not file_path:
+                continue
+
+            exploit_path = repo_dir / file_path
+            if not exploit_path.exists():
+                continue
+
+            try:
+                with open(exploit_path, "r", encoding="utf-8", errors="ignore") as ef:
+                    exploit_content = ef.read()
+            except Exception:
+                continue
+
+            header = (
+                f"Exploit-DB #{row.get('id', '')}: {row.get('description', '')}\n"
+                f"Platform: {row.get('platform', '')} / {row.get('type', '')}"
+            )
+            codes = (row.get("codes") or "").strip()
+            if codes:
+                header += f"\nCVE: {codes}"
+
+            cleaned = clean_text(f"{header}\n\n{exploit_content}")
+            if 100 <= len(cleaned) <= 8000:
+                records.append({
+                    "id": f"edb-{row.get('id', '')}",
+                    "text": cleaned,
+                    "source": "exploitdb",
+                })
+
+            if len(records) >= max_records:
+                break
+
+    if records:
+        save_jsonl(records, output_path)
+    else:
+        print("  Warning: No Exploit-DB records collected.")
+
+
 def _generate_synthetic_attack_data(count: int = 200) -> List[Dict]:
     """Generate synthetic MITRE ATT&CK-style technique descriptions as fallback."""
     techniques = [
@@ -921,6 +1012,7 @@ def main() -> None:
     cwe_path = "data/raw/cwe.jsonl"
     owasp_path = "data/raw/owasp.jsonl"
     capec_path = "data/raw/capec.jsonl"
+    exploitdb_path = "data/raw/exploitdb.jsonl"
 
     collect_cve_descriptions(output_path=cve_path)
     collect_security_papers(output_path=papers_path)
@@ -929,12 +1021,13 @@ def main() -> None:
     collect_cwe_descriptions(output_path=cwe_path)
     collect_owasp(output_path=owasp_path)
     collect_capec(output_path=capec_path)
+    collect_exploitdb(output_path=exploitdb_path)
 
     # Merge into train/val splits (with deduplication)
     merge_datasets(
         input_paths=[
             cve_path, papers_path, ctf_path,
-            attack_path, cwe_path, owasp_path, capec_path,
+            attack_path, cwe_path, owasp_path, capec_path, exploitdb_path,
         ],
         output_path="data/processed/train.jsonl",
     )
