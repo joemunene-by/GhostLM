@@ -1,7 +1,7 @@
 ---
 language:
   - en
-license: apache-2.0
+license: mit
 library_name: pytorch
 tags:
   - cybersecurity
@@ -28,13 +28,13 @@ model-index:
 
 | Field | Value |
 |---|---|
-| **Model Names** | `ghostlm/ghost-tiny` (14.5M params), `ghostlm/ghost-small` (55M params) |
+| **Model Names** | `ghostlm/ghost-tiny` (14.7M params, current). Future: `ghost-small`, `ghost-base`, `ghost-1B` |
 | **Architecture** | Decoder-only transformer |
 | **Author** | [Joe Munene](https://github.com/joemunene-by) |
-| **License** | Apache 2.0 |
+| **License** | MIT |
 | **Language** | English |
 | **Framework** | PyTorch (built from scratch, no pretrained weights) |
-| **Version** | 0.1.0 (Phase 1 — 10K steps complete) |
+| **Version** | 0.3.0 (Phase 2 complete — 10K steps on rebalanced, leakage-free corpus) |
 
 ## Model Description
 
@@ -46,9 +46,12 @@ The model is trained on CVE vulnerability descriptions from the National Vulnera
 
 | Variant | Layers | d_model | Heads | d_ff | Context | Params | Status |
 |---|---|---|---|---|---|---|---|
-| `ghostlm/ghost-tiny` | 2 | 256 | 4 | 1024 | 1024 | ~14.5M | Phase 1 complete (10K steps) |
-| `ghostlm/ghost-small` | 6 | 512 | 8 | 2048 | 1024 | ~55M | Pre-training |
-| `ghostlm/ghost-medium` | 12 | 768 | 12 | 3072 | 1024 | ~160M | Planned |
+| `ghostlm/ghost-tiny` | 2 | 256 | 4 | 1024 | 1024 | 14.7M | Phase 2 complete (10K steps, rebalanced corpus, val_loss 3.78) |
+| `ghostlm/ghost-small` | 6 | 512 | 8 | 2048 | 1024 | ~55M | Planned (next scale rung) |
+| `ghostlm/ghost-base` | 12 | 768 | 12 | 3072 | 1024 | ~350M | Planned (rented GPU) |
+| `ghostlm/ghost-1B` | 24 | 1024 | 16 | 4096 | 1024 | ~1B | Long-term goal |
+
+ghost-tiny is the iteration vehicle. The scale ladder above is the path to a genuinely useful from-scratch cyber LM. See [ROADMAP.md](ROADMAP.md) for phased milestones, compute requirements, and corpus targets.
 
 ## Architecture
 
@@ -65,14 +68,17 @@ The model is trained on CVE vulnerability descriptions from the National Vulnera
 
 | Source | Records | Type | Description |
 |---|---|---|---|
-| NVD CVE Database | 9,925 | Real | Vulnerability descriptions from the NVD REST API v2.0 |
-| Security Research Papers | 500 | Synthetic | Abstracts covering 10 cybersecurity research areas |
-| CTF Writeups | 500 | Synthetic | Challenge solutions across 10 CTF categories |
-| **Total** | **10,925** | | **~515K tokens** |
+| NVD CVE Database | 19,925 | Real | Vulnerability descriptions from NVD REST API v2.0, balanced per-year cap, 1999–2025 (27 years) |
+| arXiv cs.CR Abstracts | 1,000 | Real | Recent-first via arXiv Atom API |
+| Synthetic CTF Writeups | 3,000 | Synthetic | Generated via local LLM (Ollama-based pipeline), varied topic + template mix |
+| **Total (raw)** | **23,925** | | |
+| **Total (post-dedup)** | **23,049** | | **~2.66M tokens** (train: 2,525,245 / val: 136,869) |
 
-**Data splits:** 10,378 train / 547 validation
+**Data splits:** 21,872 train / 1,177 validation. Split is **deterministic by content hash** — identical or near-duplicate texts always land in the same split, eliminating the train/val leakage that affected the v0.2.0 corpus.
 
 **Topics covered:** vulnerability detection, adversarial ML, network intrusion, cryptographic protocols, fuzzing, side-channel attacks, ransomware detection, supply chain security, memory safety, WAF evasion, SQL injection, XSS, buffer overflow, privilege escalation, reverse engineering, binary exploitation, steganography, network forensics.
+
+For corpus expansion plans (CTFtime, security blogs, MITRE ATT&CK, tool docs) and licensing notes, see [CORPUS.md](CORPUS.md).
 
 ## Training Details
 
@@ -91,7 +97,9 @@ The model is trained on CVE vulnerability descriptions from the National Vulnera
 
 **Weight decay separation:** No weight decay applied to biases, LayerNorm parameters, or embedding weights. Only linear layer weights receive weight decay.
 
-**Hardware:** ghost-tiny trained on a ThinkPad Yoga 11e (Celeron N4100, 4GB RAM). ghost-small targets GPU training.
+**Hardware (Phase 2):** ghost-tiny trained on Mac Mini M4 (CPU; MPS/GPU acceleration not used for this run). Cross-machine workflow: Linux box for data prep and corpus curation; Mac Mini M4 for the training loop. Phase 1 was run on a ThinkPad Yoga 11e (Celeron N4100) and is preserved for archaeological reference.
+
+**Training time (Phase 2):** ~70 minutes total wall-clock for 10K steps on M4 CPU.
 
 ## Intended Uses
 
@@ -109,12 +117,31 @@ The model is trained on CVE vulnerability descriptions from the National Vulnera
 
 ## Limitations
 
-- **Small model size:** At 14.5M-55M parameters, GhostLM is significantly smaller than production LLMs. Output quality is limited accordingly.
-- **Limited training data:** ~10K documents is small for language model pre-training. The model has narrow domain coverage even within cybersecurity.
-- **May generate inaccurate information:** The model can produce plausible-sounding but factually incorrect security information. Always verify outputs against authoritative sources.
-- **No instruction tuning:** The model is a base language model, not instruction-tuned. It generates text completions, not structured answers.
-- **Synthetic data bias:** Approximately 9% of training data is synthetic, which may introduce patterns not found in real security writing.
-- **English only:** The model was trained exclusively on English text.
+- **Small model size:** At 14.7M parameters, ghost-tiny is two-to-three orders of magnitude below production LLMs. Output quality reflects this.
+- **Limited training data:** ~23K records / ~2.7M tokens is small for language-model pre-training (Chinchilla-optimal for 14.7M params would be ~300M tokens; for ghost-1B, ~20B tokens). The corpus needs to grow ~100× for the upper rungs of the scale ladder.
+- **No semantic grounding at this scale:** the model has learned the *surface vocabulary* of cyber writing (CTF terminology, exploit techniques, CVE-string format, vuln types) but cannot bind topic, hold grammatical structure across clauses, or generate factually correct content. See [Sample Generations](#sample-generations) below.
+- **Hallucinated CVE-shaped output:** prompting with `CVE-YYYY-NNNNN is a vulnerability in...` will produce plausible-looking but entirely fabricated CVE descriptions, including invented version chains. Do not use these as factual.
+- **No instruction tuning:** ghost-tiny is a base language model. It generates text completions, not structured answers.
+- **Synthetic CTF share:** ~13% of training records are synthetic CTF writeups generated by a local LLM. This is a known risk for distribution drift relative to real CTF writing and will be replaced with real CTFtime / GitHub writeup corpus in upcoming corpus expansion.
+- **English only.**
+
+## Sample Generations
+
+Real outputs from `checkpoints/best_model.pt` (Phase 2, val_loss 3.78), at `temperature=0.7-0.8, top_k=50`:
+
+> **Prompt:** *A SQL injection attack works by*
+> ...the login page. The login page is used to the login page's name of the login page does not properly sanitization of the password, which allows attackers to cause a denial of service via a long GET request. In this CTF challenge, participants are tasked with a classic vulnerability in exploiting a vulnerable to exploit a vulnerable to SQL injection vulnerability...
+
+> **Prompt:** *CVE-2021-44228 is a vulnerability in*
+> ...the C privileged user account, which allows local users to gain root privileges. Buffer overflow in x86 program in Oracle MySQL 5.1.2.5.0.0.2.1.0.1 and 7.1.2.1.0.x before 7.2.2.2.x before 7.1.x before 7.1.1.2.
+
+> **Prompt:** *To enumerate Active Directory users from a Linux box, an attacker can*
+> ...obtain the binary using the binary. The binary. The binary using UPX, the binary exploitation, we were a stack with a ret2libc base address of the stack with Ghidra's memory with pwndbg and function...
+
+> **Prompt:** *Cross-site scripting (XSS) allows attackers to*
+> ...inject arbitrary web script that HTML via the (1) search parameter in the search parameter. The web server in OpenView Network Manager (aka TCCQ: How can an attacker exploit a web application that leverages a web applications using a reverse proxy service. The attacker can craft a malicious server.
+
+These samples are honest evidence of model capability at this scale — useful for understanding what 14.7M params trained on ~2.7M tokens looks like. Genuine task usefulness is not expected until the upper rungs of the scale ladder.
 
 ## Ethical Considerations
 
@@ -152,35 +179,33 @@ output = model.generate(input_tensor, max_new_tokens=100, temperature=0.8, top_k
 print(tokenizer.decode(output[0].tolist()))
 ```
 
-## Evaluation (Phase 1 — 10K Steps)
+## Evaluation (Phase 2 — 10K Steps, rebalanced corpus)
 
-### Perplexity
+### Validation Loss
 
-| Model | Params | Cybersecurity Perplexity |
-|---|---|---|
-| GPT-2 (baseline) | 117M | 26.76 |
-| GhostLM ghost-tiny | 14.5M | 2,183.94 |
+- **Final training loss (step 10000):** 4.59 (single-batch noisy estimate, see training_log.json)
+- **Final validation loss (step 10000):** **3.7813** (perplexity ≈ 44)
+- **Validation loss at step 9000:** 3.7972 — flat plateau over the last 1000 steps suggests the model has extracted what it can from this corpus at this scale.
 
-> GhostLM is 8x smaller than GPT-2 and trained on ~515K tokens vs GPT-2's ~10B tokens. The perplexity gap is expected. Phase 2 (100K steps) should significantly close it.
+### Note on Phase 1 vs Phase 2 numbers
 
-### Security Domain Tasks
+The previous version of this card reported Phase 1 numbers (val_loss 2.74, perplexity 2,183.94 vs GPT-2). Those are **not directly comparable** to Phase 2:
 
-| Task | Accuracy | Details |
-|---|---|---|
-| CVE Severity Classification | 20.0% (2/10) | Tends to predict "High" for all severities |
-| Vulnerability Type Detection | 10.0% (1/10) | Defaults to "XSS" classification |
-| Attack Technique Identification | 10.0% (1/10) | Limited technique vocabulary |
-| **Overall Security Score** | **13.3% (4/30)** | |
+- Phase 1 was trained on a corpus with ~98% duplication in papers/CTF and ~9% train/val leakage. Its val_loss 2.74 reflected memorization of held-in samples, not held-out generalization.
+- Phase 2 was trained on a deterministic-hash split with leakage eliminated. val_loss 3.78 is the first trustworthy measurement.
+- Treat Phase 1 numbers as superseded. Phase 2's higher val_loss is not a regression — it is the first honest read.
+
+Re-running the Phase 1 GPT-2 perplexity benchmark and security-domain task evals on the Phase 2 model is on the to-do list and will be added here when complete.
 
 ### Generation Quality
 
-The model generates security-related text with correct domain vocabulary (CVEs, XSS, buffer overflows, etc.) but primarily produces pattern-matched fragments from training data rather than coherent reasoning. This is expected behavior for Phase 1.
+See [Sample Generations](#sample-generations) above. In summary: vocabulary acquisition is real and on-domain; semantic grounding is absent; topic-binding fails; CVE strings are fluent-sounding hallucinations. Expected behavior at this scale.
 
 ### Training Curves
 
-- **Final training loss:** ~1.97
-- **Final validation loss:** ~2.74
-- **No overfitting observed** — validation loss remained stable throughout training
+- ghost-tiny shows healthy loss decrease through Phase 1 (10K steps on pre-audit corpus) and stable training through Phase 2 (10K steps resumed on rebalanced corpus).
+- No catastrophic forgetting or divergence observed in Phase 2.
+- Per-step training loss has high single-batch variance (batch_size=2, grad_accum=4, effective batch=8) — see `logs/training_log.json` for periodic eval snapshots.
 
 ## Citation
 
@@ -198,4 +223,4 @@ The model generates security-related text with correct domain vocabulary (CVEs, 
 
 - **GitHub:** [github.com/joemunene-by/GhostLM](https://github.com/joemunene-by/GhostLM)
 - **Author:** [Joe Munene](https://github.com/joemunene-by)
-- **License:** [Apache 2.0](LICENSE)
+- **License:** [MIT](LICENSE)

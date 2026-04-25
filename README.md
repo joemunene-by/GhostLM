@@ -1,4 +1,4 @@
-![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-Phase%201%20Complete-green.svg)
+![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-Phase%202%20Complete-green.svg)
 
 # GhostLM
 
@@ -28,15 +28,18 @@ It is explicitly *not* trying to beat Llama on general benchmarks. It's trying t
 
 ## Architecture
 
-| Parameter | Value |
+The configuration below is for **ghost-tiny**, the current canonical variant. Larger variants share the same architecture with scaled layers / dim / heads — see the [Model Variants](#model-variants) table.
+
+| Parameter | ghost-tiny |
 |---|---|
 | Architecture | Decoder-only Transformer |
-| Parameters (ghost-small) | ~55M |
+| Parameters | 14.7M |
+| Layers | 2 |
+| Attention Heads | 4 |
+| Embedding Dim | 256 |
+| FFN Dim | 1024 |
 | Context Length | 1024 tokens |
-| Layers | 6 |
-| Attention Heads | 8 |
-| Embedding Dim | 512 |
-| Tokenizer | GPT-2 BPE (50,261 tokens) |
+| Tokenizer | GPT-2 BPE (50,261 tokens — 50,257 base + 4 cyber special) |
 
 Built with:
 - Multi-head causal self-attention (manual implementation)
@@ -50,11 +53,16 @@ Built with:
 
 ## Model Variants
 
-| Variant | Layers | Dim | Params | Status |
-|---|---|---|---|---|
-| ghost-tiny | 2 | 256 | ~14.5M | Phase 1 complete (10K steps) |
-| ghost-small | 6 | 512 | ~55M | Planned |
-| ghost-medium | 12 | 768 | ~160M | Future |
+GhostLM is a multi-year scale ladder. Each rung validates the recipe before climbing to the next:
+
+| Variant | Layers | Dim | Params | Hardware target | Status |
+|---|---|---|---|---|---|
+| ghost-tiny | 2 | 256 | 14.7M | CPU | Phase 2 complete (10K steps, val_loss 3.78) |
+| ghost-small | 6 | 512 | ~55M | M4 GPU/MPS | Planned |
+| ghost-base | 12 | 768 | ~350M | Rented GPU (A/H100) | Planned |
+| ghost-1B | 24 | 1024 | ~1B | Rented or owned GPU | Long-term goal |
+
+ghost-tiny is the iteration vehicle and educational artifact. It is not — and at this scale will not become — a useful cyber-task model. The scale ladder above is the path to "useful." See [ROADMAP.md](ROADMAP.md) for phased milestones, corpus targets per rung, and honest compute estimates.
 
 ---
 
@@ -124,23 +132,41 @@ make plot
 |---|---|---|---|
 | NVD CVE Database | 19,925 | Real | 1999–2025 (27 years, balanced per-year cap) |
 | arXiv cs.CR Abstracts | 1,000 | Real | Recent-first (submittedDate descending) |
-| CTF Writeups | 21 | Synthetic | Unique templates only, no padding |
-| **Total (pre-dedup)** | **20,946** | | |
-| **Total (post-dedup, training)** | **20,070** | | ~1.52M tokens |
+| CTF Writeups | 3,000 | Synthetic | Generated via local LLM, varied template + topic mix |
+| **Total (pre-dedup)** | **23,925** | | |
+| **Total (post-dedup, training)** | **23,049** | | ~2.66M tokens (train: 2,525,245 / val: 136,869) |
 
 The pipeline produces a deterministic, leakage-proof split — train and validation are assigned by content hash so identical texts always land in the same split. `scripts/data_audit.py` runs the diagnostics (length percentiles, dedup rate, CVE-year distribution, CTF category share, token share, leakage check) and writes a 4-panel chart to `logs/data_audit.png`.
+
+For where the corpus is heading — sources targeted (CTFtime archives, security research blogs, MITRE ATT&CK, tool docs) and licensing notes — see [CORPUS.md](CORPUS.md).
 
 ---
 
 ## Training Progress
 
-| Run | Steps | Train Loss | Val Loss | Status |
+| Run | Steps | Train Loss | Val Loss | Notes |
 |---|---|---|---|---|
-| ghost-tiny Phase 1 (initial) | 10,000 | 1.97 | 2.74 | Superseded — trained on pre-audit corpus (archived) |
-| ghost-tiny Phase 1 (re-run) | 10,000 | — | — | Pending — rebalanced corpus, leakage-free split |
-| ghost-tiny Phase 2 | 100,000 | — | — | Next (Mac Mini M4) |
+| ghost-tiny Phase 1 (pre-audit corpus) | 10,000 | 1.97 | 2.74 | Superseded — leaky train/val split, kept for reference under `archive/` |
+| ghost-tiny Phase 2 (rebalanced corpus) | 10,000 | ~4.6 | **3.7813** | Current canonical model. Hardware-of-record: Mac Mini M4 (CPU) |
 
-> The initial Phase 1 run completed before the data audit surfaced heavy duplication (~98% in papers/CTF) and ~9% train/val leakage. Those checkpoints and logs are preserved under `archive/` for reference, and Phase 1 is being re-run on the rebalanced corpus before Phase 2 begins. Evaluation numbers will be refreshed when the re-run completes.
+> Phase 1 and Phase 2 val_loss are **not directly comparable** — Phase 1's 2.74 was measured on a leaky split where many "validation" samples appeared in training. Phase 2's 3.78 is the trustworthy number on a clean, deterministic-hash split. Don't read the increase as regression; it's the first honest measurement.
+
+The Phase 2 checkpoint is `checkpoints/best_model.pt`. Phase 1 is preserved as `checkpoints/best_model_phase1.pt` for archaeological reference.
+
+## Sample Generations
+
+These are real generations from `checkpoints/best_model.pt` at `temperature=0.7-0.8, top_k=50`. They reflect what a 14.7M-param model trained on ~2.7M tokens can actually do — and what it can't:
+
+> **Prompt:** *A SQL injection attack works by*
+> ...the login page. The login page is used to the login page's name of the login page does not properly sanitization of the password, which allows attackers to cause a denial of service via a long GET request. In this CTF challenge, participants are tasked with a classic vulnerability in exploiting a vulnerable to exploit a vulnerable to SQL injection vulnerability...
+
+> **Prompt:** *CVE-2021-44228 is a vulnerability in*
+> ...the C privileged user account, which allows local users to gain root privileges. Buffer overflow in x86 program in Oracle MySQL 5.1.2.5.0.0.2.1.0.1 and 7.1.2.1.0.x before 7.2.2.2.x before 7.1.x before 7.1.1.2.
+
+> **Prompt:** *To enumerate Active Directory users from a Linux box, an attacker can*
+> ...obtain the binary using the binary. The binary. The binary using UPX, the binary exploitation, we were a stack with a ret2libc base address of the stack with Ghidra's memory with pwndbg and function...
+
+**What this shows:** the model has absorbed surface-level cyber vocabulary (CTF terminology, exploit techniques, CVE-string format, common vuln types) but has no semantic grounding — broken grammar, hallucinated version chains, can't bind topic (an AD-on-Linux prompt elicits binary exploitation tokens). This is exactly what a 14.7M-param model on ~22K records predicts. The fix is scale, not more steps at this scale — see the [Roadmap](#roadmap).
 
 ---
 
@@ -177,38 +203,20 @@ GhostLM/
 
 ## Roadmap
 
-### v0.1.0 — Architecture complete
-- Full transformer from scratch
-- Training pipeline verified
-- Initial 10,925-record corpus (later rebalanced — see v0.2.2)
+GhostLM is a multi-year effort. The honest framing is that ghost-tiny is a learning artifact and a working pipeline — *not* a useful cyber-task model. The path to "useful" is the scale ladder below, paired with a corpus that grows by ~100× from where it is today. See [ROADMAP.md](ROADMAP.md) for full milestones, compute estimates, and corpus targets.
 
-### v0.2.0 — Phase 1 training complete
-- ghost-tiny trained to 10,000 steps on CPU
-- Full evaluation suite with benchmark vs GPT-2
-- MODEL_CARD with detailed results
+**Where we are (Phase 2, complete):** ghost-tiny @ 10K steps, val_loss 3.78 on the rebalanced corpus. End-to-end training pipeline proven. ~2.7M training tokens.
 
-### v0.2.1 — Phase 2 readiness
-- RoPE (Rotary Position Embeddings) — config-toggled
-- Flash Attention via `scaled_dot_product_attention` — config-toggled
-- Safetensors export with config.json sidecar and SHA-256 checksum
-- Pinned dependency versions + PEP 639 license metadata
-- Test suite grown from 10 → 16 tests
+**Where we're going:**
 
-### v0.2.2 — Data audit + corpus rebalancing
-- New `scripts/data_audit.py` — length percentiles, dedup rate, CVE-year distribution, CTF category share, token share, train/val leakage check
-- CVE collector rewritten to 119-day NVD windows with append mode — coverage extended from 1999–2005 to 1999–2025 (27 years)
-- Paper collector switched from hand-written synthetic `× 50` padding to the arXiv cs.CR Atom API — 1,000 real abstracts
-- Synthetic CTF generator emits unique templates only (fixed a rotation bug that limited output to 12 of ~22 templates)
-- `merge_datasets` now uses a deterministic MD5-bucket split — identical texts always land in the same split, eliminating train/val leakage
+1. **Corpus expansion** — 10–100× the current corpus. NVD-at-scale, CTFtime archives, security research blogs (Project Zero, PortSwigger, Trail of Bits), MITRE ATT&CK, tool docs. This is the long-term moat and compounds even when compute is the bottleneck.
+2. **ghost-small (~55M params)** — first scale-up rung. M4 GPU/MPS feasible. Validates whether the recipe scales.
+3. **ghost-base (~350M params)** — first rung that needs rented GPU compute. Where domain-coherent generation should start to emerge.
+4. **ghost-1B** — the long-term goal. The smallest scale at which a from-scratch cyber LM has a real shot at being genuinely useful. Will need either rented H100 hours or owned GPU.
 
-### v0.3.0 — Phase 2 Training (in progress)
-- 100K steps on Mac Mini M4 with RoPE + Flash Attention enabled
-- HuggingFace Hub weights release (safetensors)
-- Gradio web demo
+**Realistic timeline:** 2–3 years of sustained work to a useful 1B from-scratch cyber LM. That is the actual shape of this work — there are no shortcuts for "from scratch" at scale. Detailed phase plan in [ROADMAP.md](ROADMAP.md).
 
-### v1.0.0 — Release (planned)
-- Public weights + REST API
-- Fine-tuning scripts
+For changelog history (v0.1.0 → v0.3.0), see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

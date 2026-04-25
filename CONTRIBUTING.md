@@ -4,12 +4,24 @@ Thank you for your interest in contributing to GhostLM — the open-source cyber
 
 ## Ways to Contribute
 
-### 1. Data
-- Find and add new cybersecurity datasets to `data/collect.py`
-- Improve data cleaning in the `clean_text()` function
-- Add new data sources: exploit-db, security blogs, OWASP documentation
+> **Highest-leverage track right now: corpus expansion.** GhostLM is being built from scratch as a multi-year scale-ladder project — see [ROADMAP.md](ROADMAP.md). The single biggest blocker to genuinely useful larger models is the size and quality of the cyber-text corpus, which needs to grow ~100× from today. Corpus contributions compound across every future scale rung. Specific gaps and licensing notes live in [CORPUS.md](CORPUS.md).
 
-### 2. Model Architecture
+### 1. Corpus expansion (priority)
+- **CTFtime archives** — bulk writeup ingestion with rate-limit handling
+- **Security research blogs** — Project Zero, PortSwigger Research, Trail of Bits, Google Security, etc. (RSS-or-scrape pipeline; per-source license check)
+- **MITRE ATT&CK** — structured technique data + procedure text
+- **Tool docs** — nmap, metasploit, burp, ghidra, pwntools, etc.
+- **Real CTF writeup corpus** — replace the current 3,000-record synthetic set with curated real writeups from public GitHub repos (e.g., `ctfs/write-ups-*`)
+- **NVD-at-scale** — pull the full NVD dump, not just per-year-capped samples
+
+See [CORPUS.md](CORPUS.md) for sources already considered, sources still wanted, and licensing constraints.
+
+### 2. Data pipeline
+- Improve data cleaning in the `clean_text()` function
+- Better deduplication / near-duplicate detection
+- Per-source quality scoring before training
+
+### 3. Model Architecture
 - Experiment with attention mechanisms (grouped query attention, sliding window)
 - Try SwiGLU activation instead of GELU in FeedForward (see issue #9)
 - Add RMSNorm as an alternative to LayerNorm
@@ -18,7 +30,7 @@ Thank you for your interest in contributing to GhostLM — the open-source cyber
 > RoPE and Flash Attention already landed in PR #13 — both are config-toggled on
 > `GhostConfig` via `use_rope=True` and `use_flash_attention=True`.
 
-### 3. Training
+### 4. Training
 - Improve the learning rate schedule
 - Add gradient accumulation for larger effective batch sizes
 - Add distributed training support (`torch.distributed`) — see issue #8
@@ -27,12 +39,12 @@ Thank you for your interest in contributing to GhostLM — the open-source cyber
 
 > Mixed precision training (`torch.autocast`) already landed in an earlier PR.
 
-### 4. Evaluation
+### 5. Evaluation
 - Add cybersecurity-specific benchmarks
 - Build a CTF challenge evaluation suite
 - Compare against other security-focused models
 
-### 5. Documentation
+### 6. Documentation
 - Improve docstrings
 - Write tutorials and usage examples
 - Translate documentation
