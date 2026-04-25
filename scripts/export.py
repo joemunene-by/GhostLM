@@ -169,7 +169,7 @@ def export_safetensors(model: GhostLM, config: GhostLMConfig, output_dir: str) -
         output_dir: Directory to write the safetensors and config files.
     """
     try:
-        from safetensors.torch import save_file
+        from safetensors.torch import save_model
     except ImportError:
         print("  Error: safetensors not installed. Run: pip install safetensors")
         return
@@ -177,9 +177,10 @@ def export_safetensors(model: GhostLM, config: GhostLMConfig, output_dir: str) -
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Save weights
+    # Save weights via save_model — handles weight-tied tensors
+    # (token_embedding.weight and lm_head.weight share memory) automatically.
     weights_path = output_path / "ghostlm.safetensors"
-    save_file(model.state_dict(), str(weights_path))
+    save_model(model, str(weights_path))
     file_size = weights_path.stat().st_size / (1024 * 1024)
     print(f"  Saved weights: {weights_path} ({file_size:.1f} MB)")
 
