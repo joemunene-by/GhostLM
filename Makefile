@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: all install test data data-nvd-full data-rebuild data-audit train-tiny train-small generate chat benchmark plot export clean help
+.PHONY: all install test data data-nvd-full data-ctf-repos data-rebuild data-audit train-tiny train-small generate chat benchmark plot export clean help
 
 help:
 	@echo "GhostLM — Cybersecurity Language Model"
@@ -10,6 +10,7 @@ help:
 	@echo "  test            Run all unit tests"
 	@echo "  data            Download and prepare training data (full pipeline)"
 	@echo "  data-nvd-full   Pull the full NVD CVE corpus (Phase 3 — uses NVD_API_KEY)"
+	@echo "  data-ctf-repos  Pull CTF writeups from a JSON-config'd list of permissive repos"
 	@echo "  data-rebuild    Re-merge data/raw/ into train/val (after a corpus pull)"
 	@echo "  data-audit      Run pre-training corpus diagnostics + chart"
 	@echo "  train-tiny      Train ghost-tiny (14.7M params, CPU-friendly)"
@@ -34,6 +35,9 @@ data:
 
 data-nvd-full:
 	$(PYTHON) scripts/collect_nvd_full.py
+
+data-ctf-repos:
+	$(PYTHON) scripts/collect_ctf_repos.py --config data/ctf_repos.json
 
 data-rebuild:
 	$(PYTHON) scripts/rebuild_corpus.py

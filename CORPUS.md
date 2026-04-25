@@ -59,7 +59,7 @@ Roughly ordered by leverage (records-per-effort × content-quality × license-fr
 ### 3. GitHub CTF writeup repos
 - **What:** community-maintained writeup collections (e.g. `ctfs/write-ups-*`, `p4-team/ctf`, etc.).
 - **License:** repo-by-repo (mostly MIT or CC-BY). Need to honor per-repo license and attribution.
-- **Status:** wanted.
+- **Status:** **collector ready** — `scripts/collect_ctf_repos.py` shallow-clones a JSON-config'd list of repos, walks `*.md` files, and emits JSONL records each tagged with the source repo URL, file path, and SPDX license. The "which repos" decision lives in the config (see `data/ctf_repos.example.json`) so license choices are auditable rather than baked into code. To deploy: edit a config, then `python scripts/collect_ctf_repos.py --config <path>`.
 
 ### 4. Security research blogs (curated)
 - **What:** primary-source technical blogs from established security research groups.

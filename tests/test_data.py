@@ -14,6 +14,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from data.collect import (
     build_nvd_year_windows,
     collect_cve_full,
+    collect_ctf_repos,
     deduplicate_records,
     load_jsonl,
 )
@@ -256,3 +257,137 @@ def test_dedup_normalizes_whitespace():
     ]
     unique = deduplicate_records(records)
     assert len(unique) == 1
+
+
+# ---------- collect_ctf_repos ----------
+
+def _stub_clone(repo_dir, files, license_filename="LICENSE"):
+    """Lay out a fake clone: ``files`` is {relative_path: content}."""
+    repo_dir = Path(repo_dir)
+    repo_dir.mkdir(parents=True, exist_ok=True)
+    if license_filename:
+        (repo_dir / license_filename).write_text("Permissive license placeholder.")
+    for rel, content in files.items():
+        path = repo_dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+
+def _patched_clone(files_per_url, license_filename="LICENSE"):
+    """Build a side_effect that lays out files based on the clone target URL."""
+    def fake_run(cmd, *args, **kwargs):
+        # cmd is ["git", "clone", "--depth", "1", url, dest]
+        url = cmd[-2]
+        dest = cmd[-1]
+        files = files_per_url.get(url, {})
+        _stub_clone(dest, files, license_filename=license_filename)
+        return MagicMock(returncode=0, stdout="", stderr="")
+    return fake_run
+
+
+def test_ctf_repos_extracts_markdown_with_metadata(tmp_path):
+    """Markdown files inside a cloned repo are emitted with repo + license tags."""
+    out = tmp_path / "ctf_repos.jsonl"
+    repos = [
+        {"url": "https://github.com/team-a/writeups", "license": "MIT"},
+    ]
+    files = {
+        "2024/web/sql-injection.md": "# SQL Injection writeup\n\n" + ("Detailed payload analysis. " * 30),
+        "2024/pwn/buffer-overflow.md": "# Buffer overflow writeup\n\n" + ("ROP chain explanation. " * 30),
+        "README.md": "Top-level readme.",  # short — should be filtered out by min_chars
+    }
+    with patch("data.collect.subprocess.run",
+               side_effect=_patched_clone({repos[0]["url"]: files})):
+        collect_ctf_repos(repos, output_path=str(out), min_chars=200, max_chars=12000)
+
+    records = load_jsonl(str(out))
+    paths = {r["path"] for r in records}
+    # README is too short (~16 chars) → dropped; both writeups kept
+    assert paths == {"2024/web/sql-injection.md", "2024/pwn/buffer-overflow.md"}
+    assert all(r["repo"] == "https://github.com/team-a/writeups" for r in records)
+    assert all(r["license"] == "MIT" for r in records)
+    assert all(r["license_file_present"] is True for r in records)
+    assert all(r["source"] == "ctf_repos" for r in records)
+
+
+def test_ctf_repos_truncates_oversized_files(tmp_path):
+    """Files longer than max_chars are truncated, not dropped."""
+    out = tmp_path / "ctf_repos.jsonl"
+    repos = [{"url": "https://github.com/team-b/writeups", "license": "CC-BY-4.0"}]
+    files = {"huge.md": "A" * 50000}  # way past max_chars
+    with patch("data.collect.subprocess.run",
+               side_effect=_patched_clone({repos[0]["url"]: files})):
+        collect_ctf_repos(repos, output_path=str(out), min_chars=10, max_chars=12000)
+
+    records = load_jsonl(str(out))
+    assert len(records) == 1
+    assert len(records[0]["text"]) == 12000
+
+
+def test_ctf_repos_subdir_scopes_walk(tmp_path):
+    """When a subdir is set, only files inside it are collected."""
+    out = tmp_path / "ctf_repos.jsonl"
+    repos = [{
+        "url": "https://github.com/team-c/writeups",
+        "license": "MIT",
+        "subdir": "2024",
+    }]
+    files = {
+        "2024/web/inside.md": "Inside the subdir. " * 30,
+        "2023/pwn/outside.md": "Outside the subdir. " * 30,
+    }
+    with patch("data.collect.subprocess.run",
+               side_effect=_patched_clone({repos[0]["url"]: files})):
+        collect_ctf_repos(repos, output_path=str(out), min_chars=100, max_chars=12000)
+
+    records = load_jsonl(str(out))
+    paths = {r["path"] for r in records}
+    assert "2024/web/inside.md" in paths
+    assert "2023/pwn/outside.md" not in paths
+
+
+def test_ctf_repos_flags_missing_license_file(tmp_path):
+    """Records carry license_file_present=False when no LICENSE is in the repo."""
+    out = tmp_path / "ctf_repos.jsonl"
+    repos = [{"url": "https://github.com/team-d/writeups", "license": "MIT"}]
+    files = {"writeup.md": "Some real-looking writeup content. " * 20}
+    with patch("data.collect.subprocess.run",
+               side_effect=_patched_clone({repos[0]["url"]: files}, license_filename=None)):
+        collect_ctf_repos(repos, output_path=str(out), min_chars=100, max_chars=12000)
+
+    records = load_jsonl(str(out))
+    assert len(records) == 1
+    assert records[0]["license_file_present"] is False
+
+
+def test_ctf_repos_skips_failed_clone(tmp_path):
+    """A failed clone for one repo doesn't block collection from the others."""
+    import subprocess as sp
+    out = tmp_path / "ctf_repos.jsonl"
+    repos = [
+        {"url": "https://example.invalid/broken", "license": "MIT"},
+        {"url": "https://github.com/team-e/writeups", "license": "MIT"},
+    ]
+    good_files = {"writeup.md": "A real writeup. " * 30}
+
+    def fake_run(cmd, *args, **kwargs):
+        url = cmd[-2]
+        if url == repos[0]["url"]:
+            raise sp.CalledProcessError(1, cmd, output="", stderr="fatal: repository not found\n")
+        # second repo: lay out files
+        _stub_clone(cmd[-1], good_files)
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("data.collect.subprocess.run", side_effect=fake_run):
+        collect_ctf_repos(repos, output_path=str(out), min_chars=100, max_chars=12000)
+
+    records = load_jsonl(str(out))
+    assert len(records) == 1
+    assert records[0]["repo"] == "https://github.com/team-e/writeups"
+
+
+def test_ctf_repos_empty_input_is_noop(tmp_path):
+    """No repos = no output file, no crash."""
+    out = tmp_path / "ctf_repos.jsonl"
+    collect_ctf_repos([], output_path=str(out))
+    assert not out.exists()

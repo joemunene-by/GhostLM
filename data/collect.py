@@ -380,6 +380,109 @@ def collect_cve_full(
         print(f"  Year span: {years_seen[0]}–{years_seen[-1]} ({len(years_seen)} years)")
 
 
+def collect_ctf_repos(
+    repos,
+    output_path: str = "data/raw/ctf_repos.jsonl",
+    min_chars: int = 200,
+    max_chars: int = 12000,
+) -> None:
+    """Collect CTF writeups from permissively-licensed GitHub repositories.
+
+    Each repo entry is shallow-cloned to a temp dir; every Markdown file is
+    extracted, cleaned, length-filtered, and stored as a JSONL record with the
+    repo URL and SPDX license identifier preserved as metadata. Designed for
+    the Phase 3.5 corpus-diversity track — replaces the synthetic CTF set in
+    `collect_ctf_writeups()` with real writeups while keeping per-source
+    attribution auditable.
+
+    The list of repos is a caller-supplied parameter rather than hardcoded so
+    that license decisions are transparent — see ``scripts/collect_ctf_repos.py``
+    for a CLI that reads a JSON config.
+
+    Each ``repos`` entry must have:
+      * ``url``         — git clone URL
+      * ``license``     — SPDX license identifier (e.g. ``"MIT"``, ``"CC-BY-4.0"``)
+      * (optional) ``subdir`` — only walk this subdirectory inside the repo
+
+    A LICENSE file inside the repo is verified to exist; absence does **not**
+    block collection but is flagged in the record metadata so downstream
+    auditors can spot-check.
+
+    Args:
+        repos: List of dicts as described above.
+        output_path: Destination JSONL path.
+        min_chars: Drop files shorter than this (filters READMEs etc.).
+        max_chars: Truncate files longer than this (avoid huge dumps).
+    """
+    if not repos:
+        print("  No repos provided — skipping CTF repo collection.")
+        return
+
+    print(f"Collecting CTF writeups from {len(repos)} repos...")
+    records: List[Dict] = []
+    next_id = 0
+
+    for repo in repos:
+        url = repo["url"]
+        license_id = repo["license"]
+        subdir = repo.get("subdir", "")
+        print(f"  {url} (license: {license_id})")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp) / "repo"
+            try:
+                subprocess.run(
+                    ["git", "clone", "--depth", "1", url, str(repo_dir)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except subprocess.CalledProcessError as e:
+                print(f"    clone failed: {e.stderr.strip().splitlines()[-1] if e.stderr else e}")
+                continue
+
+            license_present = any(
+                (repo_dir / fn).exists()
+                for fn in ("LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING")
+            )
+
+            walk_root = repo_dir / subdir if subdir else repo_dir
+            if not walk_root.is_dir():
+                print(f"    subdir {subdir!r} not found in repo — skipping")
+                continue
+
+            kept = 0
+            for md_path in walk_root.rglob("*.md"):
+                try:
+                    raw = md_path.read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    continue
+                cleaned = clean_text(raw)
+                if not (min_chars <= len(cleaned) <= max_chars):
+                    if len(cleaned) > max_chars:
+                        cleaned = cleaned[:max_chars]
+                    elif len(cleaned) < min_chars:
+                        continue
+                rel = md_path.relative_to(repo_dir).as_posix()
+                records.append({
+                    "id": f"ctfrepo-{next_id}",
+                    "text": cleaned,
+                    "source": "ctf_repos",
+                    "repo": url,
+                    "path": rel,
+                    "license": license_id,
+                    "license_file_present": license_present,
+                })
+                next_id += 1
+                kept += 1
+            print(f"    +{kept} writeups")
+
+    if records:
+        save_jsonl(records, output_path)
+    else:
+        print("  Warning: no records collected.")
+
+
 def collect_security_papers(
     output_path: str = "data/raw/papers.jsonl",
     max_records: int = 2000,

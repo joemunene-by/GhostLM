@@ -1,0 +1,12 @@
+[
+  {
+    "url": "https://github.com/EXAMPLE-team/EXAMPLE-writeups",
+    "license": "MIT",
+    "subdir": ""
+  },
+  {
+    "url": "https://github.com/ANOTHER-team/ANOTHER-writeups",
+    "license": "CC-BY-4.0",
+    "subdir": "2024"
+  }
+]
