@@ -85,6 +85,26 @@ def parse_args():
         action="store_true",
         help="Disable wandb logging",
     )
+    parser.add_argument(
+        "--run-name",
+        type=str,
+        default=None,
+        help="If set, checkpoints go to checkpoints/<run-name>/ and logs to "
+        "logs/<run-name>/. Use this to keep new training runs from clobbering "
+        "released checkpoints (e.g. checkpoints/best_model.pt).",
+    )
+    parser.add_argument(
+        "--eval-interval",
+        type=int,
+        default=None,
+        help="Override config eval_interval (steps between val evaluations).",
+    )
+    parser.add_argument(
+        "--save-interval",
+        type=int,
+        default=None,
+        help="Override config save_interval (steps between checkpoint saves).",
+    )
 
     return parser.parse_args()
 
@@ -119,6 +139,13 @@ def main():
     config.vocab_size = 50261
     if args.context_length is not None:
         config.context_length = args.context_length
+    if args.eval_interval is not None:
+        config.eval_interval = args.eval_interval
+    if args.save_interval is not None:
+        config.save_interval = args.save_interval
+    if args.run_name:
+        config.checkpoint_dir = f"checkpoints/{args.run_name}"
+        config.log_dir = f"logs/{args.run_name}"
 
     # Print config
     print(repr(config))
