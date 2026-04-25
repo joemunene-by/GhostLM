@@ -1,20 +1,23 @@
-.PHONY: all install test data train-tiny train-small generate chat benchmark plot export clean help
+.PHONY: all install test data data-nvd-full data-rebuild data-audit train-tiny train-small generate chat benchmark plot export clean help
 
 help:
 	@echo "GhostLM — Cybersecurity Language Model"
 	@echo "Usage: make [target]"
 	@echo ""
-	@echo "  install       Install all dependencies"
-	@echo "  test          Run all unit tests"
-	@echo "  data          Download and prepare training data"
-	@echo "  train-tiny    Train ghost-tiny (3M params, CPU-friendly)"
-	@echo "  train-small   Train ghost-small (55M params, GPU recommended)"
-	@echo "  generate      Generate text from trained checkpoint"
-	@echo "  chat          Interactive chat with trained model"
-	@echo "  benchmark     Compare GhostLM vs GPT-2 perplexity"
-	@echo "  plot          Plot training loss curve"
-	@echo "  clean         Remove cache files"
-	@echo "  help          Show this help message"
+	@echo "  install         Install all dependencies"
+	@echo "  test            Run all unit tests"
+	@echo "  data            Download and prepare training data (full pipeline)"
+	@echo "  data-nvd-full   Pull the full NVD CVE corpus (Phase 3 — uses NVD_API_KEY)"
+	@echo "  data-rebuild    Re-merge data/raw/ into train/val (after a corpus pull)"
+	@echo "  data-audit      Run pre-training corpus diagnostics + chart"
+	@echo "  train-tiny      Train ghost-tiny (14.7M params, CPU-friendly)"
+	@echo "  train-small     Train ghost-small (55M params, GPU recommended)"
+	@echo "  generate        Generate text from trained checkpoint"
+	@echo "  chat            Interactive chat with trained model"
+	@echo "  benchmark       Compare GhostLM vs GPT-2 perplexity"
+	@echo "  plot            Plot training loss curve"
+	@echo "  clean           Remove cache files"
+	@echo "  help            Show this help message"
 
 install:
 	pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -26,6 +29,15 @@ test:
 
 data:
 	python data/collect.py
+
+data-nvd-full:
+	python scripts/collect_nvd_full.py
+
+data-rebuild:
+	python scripts/rebuild_corpus.py
+
+data-audit:
+	python scripts/data_audit.py --plot
 
 train-tiny:
 	python scripts/train.py --preset ghost-tiny --max-steps 2000 --batch-size 2 --device cpu

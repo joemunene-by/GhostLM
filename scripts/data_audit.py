@@ -241,8 +241,9 @@ def main():
         all_raw_records.extend(records)
 
     cve_years = Counter()
-    if "cve" in raw_files:
-        records, _ = load_jsonl(raw_files["cve"])
+    cve_key = "cve_full" if "cve_full" in raw_files else ("cve" if "cve" in raw_files else None)
+    if cve_key:
+        records, _ = load_jsonl(raw_files[cve_key])
         cve_years = audit_cve(records)
 
     ctf_cats = Counter()
