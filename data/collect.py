@@ -214,6 +214,153 @@ def collect_cve_descriptions(
 CVE_YEAR_RE = re.compile(r"CVE-(\d{4})-\d+")
 
 
+def collect_cve_full(
+    output_path: str = "data/raw/cve_full.jsonl",
+    start_year: int = 1999,
+    end_year: Optional[int] = None,
+    page_size: int = 2000,
+    flush_every: int = 5000,
+    request_timeout: int = 60,
+) -> None:
+    """Fetch the full NVD CVE corpus (uncapped, properly paginated).
+
+    Differences from ``collect_cve_descriptions``:
+      * No per-year cap, no global max — pulls every CVE in the date range.
+      * Paginates within each 119-day window via ``startIndex``, so dense
+        windows (recent years with >2000 CVEs per quarter) are not silently
+        truncated at the first page.
+      * Flushes to ``output_path`` every ``flush_every`` newly-collected
+        records so a long pull can be killed and resumed without losing
+        most of the work. Always runs in append-merge mode.
+
+    Reads ``NVD_API_KEY`` from the environment for the higher rate limit
+    (50 req / 30s vs 5 req / 30s anonymous). Without a key this is a
+    multi-hour pull; with a key, on the order of minutes.
+
+    Args:
+        output_path: Destination JSONL path (kept distinct from
+            ``cve.jsonl`` so the v0.3.0 corpus stays reproducible).
+        start_year: First year to query (inclusive).
+        end_year: Last year (defaults to current UTC year).
+        page_size: ``resultsPerPage`` per request (NVD max is 2000).
+        flush_every: Flush merged records to disk after this many new
+            records have been added since the last flush.
+        request_timeout: Per-request timeout in seconds.
+    """
+    print("Collecting full NVD CVE corpus (paginated, uncapped)...")
+    base_url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+    api_key = os.environ.get("NVD_API_KEY")
+    delay = 0.7 if api_key else 6.0
+    headers = {"apiKey": api_key} if api_key else {}
+    if not api_key:
+        print("  NVD_API_KEY not set — using anonymous rate limit (~5 req / 30s).")
+
+    if end_year is None:
+        end_year = datetime.datetime.utcnow().year
+
+    existing: Dict[str, Dict] = {}
+    if Path(output_path).exists():
+        for rec in load_jsonl(output_path):
+            existing[rec.get("id", "")] = rec
+        print(f"  resume mode: {len(existing)} existing records loaded from {output_path}")
+
+    # 119-day windows leave a safety margin under NVD's 120-day cap.
+    windows = []
+    for year in range(start_year, end_year + 1):
+        day = datetime.date(year, 1, 1)
+        year_end = datetime.date(year, 12, 31)
+        while day <= year_end:
+            window_end = min(day + datetime.timedelta(days=118), year_end)
+            start_str = day.strftime("%Y-%m-%dT00:00:00.000")
+            end_str = window_end.strftime("%Y-%m-%dT23:59:59.999")
+            windows.append((start_str, end_str, year))
+            day = window_end + datetime.timedelta(days=1)
+
+    new_since_flush = 0
+    total_new = 0
+
+    def flush():
+        save_jsonl(list(existing.values()), output_path)
+
+    for pub_start, pub_end, year in windows:
+        start_index = 0
+        window_added = 0
+        while True:
+            params = {
+                "pubStartDate": pub_start,
+                "pubEndDate": pub_end,
+                "resultsPerPage": page_size,
+                "startIndex": start_index,
+            }
+            try:
+                resp = requests.get(base_url, params=params, headers=headers, timeout=request_timeout)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as e:
+                print(f"  {pub_start[:10]}..{pub_end[:10]} idx={start_index}: fetch failed ({e})")
+                time.sleep(delay)
+                break
+
+            vulns = data.get("vulnerabilities", [])
+            total_results = data.get("totalResults", 0)
+
+            page_added = 0
+            for item in vulns:
+                try:
+                    cve_id = item.get("cve", {}).get("id", "")
+                    if not cve_id or cve_id in existing:
+                        continue
+                    descriptions = item.get("cve", {}).get("descriptions", [])
+                    description = ""
+                    for desc in descriptions:
+                        if isinstance(desc, dict) and desc.get("lang") == "en":
+                            description = desc.get("value", "")
+                            break
+                    if not description and descriptions:
+                        description = descriptions[0].get("value", "")
+                    cleaned = clean_text(description)
+                    if len(cleaned) < 50:
+                        continue
+                    rec = {"id": cve_id, "text": cleaned, "source": "nvd"}
+                    existing[cve_id] = rec
+                    page_added += 1
+                except Exception:
+                    continue
+
+            window_added += page_added
+            new_since_flush += page_added
+            total_new += page_added
+            start_index += len(vulns)
+
+            time.sleep(delay)
+
+            # End of window — break when we've consumed all results, or when
+            # the page came back empty (shouldn't happen if totalResults
+            # was honest, but defensive).
+            if start_index >= total_results or not vulns:
+                break
+
+        print(
+            f"  {pub_start[:10]}..{pub_end[:10]}: +{window_added} "
+            f"(window total {total_results}, corpus {len(existing)})"
+        )
+
+        if new_since_flush >= flush_every:
+            flush()
+            print(f"  flushed {len(existing)} records to {output_path}")
+            new_since_flush = 0
+
+    flush()
+    years_seen = sorted({
+        int(CVE_YEAR_RE.search(r["id"]).group(1))
+        for r in existing.values()
+        if CVE_YEAR_RE.search(r.get("id", ""))
+    })
+    print(f"\n  Done. Added {total_new} new records, total {len(existing)}.")
+    if years_seen:
+        print(f"  Year span: {years_seen[0]}–{years_seen[-1]} ({len(years_seen)} years)")
+
+
 def collect_security_papers(
     output_path: str = "data/raw/papers.jsonl",
     max_records: int = 2000,
