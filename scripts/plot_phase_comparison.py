@@ -42,12 +42,12 @@ PHASES = [
     },
     {
         "name": "Phase 3",
-        "label": "Phase 3\n(12x corpus)",
+        "label": "Phase 3\n(12x corpus, released)",
         "color": "#6FB76F",
         "log": Path("logs/phase3_refresh/training_log.json"),
         "bench": Path("logs/benchmark_phase3.json"),
         "sec": Path("logs/eval_security_phase3.json"),
-        "note": "ghost-tiny refresh on the post-NVD-pull corpus",
+        "note": "v0.3.3 released ghost-tiny on the post-NVD-pull corpus",
     },
 ]
 

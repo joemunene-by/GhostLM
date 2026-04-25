@@ -168,12 +168,44 @@ Corpus milestone, not a model release. The released checkpoint is still v0.3.0's
 
 ---
 
-## [Unreleased] — Upcoming
+## [0.3.3] — 2026-04-25 — Phase 3 ghost-tiny Refresh
 
-### Planned for v0.3.x — ghost-tiny refresh on the new corpus
-- Training run on the ~30M-token Phase 3 corpus to validate the recipe scales with data.
-- Same architecture, more steps to match the larger corpus.
-- Headline metric: does val_loss meaningfully drop below v0.3.0's 3.78 with 12× more data?
+**This is a model release.** The Phase 3 checkpoint is now canonical at `checkpoints/best_model.pt`. Phase 2 archived as `checkpoints/best_model_phase2.pt`.
+
+### Training Milestone
+- ghost-tiny (14.7M params, unchanged) trained from scratch for 30,000 steps on the ~30M-token post-NVD-pull corpus.
+- Hardware-of-record: Mac Mini M4 (CPU). Training time: ~3h48m wall-clock at ~2.4 it/s.
+- **Final val_loss: 3.4458** (perplexity ≈ 31). 0.34 nat lower than Phase 2's 3.78 — **the recipe scales with data at fixed model size.**
+- Curve is monotonic and clean over 60 eval points; first dense ghost-tiny training curve in project history (`logs/phase3_refresh/training_curve.png`).
+
+### Evaluation
+- **Cyber-text perplexity vs GPT-2:** 142.09 (Phase 3) vs 152.71 (Phase 2) vs 2,183.94 (Phase 1) vs 26.76 (GPT-2 124M). Modest 7% gain over Phase 2 on this benchmark — most of the perplexity dividend was earned at Phase 2 (corpus quality + clean split); Phase 3's win is more visible on val_loss than on the 10-text benchmark, which already overlaps both corpora. Still 5.3× behind GPT-2.
+- **Security-domain task eval:** 4/30 (13.3%) — same numerical score as Phase 2 but with a *different mode-collapse pattern* (Phase 3 predicts "Medium-or-High" / "Cross-Site Scripting" / "DLL Search Order Hijacking" instead of Phase 2's "High" / "XSS" / "Supply Chain Compromise"). CVE-severity task picks up partial discrimination (got 2 right by mixing Mediums). Confirms model is still too small for structured-task eval — the corpus dividend is invisible there until ghost-small.
+
+### Generation Quality
+- Phase 3 sample generations now produce **CVE-database register**: phrases like "Cross-Site Request Forgery in all versions up to, and including, 2.2 — this is due to missing nonce validation," "use after free," "remote attacker," "submitting a crafted link" are real CVE language used in roughly the right context. Phase 2's broken-grammar fragments ("the login page is used to the login page's name of the login page") are gone.
+- Hallucinations are still rampant — made-up products, scrambled version strings, mixed-up vendors. Form is right; facts are not. Expected outcome of corpus-expansion at fixed model size.
+
+### Added
+- `checkpoints/best_model.pt` — Phase 3 best (val_loss 3.4458). Phase 2 preserved as `checkpoints/best_model_phase2.pt`.
+- `checkpoints/phase3_refresh/best_model.pt`, `checkpoints/phase3_refresh/checkpoint_step_30000.pt` — same artifact in the run-name'd dir.
+- `logs/phase3_refresh/training_log.json` — 60-eval Phase 3 training log.
+- `logs/phase3_refresh/training_curve.png` — first real training curve (Phase 1 + Phase 2 logs were too sparse).
+- `logs/benchmark_phase3.json` — Phase 3 GPT-2 perplexity benchmark output.
+- `logs/eval_security_phase3.json` — Phase 3 security-task eval output.
+- `logs/phase_comparison.png` — re-rendered with all three phases populated across val_loss / perplexity / security panels.
+
+### Changed
+- README badge: "Phase 2 Complete" → "Phase 3 Complete".
+- README + MODEL_CARD: training-data table updated to the post-NVD-pull corpus (~309K records / ~30M tokens). Sample Generations replaced with Phase 3 outputs. Evaluation section reflects Phase 3 numbers.
+- ROADMAP: Phase 3 ghost-tiny refresh marked done; Phase 4 (ghost-small) gating updated — recipe-scales-with-data validated, remaining gate is corpus diversity.
+
+### Note
+- The Phase 2→3 perplexity gain on the cyber-text benchmark (152.71 → 142.09, 7%) is smaller than the val_loss gain (3.78 → 3.45, 9% / 29% perplexity). This is consistent: the benchmark is 10 hand-picked cyber-text samples that overlapped both corpora, so the residual gain is from volume rather than quality. The val_loss measurement is the cleaner read on whether the recipe scales.
+
+---
+
+## [Unreleased] — Upcoming
 
 ### Planned for v0.4.0 — Corpus expansion
 - CTFtime archive ingestion.

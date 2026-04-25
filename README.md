@@ -1,4 +1,4 @@
-![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-Phase%202%20Complete-green.svg)
+![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-Phase%203%20Complete-green.svg)
 
 # GhostLM
 
@@ -128,15 +128,16 @@ make plot
 
 ## Training Data
 
+The released v0.3.3 checkpoint was trained on the post-NVD-pull corpus:
+
 | Source | Records | Type | Coverage |
 |---|---|---|---|
-| NVD CVE Database | 19,925 | Real | 1999–2025 (27 years, balanced per-year cap) |
-| arXiv cs.CR Abstracts | 1,000 | Real | Recent-first (submittedDate descending) |
-| CTF Writeups | 3,000 | Synthetic | Generated via local LLM, varied template + topic mix |
-| **Total (pre-dedup)** | **23,925** | | |
-| **Total (post-dedup, training)** | **23,049** | | ~2.66M tokens (train: 2,525,245 / val: 136,869) |
+| NVD CVE Database | 333,540 | Real | Full pull, 1999–2026 (28 years), `startIndex`-paginated |
+| arXiv cs.CR Abstracts | 2,000 | Real | Recent-first (submittedDate descending) |
+| Synthetic CTF Writeups | 3,000 | Synthetic | Generated via local LLM, varied template + topic mix |
+| **Total (post-dedup)** | **~309K** | | **~30M tokens** (train: ~293K / val: ~15K) |
 
-The pipeline produces a deterministic, leakage-proof split — train and validation are assigned by content hash so identical texts always land in the same split. `scripts/data_audit.py` runs the diagnostics (length percentiles, dedup rate, CVE-year distribution, CTF category share, token share, leakage check) and writes a 4-panel chart to `logs/data_audit.png`.
+Token share is currently lopsided — NVD ~87%, CTF ~5%, papers ~2%. The next *corpus* track is diversity (CTFtime, MITRE ATT&CK), not deeper NVD. The pipeline produces a deterministic, leakage-proof split (content-hash bucketing, leakage check returns 0). `scripts/data_audit.py` runs the diagnostics and writes a 4-panel chart to `logs/data_audit.png`.
 
 For where the corpus is heading — sources targeted (CTFtime archives, security research blogs, MITRE ATT&CK, tool docs) and licensing notes — see [CORPUS.md](CORPUS.md).
 
@@ -144,39 +145,41 @@ For where the corpus is heading — sources targeted (CTFtime archives, security
 
 ## Training Progress
 
-| Run | Steps | Train Loss | Val Loss | Notes |
+| Run | Steps | Train tokens | Val Loss | Notes |
 |---|---|---|---|---|
-| ghost-tiny Phase 1 (pre-audit corpus) | 10,000 | 1.97 | 2.74 | Superseded — leaky train/val split, kept for reference under `archive/` |
-| ghost-tiny Phase 2 (rebalanced corpus) | 10,000 | ~4.6 | **3.7813** | Current canonical model. Hardware-of-record: Mac Mini M4 (CPU) |
+| ghost-tiny Phase 1 (pre-audit corpus) | 10,000 | 2.66M (leaky) | 2.74 | Superseded — leaky train/val split, archived under `archive/` |
+| ghost-tiny Phase 2 (rebalanced corpus) | 10,000 | 2.66M | 3.7813 | Archived as `checkpoints/best_model_phase2.pt` |
+| **ghost-tiny Phase 3 (post-NVD-pull corpus)** | **30,000** | **~30M** | **3.4458** | **Current canonical model.** Hardware-of-record: Mac Mini M4 (CPU), ~3h48m wall-clock |
 
-> Phase 1 and Phase 2 val_loss are **not directly comparable** — Phase 1's 2.74 was measured on a leaky split where many "validation" samples appeared in training. Phase 2's 3.78 is the trustworthy number on a clean, deterministic-hash split. Don't read the increase as regression; it's the first honest measurement.
+> Phase 1's val_loss 2.74 was measured on a leaky split — not directly comparable to later phases. Phase 2 (3.78) and Phase 3 (3.45) are both on clean deterministic-hash splits, so the **0.34 nat drop is a real corpus-quality dividend** at fixed model size. Same recipe, ~12× the data, ~29% lower perplexity on val.
 
-The Phase 2 checkpoint is `checkpoints/best_model.pt`. Phase 1 is preserved as `checkpoints/best_model_phase1.pt` for archaeological reference.
+The Phase 3 checkpoint is `checkpoints/best_model.pt`. Phase 1 and Phase 2 checkpoints are preserved as `checkpoints/best_model_phase1.pt` and `checkpoints/best_model_phase2.pt` for archaeological reference.
 
-The fairer cross-phase metric is the cyber-text perplexity benchmark (same hardcoded sample set both phases ran against):
+The cross-phase perplexity benchmark (same hardcoded 10-sample cyber-text set across all phases — fair comparison):
 
 | Model | Perplexity vs cyber-text benchmark |
 |---|---|
-| ghost-tiny — Phase 2 | **152.71** |
+| **ghost-tiny — Phase 3 (released)** | **142.09** |
+| ghost-tiny — Phase 2 | 152.71 |
 | ghost-tiny — Phase 1 | 2,183.94 |
 | GPT-2 (124M baseline) | 26.76 |
 
-Phase 2 is **14.3× better** than Phase 1 — that's the corpus-quality dividend, not extra training. ghost-tiny is still 5.7× behind GPT-2, expected for a 14.7M model on ~2.7M tokens vs. a 124M model on ~40B tokens of WebText. See `logs/phase_comparison.png` for the side-by-side and [MODEL_CARD.md](MODEL_CARD.md#evaluation-phase-2--10k-steps-rebalanced-corpus) for the security-task eval (still mode-collapsed at this scale — expected).
+Phase 2→3 moved this benchmark only ~7% — the 10-text set has a lot of generic security prose that already overlapped both corpora, so most of the perplexity dividend was earned at Phase 2 (corpus quality + clean split). The Phase 3 win shows up much more strongly on val_loss than on this benchmark. ghost-tiny is still 5.3× behind GPT-2 on raw perplexity, expected for a 14.7M model on ~30M tokens vs. a 124M model on ~40B tokens of WebText. See `logs/phase_comparison.png` for the 3-panel side-by-side and [MODEL_CARD.md](MODEL_CARD.md#evaluation-phase-3--30k-steps-post-nvd-pull-corpus) for the security-task eval (still mode-collapsed at this scale — expected).
 
 ## Sample Generations
 
-These are real generations from `checkpoints/best_model.pt` at `temperature=0.7-0.8, top_k=50`. They reflect what a 14.7M-param model trained on ~2.7M tokens can actually do — and what it can't:
+These are real generations from `checkpoints/best_model.pt` (Phase 3, val_loss 3.45) at `temperature=0.8, top_k=50`. They reflect what a 14.7M-param model trained on ~30M tokens can actually do — and what it can't:
 
 > **Prompt:** *A SQL injection attack works by*
-> ...the login page. The login page is used to the login page's name of the login page does not properly sanitization of the password, which allows attackers to cause a denial of service via a long GET request. In this CTF challenge, participants are tasked with a classic vulnerability in exploiting a vulnerable to exploit a vulnerable to SQL injection vulnerability...
-
-> **Prompt:** *CVE-2021-44228 is a vulnerability in*
-> ...the C privileged user account, which allows local users to gain root privileges. Buffer overflow in x86 program in Oracle MySQL 5.1.2.5.0.0.2.1.0.1 and 7.1.2.1.0.x before 7.2.2.2.x before 7.1.x before 7.1.1.2.
+> ...injecting a crafted payload in the "password" parameter. NOTE: some of these details are obtained from third party information. EINXCMS 3.4.7.2.0 contains a cross-site scripting vulnerability that allows users to embed arbitrary JavaScript code in the Web UI thus altering the intended functionality potentially leading to credentials disclosure within a trusted session. This issue is fixed in 1.0.10. Use after free in Google Chrome before 17.0.66.75 allowed a remote...
 
 > **Prompt:** *To enumerate Active Directory users from a Linux box, an attacker can*
-> ...obtain the binary using the binary. The binary. The binary using UPX, the binary exploitation, we were a stack with a ret2libc base address of the stack with Ghidra's memory with pwndbg and function...
+> ...exploit an attacker to inject malicious scripts as the target system and execute arbitrary code in the context of the current process. The vulnerability is due to the application... A successful exploit could allow the attacker to obtain sensitive information on the user. The BIO plugin for WordPress is vulnerable to Cross-Site Request Forgery in all versions up to, and including, 2.2. This is due to missing nonce validation on...
 
-**What this shows:** the model has absorbed surface-level cyber vocabulary (CTF terminology, exploit techniques, CVE-string format, common vuln types) but has no semantic grounding — broken grammar, hallucinated version chains, can't bind topic (an AD-on-Linux prompt elicits binary exploitation tokens). This is exactly what a 14.7M-param model on ~22K records predicts. The fix is scale, not more steps at this scale — see the [Roadmap](#roadmap).
+> **Prompt:** *Cross-site scripting (XSS) allows attackers to*
+> ...inject arbitrary web script or HTML via unspecified vectors. The davcodec_server function in libav.c in the Linux kernel before 4.4.0.5, 4.x before 4.6.1, and 4.x before 4.3.0.x before 4.3.3, does not properly restrict access to (1) Ntcpd) PTP-based LDAP (2) X-3-NAP00-00N-N
+
+**What this shows:** the model has learned the **CVE-database register** — phrases like "Cross-Site Request Forgery in all versions up to, and including, 2.2 — this is due to missing nonce validation," "use after free," "remote attacker," "submitting a crafted link" are real CVE language used in roughly the right context. Compare to Phase 2, which produced fragments like "the login page is used to the login page's name of the login page does not properly sanitization" — same architecture, same param count, just 12× more data. **Hallucinations are still rampant** (made-up products, scrambled version strings, mixed-up vendors) — the model has the *form* of CVE descriptions but not the *facts*. This is the expected outcome of corpus expansion at fixed model size: better surface fluency, no new factual capability. The fix is scale (more params), not more data at this param count — see the [Roadmap](#roadmap).
 
 ---
 
@@ -215,20 +218,18 @@ GhostLM/
 
 GhostLM is a multi-year effort. The honest framing is that ghost-tiny is a learning artifact and a working pipeline — *not* a useful cyber-task model. The path to "useful" is the scale ladder below, paired with a corpus that grows by ~100× from where it is today. See [ROADMAP.md](ROADMAP.md) for full milestones, compute estimates, and corpus targets.
 
-**Where we are (Phase 2, complete):** ghost-tiny @ 10K steps, val_loss 3.78 on the rebalanced corpus. End-to-end training pipeline proven. ~2.7M training tokens.
-
-**Phase 3 corpus expansion in progress (2026-04-25):** full NVD pull complete — 333,540 CVE records, ~30M total training tokens (12× the v0.3.0 baseline). NVD is now 87% of token share, so the next track is *diversity* (CTFtime, MITRE ATT&CK), not deeper NVD. ghost-tiny will get a refresh training run on the new corpus before the next corpus track lands. See [CORPUS.md](CORPUS.md) for the current snapshot.
+**Where we are (Phase 3, complete — v0.3.3):** ghost-tiny @ 30K steps on the post-NVD-pull ~30M-token corpus, val_loss 3.4458, perplexity 142.09 on the cyber-text benchmark. Same architecture as Phase 2, ~12× the data, **~29% lower perplexity on val**. The recipe scales with data — that's the result Phase 4 (ghost-small) gating was waiting on.
 
 **Where we're going:**
 
-1. **Corpus expansion** — 10–100× the current corpus. NVD-at-scale ✓, CTFtime archives, security research blogs (Project Zero, PortSwigger, Trail of Bits), MITRE ATT&CK, tool docs. This is the long-term moat and compounds even when compute is the bottleneck.
-2. **ghost-small (~55M params)** — first scale-up rung. M4 GPU/MPS feasible. Validates whether the recipe scales.
+1. **Corpus diversity** — break the NVD-87% lopsidedness. CTFtime archives, security research blogs (Project Zero, PortSwigger, Trail of Bits), MITRE ATT&CK, tool docs. This is the long-term moat and compounds even when compute is the bottleneck.
+2. **ghost-small (~55M params)** — first scale-up rung. M4 GPU/MPS feasible. Phase 3 met the gating criterion (recipe-scales-with-data validated); the remaining gate is corpus diversity above.
 3. **ghost-base (~350M params)** — first rung that needs rented GPU compute. Where domain-coherent generation should start to emerge.
 4. **ghost-1B** — the long-term goal. The smallest scale at which a from-scratch cyber LM has a real shot at being genuinely useful. Will need either rented H100 hours or owned GPU.
 
 **Realistic timeline:** 2–3 years of sustained work to a useful 1B from-scratch cyber LM. That is the actual shape of this work — there are no shortcuts for "from scratch" at scale. Detailed phase plan in [ROADMAP.md](ROADMAP.md).
 
-For changelog history (v0.1.0 → v0.3.0), see [CHANGELOG.md](CHANGELOG.md).
+For changelog history (v0.1.0 → v0.3.3), see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
