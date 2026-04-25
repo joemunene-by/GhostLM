@@ -230,7 +230,7 @@ def ollama_gen(prompt: str, temp: float = 0.85) -> str:
             "model": MODEL,
             "prompt": prompt,
             "stream": False,
-            "options": {"temperature": temp, "top_p": 0.9, "num_predict": 800},
+            "options": {"temperature": temp, "top_p": 0.9, "num_predict": 400},
         }
     ).encode()
     req = urllib.request.Request(
