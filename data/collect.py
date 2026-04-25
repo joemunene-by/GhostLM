@@ -214,6 +214,35 @@ def collect_cve_descriptions(
 CVE_YEAR_RE = re.compile(r"CVE-(\d{4})-\d+")
 
 
+def build_nvd_year_windows(start_year: int, end_year: int):
+    """Build 119-day publication-date windows covering [start_year, end_year].
+
+    NVD caps any ``pubStartDate``/``pubEndDate`` range at 120 consecutive days,
+    so each year is split into a sequence of 119-day chunks (safety margin)
+    that never cross a year boundary.
+
+    Args:
+        start_year: First year (inclusive).
+        end_year: Last year (inclusive).
+
+    Returns:
+        List of ``(pub_start_iso, pub_end_iso, year)`` tuples in chronological
+        order. Each window is at most 119 days and is contained within a
+        single calendar year.
+    """
+    windows = []
+    for year in range(start_year, end_year + 1):
+        day = datetime.date(year, 1, 1)
+        year_end = datetime.date(year, 12, 31)
+        while day <= year_end:
+            window_end = min(day + datetime.timedelta(days=118), year_end)
+            start_str = day.strftime("%Y-%m-%dT00:00:00.000")
+            end_str = window_end.strftime("%Y-%m-%dT23:59:59.999")
+            windows.append((start_str, end_str, year))
+            day = window_end + datetime.timedelta(days=1)
+    return windows
+
+
 def collect_cve_full(
     output_path: str = "data/raw/cve_full.jsonl",
     start_year: int = 1999,
@@ -264,17 +293,7 @@ def collect_cve_full(
             existing[rec.get("id", "")] = rec
         print(f"  resume mode: {len(existing)} existing records loaded from {output_path}")
 
-    # 119-day windows leave a safety margin under NVD's 120-day cap.
-    windows = []
-    for year in range(start_year, end_year + 1):
-        day = datetime.date(year, 1, 1)
-        year_end = datetime.date(year, 12, 31)
-        while day <= year_end:
-            window_end = min(day + datetime.timedelta(days=118), year_end)
-            start_str = day.strftime("%Y-%m-%dT00:00:00.000")
-            end_str = window_end.strftime("%Y-%m-%dT23:59:59.999")
-            windows.append((start_str, end_str, year))
-            day = window_end + datetime.timedelta(days=1)
+    windows = build_nvd_year_windows(start_year, end_year)
 
     new_since_flush = 0
     total_new = 0

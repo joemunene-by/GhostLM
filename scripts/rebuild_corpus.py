@@ -20,6 +20,43 @@ sys.path.insert(0, str(REPO_ROOT))
 from data.collect import merge_datasets
 
 
+def select_corpus_sources(raw_dir, prefer_full_nvd=True):
+    """Pick the JSONL files to feed into the merge from a raw/ directory.
+
+    When both ``cve.jsonl`` (the v0.3.0 baseline corpus) and
+    ``cve_full.jsonl`` (the post-Phase-3 NVD pull) are present, only one
+    should go into the merge. By default ``cve_full.jsonl`` wins;
+    ``prefer_full_nvd=False`` forces the legacy file for reproducibility.
+
+    Args:
+        raw_dir: Path to the directory containing ``*.jsonl`` raw sources.
+        prefer_full_nvd: If True (default) and ``cve_full.jsonl`` exists,
+            it is selected and ``cve.jsonl`` is excluded. If False (or
+            ``cve_full.jsonl`` is absent), ``cve.jsonl`` is selected.
+
+    Returns:
+        ``(sources, cve_choice)`` where ``sources`` is a list of selected
+        JSONL paths as strings and ``cve_choice`` is the Path to the CVE
+        file that won the selection (or ``None`` if neither exists).
+    """
+    raw_dir = Path(raw_dir)
+    candidates = sorted(raw_dir.glob("*.jsonl"))
+    cve_full = raw_dir / "cve_full.jsonl"
+    cve_legacy = raw_dir / "cve.jsonl"
+
+    use_full = prefer_full_nvd and cve_full.exists()
+    sources = []
+    for p in candidates:
+        if p.name == "cve.jsonl" and use_full:
+            continue  # superseded by cve_full
+        if p.name == "cve_full.jsonl" and not use_full:
+            continue
+        sources.append(str(p))
+
+    cve_choice = cve_full if use_full else (cve_legacy if cve_legacy.exists() else None)
+    return sources, cve_choice
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="Rebuild train/val splits from data/raw/.")
     p.add_argument("--raw-dir", default="data/raw", help="Directory containing raw JSONL files.")
@@ -47,21 +84,7 @@ def main():
     if not raw.is_dir():
         sys.exit(f"raw dir not found: {raw}")
 
-    # Discover all raw sources and pick which CVE file to feed in.
-    candidates = sorted(raw.glob("*.jsonl"))
-    cve_full = raw / "cve_full.jsonl"
-    cve_legacy = raw / "cve.jsonl"
-
-    use_full = args.prefer_full_nvd and cve_full.exists()
-    sources = []
-    for p in candidates:
-        if p.name == "cve.jsonl" and use_full:
-            continue  # superseded by cve_full
-        if p.name == "cve_full.jsonl" and not use_full:
-            continue
-        sources.append(str(p))
-
-    cve_choice = cve_full if use_full else (cve_legacy if cve_legacy.exists() else None)
+    sources, cve_choice = select_corpus_sources(raw, prefer_full_nvd=args.prefer_full_nvd)
     print("Rebuild corpus")
     print(f"  raw dir:    {raw}")
     print(f"  CVE source: {cve_choice}")
