@@ -1,0 +1,8 @@
+{
+  "ghostlm_perplexity": 2183.9364,
+  "gpt2_perplexity": 26.7626,
+  "ghostlm_step": 10000,
+  "elapsed_seconds": 36.9,
+  "device": "cpu",
+  "num_texts": 10
+}

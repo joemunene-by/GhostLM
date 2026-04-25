@@ -130,12 +130,24 @@ Format: [Version] — Date — Description
 
 ---
 
-## [Unreleased] — Upcoming
+## [0.3.1] — 2026-04-25 — Phase 2 Evaluation Refresh
 
-### Planned for v0.3.x — Phase 2 evaluation refresh
-- Re-run GPT-2 perplexity benchmark on the Phase 2 model.
-- Re-run security-domain task evals (CVE severity, vuln type, attack technique).
-- Plot Phase 1 vs Phase 2 training curves side-by-side.
+### Evaluation Results (Phase 2 checkpoint)
+- **Cyber-text perplexity vs GPT-2:** 152.71 (Phase 2) vs 2,183.94 (Phase 1) vs 26.76 (GPT-2 124M baseline) — **14.3× improvement** over Phase 1 on the same hardcoded `BENCHMARK_TEXTS` set; still 5.7× off GPT-2, expected for the params/tokens budget.
+- **Security-domain task eval:** 4/30 (13.3%) — same numerical score as Phase 1, but with a different mode-collapse pattern. Phase 2 predicts "High" for every CVE Severity, "Cross-Site Scripting" for every Vuln Type, and "Supply Chain Compromise" for every Attack Technique. The model has learned the most-frequent label per task, not the discriminative structure. Random baseline is ~33%; 13.3% is below random — confirms structured-task evaluation is not yet meaningful at this scale.
+
+### Added
+- `logs/benchmark_phase2.json` — Phase 2 GPT-2 perplexity benchmark output.
+- `logs/eval_security_phase2.json` — Phase 2 security-task eval output with per-question detail.
+- `scripts/plot_phase_comparison.py` — generates `logs/phase_comparison.png` (3-panel: final val_loss, perplexity, security accuracy for Phase 1 vs Phase 2 vs GPT-2).
+- MODEL_CARD `Evaluation` section expanded with concrete Phase 2 perplexity and mode-collapse details.
+
+### Note
+- Per-step training logs (`logs/training_log.json` and `archive/logs_v1_pre_corpus_fix/training_log.json`) only flushed entries late in training (3 and 5 endpoint datapoints respectively), so a true side-by-side curve plot was not feasible. The phase-comparison plot uses the endpoint metrics that actually exist.
+
+---
+
+## [Unreleased] — Upcoming
 
 ### Planned for v0.4.0 — Corpus expansion
 - CTFtime archive ingestion.

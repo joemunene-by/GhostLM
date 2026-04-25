@@ -1,0 +1,169 @@
+{
+  "checkpoint": "checkpoints/checkpoint_step_10000.pt",
+  "step": 10000,
+  "perplexity": 1176.909,
+  "model_size": "2 layers, 256 dim",
+  "parameters": 14479616,
+  "generations": [
+    {
+      "prompt": "A SQL injection attack works by",
+      "generated": "A SQL injection attack works by using the $BD_file variable.Cross-site scripting (XSS) vulnerability in the error_print.php for phpMyAdmin 2.0 allows remote attackers to inject arbitrary web script via the (1) action, (2) the member parameter to index.php, (3) the id parameter in view_user.php, or (4) the ttsr parameter to",
+      "tokens": 80
+    },
+    {
+      "prompt": "The CVE scoring system rates vulnerabilities based on",
+      "generated": "The CVE scoring system rates vulnerabilities based on the NIS client does not properly check for the most effective techniques for discovering security vulnerabilities in binary programs. We present enhancements to AFL++ that improve path exploration through symbolic execution integration and machine learning-guided mutation strategies, achieving 3x improvement in vulnerability discovery rate on standard benchmarks.The reverse engineering challenge provided a compiled ELF binary that required us to find the correct input string to unlock the flag. Using",
+      "tokens": 80
+    },
+    {
+      "prompt": "To perform a buffer overflow exploit, an attacker",
+      "generated": "To perform a buffer overflow exploit, an attacker can be exploited to execute arbitrary code via a \"Destination Unreachable\" request to a long size command.Cross-site scripting (XSS) vulnerability in the WebSite 0.3 allows remote attackers to execute arbitrary Javascript to inject arbitrary web script or HTML via the email parameter.The default configuration of Apache Tomcat 4.3.03 and earlier allows remote attackers to view arbitrary files via",
+      "tokens": 80
+    },
+    {
+      "prompt": "XSS (Cross-Site Scripting) allows attackers to",
+      "generated": "XSS (Cross-Site Scripting) allows attackers to execute arbitrary code by including an HTTP request for an HTTP GET request with a long hostname, possibly triggering a buffer overflow.The web vulnerability challenge involved a file upload feature that accepted image files but had a flawed validation routine. By crafting a polyglot file that was both a web script, we bypassed the file type check. The server stored uploads in a web-accessible directory, allowing",
+      "tokens": 80
+    },
+    {
+      "prompt": "A man-in-the-middle attack intercepts",
+      "generated": "A man-in-the-middle attack intercepts.Buffer overflow in the SMTP service in the web server for HP-UX 11.01 through 11.11 allows attackers to cause a denial of service (crash) and possibly execute arbitrary code via a long HTTP request.Multiple buffer overflows in the (1) lprpr and (2) chroot_d in AIX 4.1 allow local users to execute arbitrary code via",
+      "tokens": 80
+    },
+    {
+      "prompt": "Ransomware encrypts victim files by",
+      "generated": "Ransomware encrypts victim files by a valid user's registry key, and the target target file, which allows the attacker to recover the root of the system.The default configuration of Apache.4.31 in Red Hat Linux 5.1 through 6.1 for UnixWare 7.1 allows local users to gain root privileges.Multiple buffer overflows in gopher daemon (in.c) before 0.4.1 allow remote",
+      "tokens": 80
+    },
+    {
+      "prompt": "In penetration testing, reconnaissance involves",
+      "generated": "In penetration testing, reconnaissance involves an error in protocol manipulation against injection, and open-source WAF solutions. Our results demonstrate significant gaps in detection coverage and propose improved signature generation methods.NetWinamp 2.0 and earlier does not properly check the length of buffer size of the length of the length of a length to a buffer overflow.The \"screents\" program in the Ethereal before 2.7.50-8",
+      "tokens": 80
+    },
+    {
+      "prompt": "Zero-day vulnerabilities are dangerous because",
+      "generated": "Zero-day vulnerabilities are dangerous because the variety and the \"Frame Domain\" method of the Local Security\" vulnerability.Directory traversal vulnerability in PostN Technologies JRun Web server 2.0 allows remote attackers to read arbitrary files via a .. (dot dot) in the HTTP request.Multiple cross-site scripting (XSS) vulnerabilities in the (1) admin_login_article.php or (2) the show parameter in",
+      "tokens": 80
+    }
+  ],
+  "cve_to_cwe": {
+    "task": "cve_to_cwe_classification",
+    "accuracy": 0.0,
+    "correct": 0,
+    "total": 8,
+    "samples": [
+      {
+        "cve_text": "A vulnerability in the web interface allows an authenticated attacker to inject arbitrary SQL comman...",
+        "expected": "CWE-89 (SQL Injection)",
+        "generated": " the signature-based buffer overflow in (1) cPanel 9.0.0.1, and 8.0.0.0.0, allows remote attackers to execute arbitrary code via a long username.Cisco VPN 3000 Concentrator 2.x.x.x, and 3.",
+        "correct": false
+      },
+      {
+        "cve_text": "The application does not properly sanitize user input in the comment field, allowing attackers to in...",
+        "expected": "CWE-79 (Cross-site Scripting)",
+        "generated": " the security context of the security context as the most effective techniques for discovering security vulnerabilities in binary programs. We present enhancements to AFL++ that improve path explorati",
+        "correct": false
+      },
+      {
+        "cve_text": "A stack-based buffer overflow in the parsing function allows remote attackers to execute arbitrary c...",
+        "expected": "CWE-787 (Out-of-bounds Write)",
+        "generated": " DO NOT USE THIS CANDIDATE NUMBER. ConsultIDs: CVE-2002-1528. Reason: This candidate is a duplicate of CVE-2002-1586. Notes: All CVE users should reference CVE-2002-141828 instead of this candidate. A",
+        "correct": false
+      },
+      {
+        "cve_text": "The application constructs OS commands using unsanitized user input, allowing attackers to inject ad...",
+        "expected": "CWE-78 (OS Command Injection)",
+        "generated": " the security properties of modern cryptographic protocols. Using model checking and theorem proving, we identify subtle flaws in protocol specifications that could enable authentication bypass and ke",
+        "correct": false
+      },
+      {
+        "cve_text": "The web application allows users to upload files without verifying the file type, enabling attackers...",
+        "expected": "CWE-434 (Unrestricted Upload of File with Dangerous Type)",
+        "generated": " the server-accessible directory, allowing us to execute our PHP payload by visiting the uploaded file URL. The script read the flag from the server's configuration directory.Buffer overflow in the we",
+        "correct": false
+      },
+      {
+        "cve_text": "The application uses external input to construct file paths without properly neutralizing '../' sequ...",
+        "expected": "CWE-22 (Path Traversal)",
+        "generated": " the most effective techniques for discovering security vulnerabilities in binary programs. We present enhancements to AFL++ that improve path exploration through symbolic execution integration and ma",
+        "correct": false
+      },
+      {
+        "cve_text": "A use-after-free vulnerability in the memory management routine allows attackers to execute arbitrar...",
+        "expected": "CWE-416 (Use After Free)",
+        "generated": " DO NOT USE THIS CANDIDATE NUMBER. ConsultIDs: CVE-2004-0528. Reason: This candidate is a duplicate of CVE-2003-0695. Notes: All CVE users should reference CVE-2003-0352 ( this candidate. All referenc",
+        "correct": false
+      },
+      {
+        "cve_text": "The application deserializes untrusted data from user requests without integrity checks, allowing at...",
+        "expected": "CWE-502 (Deserialization of Untrusted Data)",
+        "generated": " the security checks and key recovery attacks. We systematically evaluate evasion techniques including encoding variations, SQL comment injection, and HTTP protocol manipulation against commercial and",
+        "correct": false
+      }
+    ]
+  },
+  "attack_tagging": {
+    "task": "attack_technique_tagging",
+    "accuracy": 0.0,
+    "correct": 0,
+    "total": 8,
+    "samples": [
+      {
+        "text": "The adversary used PowerShell scripts to download and execute additional malware payloads on the com...",
+        "expected": "T1059 (Command and Scripting Interpreter)",
+        "tactic": "Execution",
+        "generated": " the security vulnerabilities in systems. We systematically evaluate evasion techniques including encoding variations, SQL comment injection, and HTTP protocol manipulation against commercial and open",
+        "correct": false
+      },
+      {
+        "text": "The attackers obtained valid employee credentials through a previous breach and used them to access ...",
+        "expected": "T1078 (Valid Accounts)",
+        "tactic": "Initial Access",
+        "generated": " DO NOT USE THIS CANDIDATE NUMBER. ConsultIDs: none. Reason: This candidate is a duplicate of CVE-2003-0657. Notes: All CVE users should reference CVE-2003-0662 instead of this candidate. All referenc",
+        "correct": false
+      },
+      {
+        "text": "The threat actor exploited a known vulnerability in the public-facing Apache Struts web server to ga...",
+        "expected": "T1190 (Exploit Public-Facing Application)",
+        "tactic": "Initial Access",
+        "generated": " the security properties of modern cryptographic protocols. Using model checking and theorem proving, we identify subtle flaws in protocol specifications that could enable authentication bypass and ke",
+        "correct": false
+      },
+      {
+        "text": "The malware communicated with its command and control server by embedding data in DNS TXT record que...",
+        "expected": "T1071 (Application Layer Protocol)",
+        "tactic": "Command and Control",
+        "generated": " the security vulnerabilities in systems. Websphereal 1.3.1 allows remote attackers to read arbitrary files via a .. (dot dot) in the URL.Multiple buffer overflows in the (1) the Email function in the",
+        "correct": false
+      },
+      {
+        "text": "The ransomware encrypted all files on the victim's system using AES-256 and demanded payment in cryp...",
+        "expected": "T1486 (Data Encrypted for Impact)",
+        "tactic": "Impact",
+        "generated": " the Ns in security vulnerabilities in systems. We systematically evaluate evasion techniques including encoding variations, SQL injection, and cryptographic weaknesses.The network forensics challenge",
+        "correct": false
+      },
+      {
+        "text": "The attacker created a scheduled task that executed the backdoor every time the system booted, ensur...",
+        "expected": "T1053 (Scheduled Task/Job)",
+        "tactic": "Persistence",
+        "generated": " the security properties of modern cryptographic protocols. Using model checking and theorem proving, we identify subtle flaws in protocol specifications that could enable authentication bypass and ke",
+        "correct": false
+      },
+      {
+        "text": "The malware injected its code into the address space of a legitimate running process to evade detect...",
+        "expected": "T1055 (Process Injection)",
+        "tactic": "Defense Evasion",
+        "generated": " the security gateway and key recovery feature that does not provide valid usernames and passwords, which allows remote attackers to determine the system.Buffer overflow in the web server for the Webm",
+        "correct": false
+      },
+      {
+        "text": "The payload was heavily obfuscated using multiple layers of base64 encoding and XOR encryption to av...",
+        "expected": "T1027 (Obfuscated Files or Information)",
+        "tactic": "Defense Evasion",
+        "generated": " URL that use-based detection systems. We develop a behavioral analysis system that monitors file system operations, registry modifications, and network activity to detect ransomware before significan",
+        "correct": false
+      }
+    ]
+  }
+}

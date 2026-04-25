@@ -1,0 +1,182 @@
+{
+  "device": "cpu",
+  "checkpoint": "checkpoints/checkpoint_step_10000.pt",
+  "elapsed_seconds": 61.7,
+  "tasks": [
+    {
+      "task": "CVE Severity Classification",
+      "correct": 2,
+      "total": 10,
+      "accuracy": 0.2,
+      "details": [
+        {
+          "expected": "Critical",
+          "predicted": "High",
+          "correct": false
+        },
+        {
+          "expected": "Critical",
+          "predicted": "High",
+          "correct": false
+        },
+        {
+          "expected": "High",
+          "predicted": "High",
+          "correct": true
+        },
+        {
+          "expected": "High",
+          "predicted": "High",
+          "correct": true
+        },
+        {
+          "expected": "Medium",
+          "predicted": "High",
+          "correct": false
+        },
+        {
+          "expected": "Medium",
+          "predicted": "High",
+          "correct": false
+        },
+        {
+          "expected": "Medium",
+          "predicted": "High",
+          "correct": false
+        },
+        {
+          "expected": "Low",
+          "predicted": "High",
+          "correct": false
+        },
+        {
+          "expected": "Low",
+          "predicted": "High",
+          "correct": false
+        },
+        {
+          "expected": "Low",
+          "predicted": "High",
+          "correct": false
+        }
+      ]
+    },
+    {
+      "task": "Vulnerability Type Detection",
+      "correct": 1,
+      "total": 10,
+      "accuracy": 0.1,
+      "details": [
+        {
+          "expected": "SQL Injection",
+          "predicted": "Cross-Site Scripting (XSS)",
+          "correct": false
+        },
+        {
+          "expected": "Cross-Site Scripting (XSS)",
+          "predicted": "Cross-Site Scripting (XSS)",
+          "correct": true
+        },
+        {
+          "expected": "Buffer Overflow",
+          "predicted": "Cross-Site Scripting (XSS)",
+          "correct": false
+        },
+        {
+          "expected": "Server-Side Request Forgery (SSRF)",
+          "predicted": "Cross-Site Scripting (XSS)",
+          "correct": false
+        },
+        {
+          "expected": "Insecure Deserialization",
+          "predicted": "Cross-Site Scripting (XSS)",
+          "correct": false
+        },
+        {
+          "expected": "Broken Authentication",
+          "predicted": "Cross-Site Scripting (XSS)",
+          "correct": false
+        },
+        {
+          "expected": "Unrestricted File Upload",
+          "predicted": "Cross-Site Scripting (XSS)",
+          "correct": false
+        },
+        {
+          "expected": "Broken Access Control (IDOR)",
+          "predicted": "Cross-Site Scripting (XSS)",
+          "correct": false
+        },
+        {
+          "expected": "Cryptographic Failure",
+          "predicted": "Cross-Site Scripting (XSS)",
+          "correct": false
+        },
+        {
+          "expected": "XML External Entity (XXE)",
+          "predicted": "Cross-Site Scripting (XSS)",
+          "correct": false
+        }
+      ]
+    },
+    {
+      "task": "Attack Technique Identification",
+      "correct": 1,
+      "total": 10,
+      "accuracy": 0.1,
+      "details": [
+        {
+          "expected": "Spearphishing Attachment",
+          "predicted": "Proxy / Web Service C2",
+          "correct": false
+        },
+        {
+          "expected": "Credential Dumping",
+          "predicted": "DLL Search Order Hijacking",
+          "correct": false
+        },
+        {
+          "expected": "Registry Run Keys / Startup Folder",
+          "predicted": "DLL Search Order Hijacking",
+          "correct": false
+        },
+        {
+          "expected": "Lateral Movement via Remote Services",
+          "predicted": "DLL Search Order Hijacking",
+          "correct": false
+        },
+        {
+          "expected": "Exfiltration Over DNS",
+          "predicted": "DLL Search Order Hijacking",
+          "correct": false
+        },
+        {
+          "expected": "DLL Search Order Hijacking",
+          "predicted": "Proxy / Web Service C2",
+          "correct": false
+        },
+        {
+          "expected": "Scheduled Task / Job",
+          "predicted": "Proxy / Web Service C2",
+          "correct": false
+        },
+        {
+          "expected": "Supply Chain Compromise",
+          "predicted": "Proxy / Web Service C2",
+          "correct": false
+        },
+        {
+          "expected": "Defense Evasion / Impair Defenses",
+          "predicted": "Proxy / Web Service C2",
+          "correct": false
+        },
+        {
+          "expected": "Proxy / Web Service C2",
+          "predicted": "Proxy / Web Service C2",
+          "correct": true
+        }
+      ]
+    }
+  ],
+  "overall_accuracy": 0.1333
+}

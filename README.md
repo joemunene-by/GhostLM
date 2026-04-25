@@ -153,6 +153,16 @@ For where the corpus is heading — sources targeted (CTFtime archives, security
 
 The Phase 2 checkpoint is `checkpoints/best_model.pt`. Phase 1 is preserved as `checkpoints/best_model_phase1.pt` for archaeological reference.
 
+The fairer cross-phase metric is the cyber-text perplexity benchmark (same hardcoded sample set both phases ran against):
+
+| Model | Perplexity vs cyber-text benchmark |
+|---|---|
+| ghost-tiny — Phase 2 | **152.71** |
+| ghost-tiny — Phase 1 | 2,183.94 |
+| GPT-2 (124M baseline) | 26.76 |
+
+Phase 2 is **14.3× better** than Phase 1 — that's the corpus-quality dividend, not extra training. ghost-tiny is still 5.7× behind GPT-2, expected for a 14.7M model on ~2.7M tokens vs. a 124M model on ~40B tokens of WebText. See `logs/phase_comparison.png` for the side-by-side and [MODEL_CARD.md](MODEL_CARD.md#evaluation-phase-2--10k-steps-rebalanced-corpus) for the security-task eval (still mode-collapsed at this scale — expected).
+
 ## Sample Generations
 
 These are real generations from `checkpoints/best_model.pt` at `temperature=0.7-0.8, top_k=50`. They reflect what a 14.7M-param model trained on ~2.7M tokens can actually do — and what it can't:
