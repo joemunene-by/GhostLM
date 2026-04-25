@@ -217,9 +217,11 @@ GhostLM is a multi-year effort. The honest framing is that ghost-tiny is a learn
 
 **Where we are (Phase 2, complete):** ghost-tiny @ 10K steps, val_loss 3.78 on the rebalanced corpus. End-to-end training pipeline proven. ~2.7M training tokens.
 
+**Phase 3 corpus expansion in progress (2026-04-25):** full NVD pull complete — 333,540 CVE records, ~30M total training tokens (12× the v0.3.0 baseline). NVD is now 87% of token share, so the next track is *diversity* (CTFtime, MITRE ATT&CK), not deeper NVD. ghost-tiny will get a refresh training run on the new corpus before the next corpus track lands. See [CORPUS.md](CORPUS.md) for the current snapshot.
+
 **Where we're going:**
 
-1. **Corpus expansion** — 10–100× the current corpus. NVD-at-scale, CTFtime archives, security research blogs (Project Zero, PortSwigger, Trail of Bits), MITRE ATT&CK, tool docs. This is the long-term moat and compounds even when compute is the bottleneck.
+1. **Corpus expansion** — 10–100× the current corpus. NVD-at-scale ✓, CTFtime archives, security research blogs (Project Zero, PortSwigger, Trail of Bits), MITRE ATT&CK, tool docs. This is the long-term moat and compounds even when compute is the bottleneck.
 2. **ghost-small (~55M params)** — first scale-up rung. M4 GPU/MPS feasible. Validates whether the recipe scales.
 3. **ghost-base (~350M params)** — first rung that needs rented GPU compute. Where domain-coherent generation should start to emerge.
 4. **ghost-1B** — the long-term goal. The smallest scale at which a from-scratch cyber LM has a real shot at being genuinely useful. Will need either rented H100 hours or owned GPU.

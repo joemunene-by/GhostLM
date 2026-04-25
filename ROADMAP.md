@@ -23,21 +23,23 @@ This is the expected level for the params/tokens budget. The fix is scale — bo
 
 ---
 
-## Phase 3 — Corpus expansion (next)
+## Phase 3 — Corpus expansion (in progress)
 
 Corpus is the long-term moat. It compounds across every future scale rung and is the work that pays off even when compute is the bottleneck. Target growth: **10–100× the current corpus size.**
 
-| Source | Current | Target |
-|---|---|---|
-| NVD CVE | 19,925 | Full NVD dump (millions, properly chunked) |
-| arXiv cs.CR | 1,000 | 10,000+ (broader date range, full abstracts + selected full-text) |
-| CTF writeups | 3,000 (synthetic) | Replace with real corpus from CTFtime + GitHub writeup repos |
-| Security research blogs | 0 | Project Zero, PortSwigger Research, Trail of Bits, Google Security blog, etc. |
-| MITRE ATT&CK | 0 | Full structured + unstructured |
-| Tool docs | 0 | nmap, metasploit, burp, ghidra, pwntools, etc. |
-| **Total tokens** | **~2.66M** | **~1B** |
+| Source | v0.3.0 baseline | Now (post-NVD pull, 2026-04-25) | Target |
+|---|---|---|---|
+| NVD CVE | 19,925 | **333,540** ✓ | Done — re-run periodically to top up |
+| arXiv cs.CR | 1,000 | 2,000 | 10,000+ (broader date range, full abstracts + selected full-text) |
+| CTF writeups | 3,000 (synthetic) | 3,000 (synthetic) | Replace with real corpus from CTFtime + GitHub writeup repos |
+| Security research blogs | 0 | 0 | Project Zero, PortSwigger Research, Trail of Bits, Google Security blog, etc. |
+| MITRE ATT&CK | 0 | 0 | Full structured + unstructured |
+| Tool docs | 0 | 0 | nmap, metasploit, burp, ghidra, pwntools, etc. |
+| **Total tokens** | **~2.66M** | **~30M** (12×) | **~1B** |
 
 Tracking and per-source license notes: see [CORPUS.md](CORPUS.md).
+
+**Where we are:** ~12× corpus expansion in one pull. NVD is now 87% of training tokens — the next track is *diversity* (CTFtime, MITRE ATT&CK), not more NVD. Before that, ghost-tiny gets a refresh training run on the new ~30M-token corpus to validate the recipe scales with data — same architecture, same training loop, more steps to match the larger corpus.
 
 This is realistically a 6–12 month effort done well. It does not require new compute — it can run in parallel with continued ghost-tiny iteration.
 
@@ -54,7 +56,7 @@ This is realistically a 6–12 month effort done well. It does not require new c
 
 The first scale-up rung. Validates whether the recipe scales — same architecture, same training loop, more layers, more dim, more data. Expected to produce noticeably more coherent generation than ghost-tiny but still well below "useful."
 
-**Gating:** Phase 3 corpus expansion needs to be reasonably far along before this run starts (need at least ~500M–1B training tokens for the Chinchilla-optimal budget). Otherwise the larger model will overfit a small corpus and regress.
+**Gating:** Phase 3 corpus expansion needs to be reasonably far along before this run starts (need at least ~500M–1B training tokens for the Chinchilla-optimal budget). Otherwise the larger model will overfit a small corpus and regress. Current state: ~30M tokens (post-NVD pull). Still ~30× shy of the Chinchilla-optimal budget — CTFtime + MITRE ATT&CK + security blogs need to land before ghost-small is worth running.
 
 ---
 

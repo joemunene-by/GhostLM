@@ -147,7 +147,33 @@ Format: [Version] — Date — Description
 
 ---
 
+## [0.3.2] — 2026-04-25 — Phase 3 NVD-at-scale
+
+Corpus milestone, not a model release. The released checkpoint is still v0.3.0's (val_loss 3.78). The next ghost-tiny refresh run will be the first to train on this corpus.
+
+### Corpus
+- **Full NVD pull complete:** 333,540 CVE records, 1999–2026 (28 years), via `scripts/collect_nvd_full.py` with proper `startIndex` pagination.
+- **~12× corpus expansion** vs. v0.3.0 baseline (2.66M → ~30M tokens).
+- After dedup + merge: ~309K unique records, ~293K train / ~15K val. Deterministic-hash split, leakage 0.
+- NVD year skew (expected): 2020s 189,946 / 2010s 102,581 / 2000s 40,156 / 1990s 857. Weighted toward 2018+, reflecting actual CVE publication scaling.
+- NVD intra-source duplication: 7.9% (4,635 dup groups, 26,316 extra records) caught by merge dedup.
+- **Token-share now lopsided** — NVD 87%, CTF 5%, papers 2%. The next *corpus* track is diversity (CTFtime + MITRE ATT&CK + security research blogs), not deeper NVD.
+
+### Build
+- `Makefile` switched to `PYTHON ?= python3` so it works on Mac (no `python` symlink) and Linux without local hacks.
+
+### Docs
+- `CORPUS.md`: current corpus snapshot updated to post-pull numbers; v0.3.0 baseline preserved as the corpus the released checkpoint was trained on.
+- `ROADMAP.md`: Phase 3 NVD-at-scale marked done; ghost-small gating note updated with current ~30M-token state vs. ~500M-1B target.
+
+---
+
 ## [Unreleased] — Upcoming
+
+### Planned for v0.3.x — ghost-tiny refresh on the new corpus
+- Training run on the ~30M-token Phase 3 corpus to validate the recipe scales with data.
+- Same architecture, more steps to match the larger corpus.
+- Headline metric: does val_loss meaningfully drop below v0.3.0's 3.78 with 12× more data?
 
 ### Planned for v0.4.0 — Corpus expansion
 - CTFtime archive ingestion.

@@ -6,16 +6,37 @@ This document is the working record of what's currently in the corpus, what's kn
 
 ---
 
-## Current corpus (Phase 2, v0.3.0)
+## Current corpus (Phase 3 in progress, post-NVD pull)
+
+After the full NVD pull on 2026-04-25 (`scripts/collect_nvd_full.py`):
 
 | Source | Records | Tokens (approx) | Type | Notes |
 |---|---|---|---|---|
-| NVD CVE Database | 19,925 | ~1.6M | Real | NVD REST API v2.0, 119-day windows, balanced per-year cap, 1999–2025 |
+| NVD CVE Database | 333,540 | ~27.4M | Real | Full pull, paginated, 1999–2026 (28 years). `data/raw/cve_full.jsonl` |
+| arXiv cs.CR Abstracts | 2,000 | ~0.7M | Real | arXiv Atom API, recent-first |
+| Synthetic CTF Writeups | 3,000 | ~1.5M | Synthetic | Local-LLM generated; will be replaced by real CTFtime when the scraper lands |
+| **Total (post-dedup)** | **~309,000** | **~30M** | | train: ~293,500 / val: ~15,500 |
+
+NVD CVE distribution: 2025: 43,381 · 2024: 38,840 · 2023: 25,198 · 2022: 24,279 · 2021: 22,729. By decade: 1990s: 857 · 2000s: 40,156 · 2010s: 102,581 · 2020s: 189,946. The corpus is heavily weighted toward 2018+ — a real reflection of how CVE publication has scaled, not a sampling artifact.
+
+NVD has 7.9% intra-source duplication (4,635 dup groups, 26,316 extra records) caught by the merge dedup. Remaining cross-source duplication is negligible.
+
+**Status:** raw files collected and merged into `data/processed/{train,val}.jsonl`. **No model has been trained on this corpus yet** — the v0.3.0 ghost-tiny checkpoint was trained on the v0.3.0 baseline below. The next training run (ghost-tiny refresh on the new corpus) will be the first to use this. Split is deterministic by content hash — `scripts/data_audit.py` runs the diagnostics.
+
+This is a **~12× corpus expansion** vs. the v0.3.0 baseline. Token share is now 87% NVD / 5% CTF / 2% papers — the lopsidedness is the case for prioritizing CTFtime + MITRE ATT&CK next so the next-but-one expansion improves diversity, not just CVE volume.
+
+---
+
+## Phase 2 baseline (v0.3.0, what the released checkpoint was trained on)
+
+| Source | Records | Tokens (approx) | Type | Notes |
+|---|---|---|---|---|
+| NVD CVE Database | 19,925 | ~1.6M | Real | NVD REST API v2.0, 119-day windows, **per-year cap 500**, 1999–2025 |
 | arXiv cs.CR Abstracts | 1,000 | ~0.5M | Real | arXiv Atom API, recent-first by submittedDate descending |
 | Synthetic CTF Writeups | 3,000 | ~0.6M | Synthetic | Generated via local LLM (Ollama-based pipeline), varied template + topic mix |
 | **Total (post-dedup)** | **23,049** | **~2.66M** | | train: 21,872 / val: 1,177 |
 
-Split is deterministic by content hash. See `scripts/data_audit.py` for diagnostics (length percentiles, dedup rate, year/category distributions, leakage check).
+Preserved verbatim because `checkpoints/best_model.pt` was trained on this exact corpus. The per-year cap of 500 was a stopgap — and was masking the fact that `collect_cve_descriptions` only fetched `startIndex=0` of each window. The new `collect_cve_full` paginates properly; both are kept in `data/collect.py`.
 
 ---
 
@@ -24,11 +45,10 @@ Split is deterministic by content hash. See `scripts/data_audit.py` for diagnost
 Roughly ordered by leverage (records-per-effort × content-quality × license-friendliness).
 
 ### 1. Full NVD dump
-- **What:** every CVE record from 1999 to present, properly chunked (the per-year cap was a stopgap to keep the working set small).
-- **Estimated size:** millions of records.
-- **Source:** NVD JSON feeds — `https://nvd.nist.gov/vuln/data-feeds`.
+- **What:** every CVE record from 1999 to present, properly chunked.
+- **Source:** NVD REST API v2.0 with `startIndex` pagination, 119-day windows.
 - **License:** US government work, public domain. Free to redistribute.
-- **Status:** wanted.
+- **Status:** **done** (2026-04-25). 333,540 records pulled into `data/raw/cve_full.jsonl` via `scripts/collect_nvd_full.py`. Resume-safe; can be re-run to top up with newly published CVEs.
 
 ### 2. CTFtime archive
 - **What:** real CTF writeups across years and categories. Replaces the current 3,000 synthetic CTF set.
@@ -88,9 +108,10 @@ When in doubt, document the source URL, license, and attribution requirement in 
 
 ## Data quality notes
 
-- **Synthetic CTF risk:** the current 3,000 synthetic CTF entries (~13% of the corpus) introduce a known distribution shift relative to real CTF writing. They were a pragmatic fix for the prior 21-record gap; the priority replacement is real CTFtime + GitHub writeup ingestion (targets #2 and #3).
-- **CVE distribution skew:** even with per-year capping, the corpus over-represents recent years (more total CVEs published 2018+) and under-represents the late-90s/early-2000s qualitative differences in vulnerability writing. Not a fix priority.
-- **Length skew:** most CVE records are short (50–200 tokens), most CTF writeups are medium (200–800), arXiv abstracts cluster at ~300. The data_audit script tracks length percentiles per source.
+- **Synthetic CTF share:** dropped from ~13% (v0.3.0 baseline) to ~5% (post-NVD pull) just because the denominator grew. Replacement with real CTFtime / GitHub writeups is still the priority — the absolute count of synthetic records hasn't changed, and they still introduce distribution drift relative to real CTF writing.
+- **NVD token-share lopsidedness:** post-pull, NVD is 87% of training tokens. This is the *case* for prioritizing CTFtime + MITRE ATT&CK next — more CVEs alone won't help diversity. ghost-tiny will re-train on this corpus to validate the recipe scales with data, but the next *corpus* track is non-NVD breadth, not deeper NVD.
+- **CVE distribution skew:** strongly weighted toward 2018+. 2020s alone is 189,946 of 333,540 records. This reflects how CVE publication has actually scaled (more software, more disclosure programs) — not a sampling artifact. Not a fix priority.
+- **Length skew:** most CVE records are short (p50 ~250 chars / ~62 tokens), most CTF writeups are medium (~2,000 chars / ~500 tokens), arXiv abstracts cluster at ~1,500 chars. CVE p99 is 1,645 chars, max 3,998 — short, factual descriptions dominate.
 - **Tokenization:** GPT-2 BPE (50,257 base + 4 special tokens). No domain-adapted tokenizer yet; cyber-specific tokens (CVE-IDs, hex addresses, hashes) get split into multiple sub-tokens, costing context-length efficiency. Not fixing pre-ghost-base.
 
 ---

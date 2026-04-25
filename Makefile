@@ -1,3 +1,5 @@
+PYTHON ?= python3
+
 .PHONY: all install test data data-nvd-full data-rebuild data-audit train-tiny train-small generate chat benchmark plot export clean help
 
 help:
@@ -25,40 +27,40 @@ install:
 	pip install -e .
 
 test:
-	PYTHONPATH=. pytest tests/ -v
+	PYTHONPATH=. $(PYTHON) -m pytest tests/ -v
 
 data:
-	python data/collect.py
+	$(PYTHON) data/collect.py
 
 data-nvd-full:
-	python scripts/collect_nvd_full.py
+	$(PYTHON) scripts/collect_nvd_full.py
 
 data-rebuild:
-	python scripts/rebuild_corpus.py
+	$(PYTHON) scripts/rebuild_corpus.py
 
 data-audit:
-	python scripts/data_audit.py --plot
+	$(PYTHON) scripts/data_audit.py --plot
 
 train-tiny:
-	python scripts/train.py --preset ghost-tiny --max-steps 2000 --batch-size 2 --device cpu
+	$(PYTHON) scripts/train.py --preset ghost-tiny --max-steps 2000 --batch-size 2 --device cpu
 
 train-small:
-	python scripts/train.py --preset ghost-small --max-steps 100000 --batch-size 32
+	$(PYTHON) scripts/train.py --preset ghost-small --max-steps 100000 --batch-size 32
 
 generate:
-	python scripts/generate.py --checkpoint checkpoints/best_model.pt --prompt "A SQL injection attack works by" --max-tokens 150
+	$(PYTHON) scripts/generate.py --checkpoint checkpoints/best_model.pt --prompt "A SQL injection attack works by" --max-tokens 150
 
 chat:
-	python scripts/chat.py --checkpoint checkpoints/best_model.pt
+	$(PYTHON) scripts/chat.py --checkpoint checkpoints/best_model.pt
 
 benchmark:
-	python scripts/benchmark.py --checkpoint checkpoints/best_model.pt
+	$(PYTHON) scripts/benchmark.py --checkpoint checkpoints/best_model.pt
 
 export:
-	python scripts/export.py --checkpoint checkpoints/best_model.pt --format both
+	$(PYTHON) scripts/export.py --checkpoint checkpoints/best_model.pt --format both
 
 plot:
-	python scripts/plot_training.py --output logs/training_curve.png
+	$(PYTHON) scripts/plot_training.py --output logs/training_curve.png
 
 clean:
 	find . -type f -name "*.pyc" -delete
