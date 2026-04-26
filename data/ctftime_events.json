@@ -1,0 +1,114 @@
+[
+  {
+    "id": 1026,
+    "name": "0CTF/TCTF 2020 Quals"
+  },
+  {
+    "id": 1082,
+    "name": "Dragon CTF 2020"
+  },
+  {
+    "id": 1142,
+    "name": "Hack.lu CTF 2020"
+  },
+  {
+    "id": 969,
+    "name": "Insomni'hack 2020"
+  },
+  {
+    "id": 936,
+    "name": "PlaidCTF 2020"
+  },
+  {
+    "id": 1086,
+    "name": "TokyoWesterns CTF 6th 2020"
+  },
+  {
+    "id": 1356,
+    "name": "0CTF/TCTF 2021 Quals"
+  },
+  {
+    "id": 1415,
+    "name": "ASIS CTF Quals 2021"
+  },
+  {
+    "id": 1405,
+    "name": "FwordCTF 2021"
+  },
+  {
+    "id": 1318,
+    "name": "Google Capture The Flag 2021"
+  },
+  {
+    "id": 1452,
+    "name": "Hack.lu CTF 2021"
+  },
+  {
+    "id": 1199,
+    "name": "PlaidCTF 2021"
+  },
+  {
+    "id": 1717,
+    "name": "0CTF/TCTF 2022"
+  },
+  {
+    "id": 1574,
+    "name": "ASIS CTF Quals 2022"
+  },
+  {
+    "id": 1688,
+    "name": "CTFZone 2022"
+  },
+  {
+    "id": 1661,
+    "name": "DEF CON CTF Qualifier 2022"
+  },
+  {
+    "id": 1641,
+    "name": "Google Capture The Flag 2022"
+  },
+  {
+    "id": 1542,
+    "name": "PlaidCTF 2022"
+  },
+  {
+    "id": 1955,
+    "name": "CTFZone 2023 Quals"
+  },
+  {
+    "id": 1929,
+    "name": "Google Capture The Flag 2023"
+  },
+  {
+    "id": 2019,
+    "name": "HITCON CTF 2023 Quals"
+  },
+  {
+    "id": 1770,
+    "name": "PlaidCTF 2023"
+  },
+  {
+    "id": 1845,
+    "name": "hxp CTF 2022"
+  },
+  {
+    "id": 2224,
+    "name": "CyberSecurityRumble Quals"
+  },
+  {
+    "id": 2296,
+    "name": "Google Capture The Flag 2024"
+  },
+  {
+    "id": 2345,
+    "name": "HITCON CTF 2024 Quals"
+  },
+  {
+    "id": 2245,
+    "name": "PlaidCTF 2024"
+  },
+  {
+    "id": 2172,
+    "name": "Real World CTF 6th"
+  }
+]
