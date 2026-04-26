@@ -159,15 +159,40 @@ def audit_ctf(records):
     return cats
 
 
-def audit_token_share(per_source_chars):
-    """Cross-source: what fraction of training tokens each source contributes."""
+def audit_token_share(processed_chars, raw_chars=None):
+    """Cross-source: fraction of training tokens each source contributes.
+
+    Computed from the actual processed train+val splits, grouped by each
+    record's ``source`` field — this is what the model will literally see
+    during training, after any subsampling caps in ``rebuild_corpus.py``.
+
+    When ``raw_chars`` is provided and differs materially from the
+    processed totals (i.e. some source got subsampled or dropped), the
+    raw size is shown alongside so the gap is visible.
+    """
     header("Token share (what the model actually sees)")
-    total = sum(per_source_chars.values())
+    total = sum(processed_chars.values())
     if total == 0:
         print("  (no data)")
         return
-    for src, chars in sorted(per_source_chars.items(), key=lambda x: -x[1]):
-        print(f"  {src:<12} ~{chars // 4:>10,} tokens  ({chars / total * 100:5.1f}%)")
+
+    show_raw = bool(raw_chars) and any(
+        raw_chars.get(s, 0) > c * 1.05 for s, c in processed_chars.items()
+    )
+    if show_raw:
+        print(f"  {'source':<14} {'tokens':>14}  {'share':>7}    {'raw':>14}  {'kept':>5}")
+    for src, chars in sorted(processed_chars.items(), key=lambda x: -x[1]):
+        line = f"  {src:<14} ~{chars // 4:>12,}  {chars / total * 100:5.1f}%"
+        if show_raw:
+            raw = raw_chars.get(src, chars)
+            kept_pct = (chars / raw * 100) if raw > 0 else 100.0
+            line += f"    ~{raw // 4:>12,}  {kept_pct:4.0f}%"
+        print(line)
+    if show_raw:
+        print()
+        print("  Note: 'raw' is the on-disk size of the source; 'kept' is the share that")
+        print("  survived rebuild_corpus.py (subsampling, dedup). When kept < 100% the")
+        print("  source was capped by --max-cve-tokens or its duplicates collapsed.")
 
 
 def audit_leakage(train_texts, val_texts):
@@ -241,7 +266,6 @@ def main():
         print(f"\n[info] excluded from training merge (superseded): {', '.join(excluded)}")
 
     raw_stats = {}
-    per_source_chars = defaultdict(int)
     all_raw_records = []
 
     for name, path in selected.items():
@@ -250,7 +274,6 @@ def main():
             print(f"\n[warn] {name}: {malformed} malformed lines skipped")
         stats = audit_file(records, name)
         raw_stats[name] = stats
-        per_source_chars[name] = stats.get("total_chars", 0)
         all_raw_records.extend(records)
 
     cve_years = Counter()
@@ -264,12 +287,24 @@ def main():
         records, _ = load_jsonl(selected["ctf"])
         ctf_cats = audit_ctf(records)
 
-    audit_token_share(per_source_chars)
-
     train_records, _ = load_jsonl(args.train)
     val_records, _ = load_jsonl(args.val)
     train_texts = [r.get("text", "") for r in train_records]
     val_texts = [r.get("text", "") for r in val_records]
+
+    # Token share, grouped by record-level `source` field, computed from
+    # the actual processed splits (post-subsample, post-dedup). The raw
+    # totals are kept too so audit_token_share can flag when subsampling
+    # has materially shrunk a source.
+    raw_chars_by_source = defaultdict(int)
+    for rec in all_raw_records:
+        raw_chars_by_source[rec.get("source", "unknown")] += len(rec.get("text", ""))
+
+    processed_chars_by_source = defaultdict(int)
+    for rec in train_records + val_records:
+        processed_chars_by_source[rec.get("source", "unknown")] += len(rec.get("text", ""))
+
+    audit_token_share(processed_chars_by_source, raw_chars=raw_chars_by_source)
 
     header(f"Processed splits")
     print(f"  train: {len(train_records):,}  val: {len(val_records):,}  "
@@ -285,7 +320,7 @@ def main():
     print("\n" + "=" * 50)
 
     if args.plot and HAS_MATPLOTLIB:
-        make_plots(raw_stats, cve_years, ctf_cats, per_source_chars, Path("logs/data_audit.png"))
+        make_plots(raw_stats, cve_years, ctf_cats, processed_chars_by_source, Path("logs/data_audit.png"))
     elif args.plot:
         print("matplotlib not installed — skipping charts")
 
