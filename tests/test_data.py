@@ -14,11 +14,15 @@ sys.path.insert(0, str(REPO_ROOT))
 from data.collect import (
     build_nvd_year_windows,
     collect_capec,
-    collect_cve_full,
     collect_ctf_repos,
+    collect_ctftime_writeups,
+    collect_cve_full,
     collect_mitre_attack,
     deduplicate_records,
     load_jsonl,
+    parse_ctftime_event_tasks,
+    parse_ctftime_task_writeups,
+    parse_ctftime_writeup,
 )
 from scripts.rebuild_corpus import select_corpus_sources
 
@@ -537,3 +541,218 @@ def test_capec_extracts_patterns_with_external_ids(tmp_path):
     records = load_jsonl(str(out))
     assert {r["id"] for r in records} == {"CAPEC-66", "CAPEC-100"}
     assert all(r["source"] == "capec" for r in records)
+
+
+# ---------- CTFtime parsers + collector ----------
+
+def _ctftime_writeup_html(body: str = "Step one: ssh into the box.\n```\n$ ssh user@host\n```\nFlag: FLAG{x}",
+                          team: str = "TestTeam",
+                          rating: str = "4.5",
+                          event_id: int = 1405,
+                          event_name: str = "FwordCTF 2021",
+                          task_id: int = 17065,
+                          task_name: str = "devprivops",
+                          original_url: str = "https://example.com/orig"):
+    """Render a minimal CTFtime writeup page mirroring the live HTML structure."""
+    body_html = body.replace("\n", "<br />")
+    orig_anchor = (
+        f'<a href="{original_url}" target="_new" rel="nofollow noopener">Original writeup</a>'
+        if original_url else ""
+    )
+    return f"""<html><body>
+<ul class="breadcrumb">
+  <li><a href="/">Home</a> <span class="divider">/</span></li>
+  <li><a href="/event/list/">CTF events</a> <span class="divider">/</span></li>
+  <li><a href="/event/{event_id}">{event_name}</a> <span class="divider">/</span></li>
+  <li><a href="/event/{event_id}/tasks/">Tasks</a></li> <span class="divider">/</span></li>
+  <li><a href="/task/{task_id}">{task_name}</a> <span class="divider">/</span></li>
+  <li class="active">Writeup</li>
+</ul>
+<div class="page-header"><h2>{task_name}</h2>
+by <a href="/team/159663">{team}</a></div>
+<div class="row">
+  <div class="span7">
+    <p>Rating: <span id="user_rating" class="category-value">{rating}</span></p>
+  </div>
+  <div class="span4"></div>
+</div>
+<div class="well" id="id_description">
+<p>{body_html}</p>
+</div>
+<div class="page-header"><h3>Comments</h3></div>
+<p>Note: {orig_anchor}.</p>
+</body></html>"""
+
+
+def test_ctftime_parse_event_tasks_returns_unique_ids():
+    """Tasks page links should be deduplicated and returned sorted as ints."""
+    html = """
+    <a href="/task/100">Foo</a>
+    <a href="/task/200">Bar</a>
+    <a href="/task/100">Foo (duplicate link)</a>
+    <a href="/event/2230">unrelated event link</a>
+    """
+    assert parse_ctftime_event_tasks(html) == [100, 200]
+
+
+def test_ctftime_parse_task_writeups_returns_unique_ids():
+    """Task page links should yield deduped writeup IDs."""
+    html = """
+    <a href="/writeup/30000">Writeup A</a>
+    <a href="/writeup/38909">Writeup B</a>
+    <a href="/writeup/30000">repeat</a>
+    """
+    assert parse_ctftime_task_writeups(html) == [30000, 38909]
+
+
+def test_ctftime_parse_writeup_extracts_metadata_and_body():
+    """A full writeup page should yield body + breadcrumb metadata + original link."""
+    html = _ctftime_writeup_html()
+    rec = parse_ctftime_writeup(html)
+    assert rec is not None
+    assert rec["task_name"] == "devprivops"
+    assert rec["team"] == "TestTeam"
+    assert rec["rating"] == "4.5"
+    assert rec["event_id"] == 1405
+    assert rec["event_name"] == "FwordCTF 2021"
+    assert rec["task_id"] == 17065
+    assert rec["original_url"] == "https://example.com/orig"
+    assert "ssh into the box" in rec["body"]
+    assert "$ ssh user@host" in rec["body"]
+    # HTML tags must not survive the body extraction
+    assert "<br" not in rec["body"]
+    assert "<p>" not in rec["body"]
+
+
+def test_ctftime_parse_writeup_returns_none_when_no_inline_body():
+    """Pages without an id_description container (external-only redirects) are skipped."""
+    html = """<html><body>
+    <div class="page-header"><h2>External</h2></div>
+    <p>This writeup is hosted off-site: <a href="https://example.com/blog">go here</a>.</p>
+    </body></html>"""
+    assert parse_ctftime_writeup(html) is None
+
+
+def test_ctftime_parse_writeup_unescapes_entities():
+    """HTML entities in the body must round-trip back to their character form."""
+    html = _ctftime_writeup_html(body="if a &lt; b &amp;&amp; c &gt; d: pass")
+    rec = parse_ctftime_writeup(html)
+    assert rec is not None
+    assert "if a < b && c > d" in rec["body"]
+
+
+def test_ctftime_parse_writeup_unescapes_title_entities():
+    """Title HTML entities (e.g. & rendered as &amp;) must be decoded — real
+    CTFtime task names contain ampersands and other entities."""
+    html = _ctftime_writeup_html(task_name="Peaky &amp; the Brain")
+    rec = parse_ctftime_writeup(html)
+    assert rec is not None
+    assert rec["task_name"] == "Peaky & the Brain"
+
+
+def test_ctftime_parse_writeup_extracts_team_with_user_link_first():
+    """When the page-header has 'by <a href=/user/...> / <a href=/team/...>',
+    the team must still be extracted — the user link can't shadow it."""
+    html = """<html><body>
+<ul class="breadcrumb">
+  <li><a href="/event/1405">FwordCTF 2021</a></li>
+  <li><a href="/task/17065">devprivops</a></li>
+</ul>
+<div class="page-header">
+<h2>devprivops</h2>
+by <a href="/user/103712">someuser_</a> / <a href="/team/132008">RootMeUpBeforeYouGoGo</a>
+</div>
+<div class="well" id="id_description">
+<p>body content here that is long enough to keep</p>
+</div>
+</body></html>"""
+    rec = parse_ctftime_writeup(html)
+    assert rec is not None
+    assert rec["team"] == "RootMeUpBeforeYouGoGo"
+
+
+def test_ctftime_parse_writeup_handles_empty_rating():
+    """Unrated writeups render <span id=user_rating ...></span> with no inner
+    text — the parser must accept that and return rating='' rather than crash
+    or leave the field unset."""
+    html = """<html><body>
+<ul class="breadcrumb">
+  <li><a href="/event/1405">FwordCTF 2021</a></li>
+  <li><a href="/task/17065">t</a></li>
+</ul>
+<div class="page-header"><h2>t</h2>
+by <a href="/team/1">x</a></div>
+<p>Rating: <span id="user_rating" class="category-value"></span></p>
+<div class="well" id="id_description"><p>some inline body content</p></div>
+</body></html>"""
+    rec = parse_ctftime_writeup(html)
+    assert rec is not None
+    assert rec["rating"] == ""
+
+
+def test_ctftime_collector_skips_already_collected_writeups(tmp_path):
+    """Resume mode: a writeup_id present in output_path should not trigger a re-fetch."""
+    out = tmp_path / "ctftime.jsonl"
+    # Pre-seed output with one already-collected writeup
+    pre = [{
+        "id": "ctftime-30000",
+        "text": "previously collected body",
+        "source": "ctftime",
+        "ctftime_url": "https://ctftime.org/writeup/30000",
+        "writeup_id": 30000,
+    }]
+    with open(out, "w", encoding="utf-8") as f:
+        for r in pre:
+            f.write(json.dumps(r) + "\n")
+
+    # Mock fetch order: tasks-page → task-page (yielding writeups 30000 + 30001)
+    # The collector should only fetch /writeup/30001 (30000 is already on disk).
+    tasks_html = '<a href="/task/17065">devprivops</a>'
+    task_html = '<a href="/writeup/30000">old</a> <a href="/writeup/30001">new</a>'
+    new_writeup_html = _ctftime_writeup_html(
+        body="brand new exploit narrative " * 20,
+        task_id=17065,
+    )
+
+    fetched_paths = []
+
+    def fake_get(url, headers=None, timeout=None):
+        fetched_paths.append(url)
+        resp = MagicMock()
+        resp.raise_for_status = MagicMock()
+        if url.endswith("/event/1405/tasks/"):
+            resp.text = tasks_html
+        elif url.endswith("/task/17065"):
+            resp.text = task_html
+        elif url.endswith("/writeup/30001"):
+            resp.text = new_writeup_html
+        else:
+            # If the collector tries to fetch /writeup/30000 it would hit
+            # this branch — we want the test to fail in that case.
+            resp.text = ""
+            raise AssertionError(f"unexpected fetch: {url}")
+        return resp
+
+    with patch("data.collect.requests.get", side_effect=fake_get), \
+         patch("data.collect.time.sleep"):
+        collect_ctftime_writeups(
+            event_ids=[1405],
+            output_path=str(out),
+            request_delay=0,
+        )
+
+    # Both records (existing + new) should now be on disk
+    records = load_jsonl(str(out))
+    ids = {r["writeup_id"] for r in records}
+    assert ids == {30000, 30001}
+    # The pre-seeded body must still be there
+    old = next(r for r in records if r["writeup_id"] == 30000)
+    assert old["text"] == "previously collected body"
+    # The new record carries the standard CTFtime metadata
+    new = next(r for r in records if r["writeup_id"] == 30001)
+    assert new["source"] == "ctftime"
+    assert new["license"] == "ctftime-user-submitted"
+    assert new["event_id"] == 1405
+    assert "brand new exploit narrative" in new["text"]
+    # /writeup/30000 must not have been fetched
+    assert not any(p.endswith("/writeup/30000") for p in fetched_paths)

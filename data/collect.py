@@ -483,6 +483,234 @@ def collect_ctf_repos(
         print("  Warning: no records collected.")
 
 
+# ---------- CTFtime writeup collector ----------
+#
+# CTFtime stores user-submitted writeups under stable URLs:
+#   /event/<event_id>/tasks/   — links to /task/<task_id>
+#   /task/<task_id>            — links to /writeup/<writeup_id>
+#   /writeup/<writeup_id>      — inline body in <div id="id_description">
+# A writeup with no inline body (external-only redirect) is skipped — we do
+# not follow off-site links because the licensing posture of arbitrary
+# personal blogs / gitbook pages is not auditable from a config.
+
+_CTFTIME_TASK_HREF_RE = re.compile(r'/task/(\d+)')
+_CTFTIME_WRITEUP_HREF_RE = re.compile(r'/writeup/(\d+)')
+_CTFTIME_BODY_RE = re.compile(
+    r'<div class="well" id="id_description">(.*?)</div>',
+    re.DOTALL,
+)
+_CTFTIME_PAGE_HEADER_RE = re.compile(
+    r'<div class="page-header">(.*?)</div>',
+    re.DOTALL,
+)
+_CTFTIME_H2_RE = re.compile(r'<h2>([^<]+)</h2>')
+_CTFTIME_TEAM_RE = re.compile(r'<a href="/team/\d+">([^<]+)</a>')
+_CTFTIME_RATING_RE = re.compile(r'<span id="user_rating"[^>]*>([^<]*)</span>')
+_CTFTIME_ORIG_URL_RE = re.compile(
+    r'href="(https?://[^"]+)"[^>]*>\s*Original writeup\s*</a>'
+)
+_CTFTIME_BC_EVENT_RE = re.compile(
+    r'<li><a href="/event/(\d+)">([^<]+)</a>'
+)
+_CTFTIME_BC_TASK_RE = re.compile(
+    r'<li><a href="/task/(\d+)">([^<]+)</a>'
+)
+
+
+def _ctftime_html_to_text(fragment: str) -> str:
+    """Convert a CTFtime markdown-rendered HTML fragment into plain text.
+
+    CTFtime renders user markdown with <br /> for newlines and <p>...</p>
+    for paragraphs. Strip that and any remaining tags, then unescape HTML
+    entities so the body looks like the author's original markdown rather
+    than tag soup.
+    """
+    import html as _html
+
+    text = re.sub(r'<br\s*/?>', '\n', fragment)
+    text = re.sub(r'</p>\s*<p>', '\n\n', text)
+    text = re.sub(r'</?p[^>]*>', '', text)
+    text = re.sub(r'<[^>]+>', '', text)
+    text = _html.unescape(text)
+    # Collapse runs of >2 blank lines that this stripping can introduce
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
+
+
+def parse_ctftime_event_tasks(html: str) -> List[int]:
+    """Extract the unique task IDs linked from an /event/<id>/tasks/ page."""
+    return sorted({int(m) for m in _CTFTIME_TASK_HREF_RE.findall(html)})
+
+
+def parse_ctftime_task_writeups(html: str) -> List[int]:
+    """Extract the unique writeup IDs linked from a /task/<id> page."""
+    return sorted({int(m) for m in _CTFTIME_WRITEUP_HREF_RE.findall(html)})
+
+
+def parse_ctftime_writeup(html: str) -> Optional[Dict]:
+    """Parse a /writeup/<id> page into a metadata + body dict.
+
+    Returns None when the page has no inline body (external-only redirect).
+    Header metadata (title, team) is extracted from the first
+    ``<div class="page-header">`` block so unrelated team/title-shaped
+    markup elsewhere on the page can't poison the result. HTML entities
+    are unescaped on the way out so consumers see ``&`` not ``&amp;``.
+    """
+    import html as _html
+
+    body_match = _CTFTIME_BODY_RE.search(html)
+    if not body_match:
+        return None
+    body = _ctftime_html_to_text(body_match.group(1))
+    if not body:
+        return None
+
+    header_match = _CTFTIME_PAGE_HEADER_RE.search(html)
+    header = header_match.group(1) if header_match else ""
+
+    title = _CTFTIME_H2_RE.search(header)
+    team = _CTFTIME_TEAM_RE.search(header)
+
+    rating = _CTFTIME_RATING_RE.search(html)
+    orig = _CTFTIME_ORIG_URL_RE.search(html)
+    event = _CTFTIME_BC_EVENT_RE.search(html)
+    task = _CTFTIME_BC_TASK_RE.search(html)
+
+    return {
+        "task_name": _html.unescape(title.group(1).strip()) if title else "",
+        "team": _html.unescape(team.group(1).strip()) if team else "",
+        "rating": rating.group(1).strip() if rating else "",
+        "original_url": orig.group(1) if orig else "",
+        "event_id": int(event.group(1)) if event else None,
+        "event_name": _html.unescape(event.group(2).strip()) if event else "",
+        "task_id": int(task.group(1)) if task else None,
+        "body": body,
+    }
+
+
+def collect_ctftime_writeups(
+    event_ids: List[int],
+    output_path: str = "data/raw/ctftime.jsonl",
+    request_delay: float = 1.0,
+    request_timeout: int = 30,
+    min_chars: int = 200,
+    max_chars: int = 12000,
+    user_agent: str = "GhostLM-corpus-collector/1.0 (educational research)",
+    max_writeups: Optional[int] = None,
+    flush_every: int = 50,
+) -> None:
+    """Collect inline CTFtime writeups for a config-driven list of event IDs.
+
+    For each event the collector walks /event/<id>/tasks/ → /task/<tid> →
+    /writeup/<wid>, extracts the body from the writeup page, and emits a
+    JSONL record with full attribution metadata. The event-ID list is a
+    parameter rather than a discovery walk so the licensing posture is
+    auditable per event (see scripts/collect_ctftime.py for the JSON
+    config wrapper).
+
+    Resume-safe: existing output is loaded and writeup IDs already on disk
+    are skipped. Polite: sleeps ``request_delay`` seconds between every
+    HTTP request. Flushes every ``flush_every`` newly-collected writeups
+    so a long run survives interruption.
+
+    Each record carries ``ctftime_url``, ``writeup_id``, ``event_id``,
+    ``event_name``, ``task_id``, ``task_name``, ``team``, ``rating``,
+    ``original_url`` (if present), and ``license: "ctftime-user-submitted"``.
+    """
+    if not event_ids:
+        print("  No event IDs provided — skipping CTFtime collection.")
+        return
+
+    base = "https://ctftime.org"
+    headers = {"User-Agent": user_agent}
+
+    existing: List[Dict] = []
+    seen_ids: set = set()
+    if Path(output_path).exists():
+        for rec in load_jsonl(output_path):
+            existing.append(rec)
+            wid = rec.get("writeup_id")
+            if wid is not None:
+                seen_ids.add(int(wid))
+        print(f"  resume mode: {len(existing)} existing records loaded from {output_path}")
+
+    new_records: List[Dict] = []
+
+    def fetch(path: str) -> Optional[str]:
+        try:
+            resp = requests.get(f"{base}{path}", headers=headers, timeout=request_timeout)
+            resp.raise_for_status()
+            return resp.text
+        except Exception as e:
+            print(f"    GET {path} failed: {e}")
+            return None
+        finally:
+            time.sleep(request_delay)
+
+    def flush():
+        save_jsonl(existing + new_records, output_path)
+
+    print(f"Collecting CTFtime writeups for {len(event_ids)} events...")
+    for event_id in event_ids:
+        if max_writeups is not None and len(new_records) >= max_writeups:
+            break
+        print(f"  Event {event_id}...")
+        tasks_html = fetch(f"/event/{event_id}/tasks/")
+        if not tasks_html:
+            continue
+        task_ids = parse_ctftime_event_tasks(tasks_html)
+        print(f"    {len(task_ids)} tasks discovered")
+
+        for task_id in task_ids:
+            if max_writeups is not None and len(new_records) >= max_writeups:
+                break
+            task_html = fetch(f"/task/{task_id}")
+            if not task_html:
+                continue
+            writeup_ids = parse_ctftime_task_writeups(task_html)
+
+            for wid in writeup_ids:
+                if max_writeups is not None and len(new_records) >= max_writeups:
+                    break
+                if wid in seen_ids:
+                    continue
+                writeup_html = fetch(f"/writeup/{wid}")
+                if not writeup_html:
+                    continue
+                parsed = parse_ctftime_writeup(writeup_html)
+                if not parsed:
+                    continue
+                body = parsed["body"]
+                if len(body) < min_chars:
+                    continue
+                if len(body) > max_chars:
+                    body = body[:max_chars]
+                rec = {
+                    "id": f"ctftime-{wid}",
+                    "text": body,
+                    "source": "ctftime",
+                    "ctftime_url": f"{base}/writeup/{wid}",
+                    "writeup_id": wid,
+                    "task_id": parsed.get("task_id"),
+                    "task_name": parsed.get("task_name", ""),
+                    "event_id": parsed.get("event_id"),
+                    "event_name": parsed.get("event_name", ""),
+                    "team": parsed.get("team", ""),
+                    "rating": parsed.get("rating", ""),
+                    "original_url": parsed.get("original_url", ""),
+                    "license": "ctftime-user-submitted",
+                }
+                seen_ids.add(wid)
+                new_records.append(rec)
+                if len(new_records) % flush_every == 0:
+                    flush()
+                    print(f"    flushed {len(existing) + len(new_records)} records")
+
+    if new_records or existing:
+        flush()
+    print(f"  Done. Added {len(new_records)} new records, total {len(existing) + len(new_records)}.")
+
+
 def collect_security_papers(
     output_path: str = "data/raw/papers.jsonl",
     max_records: int = 2000,

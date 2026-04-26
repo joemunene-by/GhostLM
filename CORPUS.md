@@ -52,9 +52,9 @@ Roughly ordered by leverage (records-per-effort × content-quality × license-fr
 
 ### 2. CTFtime archive
 - **What:** real CTF writeups across years and categories. Replaces the current 3,000 synthetic CTF set.
-- **Source:** CTFtime task pages + linked writeups (rate-limit-aware scraper needed).
-- **License:** writeups are typically CC-BY or unspecified — needs per-writeup attribution; redistribution within a research/training corpus is generally accepted but should be documented.
-- **Status:** wanted; highest priority on the CTF side.
+- **Source:** CTFtime task pages + linked writeups via the on-site `id_description` body container. The collector walks `/event/<id>/tasks/` → `/task/<id>` → `/writeup/<id>` for an explicit, config-driven list of events.
+- **License:** user-submitted to CTFtime under site terms; this corpus treats them as research-archivable with full per-record attribution (`ctftime_url`, `original_url`, `team`, `event_name`). Off-site links (gitbook / personal blogs) are **not** followed because their licensing posture isn't auditable from a config. Each record carries `license: "ctftime-user-submitted"` so downstream consumers can filter.
+- **Status:** **collector ready** — `scripts/collect_ctftime.py` reads a JSON config (see `data/ctftime_events.example.json`) of `{id, name}` events, walks tasks → writeups, parses the inline body, and emits attributed JSONL. Resume-safe (skips writeup IDs already on disk) and polite (default 1 req/sec, configurable). Skips writeups without an inline body. To deploy: edit a config, then `make data-ctftime` (or `python scripts/collect_ctftime.py --config <path>`).
 
 ### 3. GitHub CTF writeup repos
 - **What:** community-maintained writeup collections (e.g. `ctfs/write-ups-*`, `p4-team/ctf`, etc.).
