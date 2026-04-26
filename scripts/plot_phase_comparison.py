@@ -28,7 +28,12 @@ PHASES = [
         "color": "#888888",
         "log": Path("archive/logs_v1_pre_corpus_fix/training_log.json"),
         "bench": Path("archive/logs_v1_pre_corpus_fix/benchmark_step_10000.json"),
-        "sec": Path("archive/logs_v1_pre_corpus_fix/eval_security.json"),
+        # PMI-corrected score (Phase 1 also has a legacy logp file at
+        # archive/logs_v1_pre_corpus_fix/eval_security.json — kept for
+        # historical reference, not used here because the previous
+        # length-normalized scoring was mode-collapsed and reported
+        # 4/30 = 13.3% on every phase).
+        "sec": Path("logs/eval_security_phase1_pmi.json"),
         "note": "leaky split — not directly comparable",
     },
     {
@@ -37,7 +42,7 @@ PHASES = [
         "color": "#E8943A",
         "log": Path("logs/training_log.json"),
         "bench": Path("logs/benchmark_phase2.json"),
-        "sec": Path("logs/eval_security_phase2.json"),
+        "sec": Path("logs/eval_security_phase2_pmi.json"),
         "note": "clean deterministic-hash split",
     },
     {
@@ -46,7 +51,7 @@ PHASES = [
         "color": "#6FB76F",
         "log": Path("logs/phase3_refresh/training_log.json"),
         "bench": Path("logs/benchmark_phase3.json"),
-        "sec": Path("logs/eval_security_phase3.json"),
+        "sec": Path("logs/eval_security_phase3_pmi.json"),
         "note": "v0.3.3 released ghost-tiny on the post-NVD-pull corpus",
     },
     {
@@ -55,8 +60,8 @@ PHASES = [
         "color": "#4AB3B3",
         "log": Path("logs/phase3.5_balanced/training_log.json"),
         "bench": Path("logs/benchmark_phase3.5.json"),
-        "sec": Path("logs/eval_security_phase3.5.json"),
-        "note": "NVD subsampled to 6M tokens — diversity sources at ~35% share",
+        "sec": Path("logs/eval_security_phase3.5_pmi.json"),
+        "note": "v0.3.5 — NVD subsampled to 6M tokens, diversity sources at ~35% share",
     },
 ]
 
