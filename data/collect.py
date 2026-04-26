@@ -1122,7 +1122,9 @@ def collect_capec(
                 capec_id = ref.get("external_id", "")
                 break
 
-        text = f"CAPEC {capec_id}: {name}\n\n{description}"
+        # capec_id is already in "CAPEC-N" form from the external_id field;
+        # don't prefix with another "CAPEC " or it duplicates ("CAPEC CAPEC-1:").
+        text = f"{capec_id}: {name}\n\n{description}"
         cleaned = clean_text(text)
 
         if len(cleaned) >= 100:

@@ -13,8 +13,10 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from data.collect import (
     build_nvd_year_windows,
+    collect_capec,
     collect_cve_full,
     collect_ctf_repos,
+    collect_mitre_attack,
     deduplicate_records,
     load_jsonl,
 )
@@ -391,3 +393,147 @@ def test_ctf_repos_empty_input_is_noop(tmp_path):
     out = tmp_path / "ctf_repos.jsonl"
     collect_ctf_repos([], output_path=str(out))
     assert not out.exists()
+
+
+# ---------- collect_mitre_attack ----------
+
+def _stix_attack_bundle(techniques):
+    """Build a fake MITRE ATT&CK STIX 2.1 bundle from a list of (id, name, description, tactics)."""
+    objects = []
+    for ext_id, name, desc, tactics in techniques:
+        objects.append({
+            "type": "attack-pattern",
+            "name": name,
+            "description": desc,
+            "external_references": [{"source_name": "mitre-attack", "external_id": ext_id}],
+            "kill_chain_phases": [
+                {"kill_chain_name": "mitre-attack", "phase_name": t} for t in tactics
+            ],
+        })
+    return {"objects": objects}
+
+
+def test_mitre_attack_extracts_techniques(tmp_path):
+    """Real STIX-shaped JSON yields one record per attack-pattern with id, tactics, description."""
+    out = tmp_path / "mitre_attack.jsonl"
+    bundle = _stix_attack_bundle([
+        ("T1059", "Command and Scripting Interpreter",
+         "Adversaries may abuse command and script interpreters to execute commands. " * 5,
+         ["execution"]),
+        ("T1078", "Valid Accounts",
+         "Adversaries may obtain and abuse credentials of existing accounts. " * 5,
+         ["defense-evasion", "persistence", "privilege-escalation", "initial-access"]),
+    ])
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = bundle
+
+    with patch("data.collect.requests.get", return_value=resp):
+        collect_mitre_attack(output_path=str(out), max_records=100)
+
+    records = load_jsonl(str(out))
+    assert {r["id"] for r in records} == {"T1059", "T1078"}
+    assert all(r["source"] == "mitre_attack" for r in records)
+    # Tactic phases land in the rendered text
+    t1078 = next(r for r in records if r["id"] == "T1078")
+    assert "persistence" in t1078["text"]
+    # Technique IDs aren't double-prefixed
+    assert "MITRE ATT&CK Technique T1078" in t1078["text"]
+
+
+def test_mitre_attack_skips_revoked_and_deprecated(tmp_path):
+    """Records flagged revoked or x_mitre_deprecated must be dropped."""
+    out = tmp_path / "mitre_attack.jsonl"
+    bundle = {
+        "objects": [
+            {
+                "type": "attack-pattern",
+                "name": "Active",
+                "description": "A real, non-revoked technique. " * 10,
+                "external_references": [{"source_name": "mitre-attack", "external_id": "T0001"}],
+                "kill_chain_phases": [{"kill_chain_name": "mitre-attack", "phase_name": "execution"}],
+            },
+            {
+                "type": "attack-pattern",
+                "name": "Revoked technique",
+                "description": "Should be dropped because revoked. " * 10,
+                "revoked": True,
+                "external_references": [{"source_name": "mitre-attack", "external_id": "T9998"}],
+            },
+            {
+                "type": "attack-pattern",
+                "name": "Deprecated technique",
+                "description": "Should be dropped because deprecated. " * 10,
+                "x_mitre_deprecated": True,
+                "external_references": [{"source_name": "mitre-attack", "external_id": "T9999"}],
+            },
+            # non-attack-pattern object — must be ignored entirely
+            {"type": "course-of-action", "name": "Mitigation", "description": "irrelevant"},
+        ]
+    }
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = bundle
+
+    with patch("data.collect.requests.get", return_value=resp):
+        collect_mitre_attack(output_path=str(out), max_records=100)
+
+    records = load_jsonl(str(out))
+    assert {r["id"] for r in records} == {"T0001"}
+
+
+# ---------- collect_capec ----------
+
+def _stix_capec_bundle(patterns):
+    """Build a fake CAPEC STIX bundle from a list of (id, name, description)."""
+    return {
+        "objects": [
+            {
+                "type": "attack-pattern",
+                "name": name,
+                "description": desc,
+                "external_references": [{"source_name": "capec", "external_id": cap_id}],
+            }
+            for cap_id, name, desc in patterns
+        ]
+    }
+
+
+def test_capec_label_not_double_prefixed(tmp_path):
+    """Regression: CAPEC text must not start with 'CAPEC CAPEC-N' (the id is already 'CAPEC-N')."""
+    out = tmp_path / "capec.jsonl"
+    bundle = _stix_capec_bundle([
+        ("CAPEC-1", "Accessing Functionality Not Properly Constrained by ACLs",
+         "Access control lists describe access rights. " * 10),
+    ])
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = bundle
+
+    with patch("data.collect.requests.get", return_value=resp):
+        collect_capec(output_path=str(out), max_records=100)
+
+    records = load_jsonl(str(out))
+    assert len(records) == 1
+    text = records[0]["text"]
+    assert text.startswith("CAPEC-1:")
+    assert "CAPEC CAPEC-1" not in text
+
+
+def test_capec_extracts_patterns_with_external_ids(tmp_path):
+    """Each attack-pattern with a CAPEC external_id becomes one record keyed by id."""
+    out = tmp_path / "capec.jsonl"
+    bundle = _stix_capec_bundle([
+        ("CAPEC-66", "SQL Injection", "An attacker exploits SQL queries by injecting input. " * 10),
+        ("CAPEC-100", "Overflow Buffers", "Buffer overflow attacks target unchecked bounds. " * 10),
+    ])
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = bundle
+
+    with patch("data.collect.requests.get", return_value=resp):
+        collect_capec(output_path=str(out), max_records=100)
+
+    records = load_jsonl(str(out))
+    assert {r["id"] for r in records} == {"CAPEC-66", "CAPEC-100"}
+    assert all(r["source"] == "capec" for r in records)

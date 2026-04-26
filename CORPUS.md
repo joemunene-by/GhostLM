@@ -69,9 +69,15 @@ Roughly ordered by leverage (records-per-effort × content-quality × license-fr
 
 ### 5. MITRE ATT&CK
 - **What:** structured technique data + unstructured procedure / detection text.
-- **Source:** MITRE ATT&CK STIX bundle (`https://attack.mitre.org/`).
+- **Source:** MITRE ATT&CK STIX 2.1 enterprise bundle (`raw.githubusercontent.com/mitre/cti/master/enterprise-attack/enterprise-attack.json`).
 - **License:** Apache 2.0 / public — explicitly intended for redistribution.
-- **Status:** wanted.
+- **Status:** **collector ready and verified** (2026-04-26). `collect_mitre_attack()` in `data/collect.py` produces ~691 records, ~1 MB JSONL, avg 1,492 chars per record. Skips revoked / deprecated techniques. Run via `make data-mitre`.
+
+### 5b. CAPEC (Common Attack Pattern Enumeration and Classification)
+- **What:** structured attack-pattern descriptions complementing MITRE ATT&CK.
+- **Source:** MITRE CAPEC STIX bundle (`raw.githubusercontent.com/mitre/cti/master/capec/2.1/stix-capec.json`).
+- **License:** Apache 2.0 / public — same redistribution terms as ATT&CK.
+- **Status:** **collector ready and verified** (2026-04-26). `collect_capec()` produces ~610 records, ~330 KB JSONL, avg 496 chars per record. Run via `make data-capec`.
 
 ### 6. Tool documentation
 - **What:** primary docs for security tools — nmap, metasploit, burp, ghidra, pwntools, sqlmap, etc.
