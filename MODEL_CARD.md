@@ -34,7 +34,7 @@ model-index:
 | **License** | MIT |
 | **Language** | English |
 | **Framework** | PyTorch (built from scratch, no pretrained weights) |
-| **Version** | 0.3.3 (Phase 3 ghost-tiny refresh — 30K steps on the post-NVD-pull ~30M-token corpus) |
+| **Version** | 0.3.5 (Phase 3.5 ghost-tiny refresh — 30K steps on the rebalanced ~8.8M-token corpus, NVD share capped at 65%) |
 
 ## Model Description
 
@@ -46,7 +46,7 @@ The model is trained on CVE vulnerability descriptions from the National Vulnera
 
 | Variant | Layers | d_model | Heads | d_ff | Context | Params | Status |
 |---|---|---|---|---|---|---|---|
-| `ghostlm/ghost-tiny` | 2 | 256 | 4 | 1024 | 1024 | 14.7M | **Phase 3 complete (30K steps, post-NVD-pull corpus, val_loss 3.45)** |
+| `ghostlm/ghost-tiny` | 2 | 256 | 4 | 1024 | 1024 | 14.7M | **Phase 3.5 complete (30K steps, rebalanced corpus, overall PPL 66 vs 172 in v0.3.3)** |
 | `ghostlm/ghost-small` | 6 | 512 | 8 | 2048 | 1024 | ~55M | Planned (next scale rung; corpus diversity track gates the run) |
 | `ghostlm/ghost-base` | 12 | 768 | 12 | 3072 | 1024 | ~350M | Planned (rented GPU) |
 | `ghostlm/ghost-1B` | 24 | 1024 | 16 | 4096 | 1024 | ~1B | Long-term goal |
@@ -66,18 +66,28 @@ ghost-tiny is the iteration vehicle. The scale ladder above is the path to a gen
 
 ## Training Data
 
-The released v0.3.3 checkpoint was trained on the post-NVD-pull corpus:
+The released v0.3.5 checkpoint was trained on the rebalanced Phase 3.5 corpus. NVD's full 333,540-record pull is on disk, but its training contribution is capped at 6M tokens by content-hash subsample so the corpus isn't 90% CVE descriptions:
 
-| Source | Records | Type | Description |
-|---|---|---|---|
-| NVD CVE Database | 333,540 | Real | Full pull, 1999–2026 (28 years), via `scripts/collect_nvd_full.py` with proper `startIndex` pagination |
-| arXiv cs.CR Abstracts | 2,000 | Real | Recent-first via arXiv Atom API |
-| Synthetic CTF Writeups | 3,000 | Synthetic | Generated via local LLM (Ollama-based pipeline), varied topic + template mix |
-| **Total (post-dedup)** | **~309K** | | **~30M tokens** (train: ~293K / val: ~15K) |
+| Source | Records (raw → trained) | Trained tokens | Share | Type |
+|---|---|---|---|---|
+| NVD CVE Database | 333,540 → 71,828 | ~5.74M | **65.3%** | Real, capped via `--max-cve-tokens 6000000` |
+| Synthetic CTF Writeups | 3,000 | ~1.51M | 17.2% | Synthetic, placeholder until real CTFtime grows |
+| arXiv cs.CR Abstracts | 2,000 | ~0.74M | 8.4% | Real |
+| CTFtime real writeups | 473 → 467 | ~0.47M | 5.3% | Real, inline-only, per-record attribution |
+| MITRE ATT&CK | 691 | ~0.26M | 2.9% | Real (Apache 2.0) |
+| CAPEC | 609 | ~0.07M | 0.9% | Real (Apache 2.0) |
+| **Total (post-dedup)** | **74,635** | **~8.79M** | | train: 70,965 / val: 3,670 |
 
 **Data splits:** deterministic by content hash — identical or near-duplicate texts always land in the same split. Train/val leakage check returns 0.
 
-**Token share (what the model sees):** NVD ~87%, CTF ~5%, papers ~2%. The lopsidedness motivates the next *corpus* track being diversity (CTFtime, MITRE ATT&CK), not deeper NVD.
+**Token share comparison (what the model sees):**
+
+| Phase | NVD share | Top non-NVD source | Overall |
+|---|---|---|---|
+| v0.3.3 (Phase 3) | 87% | CTF synthetic 5% | NVD-dominated |
+| **v0.3.5 (Phase 3.5)** | **65.3%** | **synthetic 17.2%** | **balanced across 6 sources** |
+
+The rebalance is reproducible: `python3 scripts/rebuild_corpus.py --max-cve-tokens 6000000` always produces the same 71,828-record CVE prefix.
 
 **Topics covered:** vulnerability detection, adversarial ML, network intrusion, cryptographic protocols, fuzzing, side-channel attacks, ransomware detection, supply chain security, memory safety, WAF evasion, SQL injection, XSS, buffer overflow, privilege escalation, reverse engineering, binary exploitation, steganography, network forensics.
 
@@ -92,16 +102,53 @@ For corpus expansion plans (CTFtime, security blogs, MITRE ATT&CK, tool docs) an
 | Warmup steps | 2,000 |
 | Gradient clipping | 1.0 |
 | Gradient accumulation | 4 steps |
-| Batch size (Phase 3) | 2 (effective batch = 8 with grad_accum) |
-| Max steps (Phase 3) | 30,000 |
+| Batch size (Phase 3.5) | 2 (effective batch = 8 with grad_accum) |
+| Max steps (Phase 3.5) | 30,000 |
 | Dropout | 0.1 |
 | Mixed precision | AMP on CUDA, fp32 on CPU |
 
 **Weight decay separation:** No weight decay applied to biases, LayerNorm parameters, or embedding weights. Only linear layer weights receive weight decay.
 
-**Hardware (Phase 3):** Mac Mini M4 (CPU). ~3h48m wall-clock for 30K steps at ~2.4 it/s. Cross-machine workflow: Linux box for data prep and corpus curation; Mac Mini M4 for the training loop.
+**Hardware (Phase 3.5):** Mac Mini M4 (CPU). ~3h13m wall-clock for 30K steps at ~2.4 it/s. Cross-machine workflow: Linux box for data prep, corpus curation, and SSH-driven Mac orchestration; Mac Mini M4 for the training loop. The previous Nemotron-on-Mac harness was replaced this phase by direct `ssh ghostlm-mac` from Linux — drops the email-relay friction and lets the dev box drive the workhorse cleanly.
 
-**Phase 1** was run on a ThinkPad Yoga 11e (Celeron N4100) and is preserved as `checkpoints/best_model_phase1.pt` for archaeological reference. **Phase 2** is preserved as `checkpoints/best_model_phase2.pt` (val_loss 3.78 on the 2.66M-token corpus).
+**Phase 1** was run on a ThinkPad Yoga 11e (Celeron N4100) and is preserved as `checkpoints/best_model_phase1.pt`. **Phase 2** is preserved as `checkpoints/best_model_phase2.pt` (val_loss 3.78 on the 2.66M-token corpus). **Phase 3 (v0.3.3)** is preserved as `checkpoints/phase3_refresh/best_model.pt` (val_loss 3.45 on the post-NVD-pull corpus, overall PPL 172).
+
+## Evaluation
+
+The v0.3.5 model is evaluated on two complementary axes — domain-modeling quality (per-source perplexity) and downstream reasoning (PMI-corrected security task accuracy).
+
+### Per-source perplexity on the validation split
+
+100 records sampled per source (deterministic seed). Lower is better.
+
+| Source | v0.3.3 PPL | v0.3.5 PPL | Δ% | Reading |
+|---|---|---|---|---|
+| MITRE ATT&CK | 615.43 | 55.14 | **−91%** | Was OOD for v0.3.3; now in training |
+| CTFtime real writeups | 184.24 | 60.71 | **−67%** | Was OOD for v0.3.3; now in training |
+| CAPEC | 326.11 | 133.81 | **−59%** | Was OOD for v0.3.3; now in training |
+| Synthetic CTF | 67.57 | 28.48 | **−58%** | Same data both phases — capacity reallocation |
+| arXiv cs.CR | 671.09 | 354.95 | **−47%** | Same data both phases — capacity reallocation |
+| NVD CVE | 24.19 | 27.55 | +14% | The expected, modest cost |
+| **Overall** | **171.84** | **66.05** | **−62%** | |
+
+The rebalance shifted the model from "knows NVD register, treats everything else as generic English" to "models each domain in proportion to its training share." The 47–58% improvements on synthetic CTF and arXiv are particularly notable because **the training data for those sources didn't change** — the gain comes from parameter capacity that v0.3.3 was burning on memorizing duplicate CVE descriptions being redirected onto already-present sources.
+
+### PMI-corrected security task accuracy
+
+Three classification tasks × 10 hand-crafted samples each. PMI scoring (commit `aee8008`) replaces the previous mode-collapsed length-normalized scoring that reported 4/30 = 13.3% on every phase. Random baseline = 15%.
+
+| Task | v0.3.3 | v0.3.5 |
+|---|---|---|
+| CVE Severity Classification | 1/10 (10%) | 4/10 (40%) |
+| Vulnerability Type Detection | 3/10 (30%) | 4/10 (40%) |
+| Attack Technique Identification | 2/10 (20%) | 4/10 (40%) |
+| **Overall** | **6/30 (20%)** | **12/30 (40%)** |
+
+Doubled accuracy at fixed model size. v0.3.5's 40% is 2.7× random.
+
+### Note on val_loss
+
+Final v0.3.5 val_loss is 3.5518 vs v0.3.3's 3.4458. **Do not read this as v0.3.3 being a better model.** The val sets are different — v0.3.5's val covers six sources (NVD, arxiv, ctftime, mitre, capec, synthetic) while v0.3.3's was NVD-dominated. A more diverse val set is harder to predict per-token regardless of model quality. The per-source perplexity table above is the cleaner read.
 
 ## Intended Uses
 

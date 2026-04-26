@@ -237,7 +237,40 @@ Corpus milestone, not a model release. The released checkpoint is still v0.3.0's
 - Direct SSH from Linux dev box to Mac M4 workhorse via `ssh ghostlm-mac` alias (mDNS-resolved, key-authed). Replaces the prior Nemotron-relay loop, which couldn't compose long jobs against a 120s tool timeout. Cross-machine rule still applies — Mac owns long jobs, Linux owns code edits — SSH just removes the email-relay friction.
 
 ### Status
-- ghost-tiny refresh on the rebalanced corpus: in progress at time of release tag (run-name `phase3.5_balanced`, 30,000 steps, CPU). The v0.3.3 release artifacts are preserved in `checkpoints/phase3_refresh/`.
+- ghost-tiny refresh on the rebalanced corpus: **complete** (run-name `phase3.5_balanced`, 30,000 steps, CPU, ~3h13m wall-clock on M4). The v0.3.3 release artifacts are preserved in `checkpoints/phase3_refresh/`.
+
+### Training results (v0.3.5 ghost-tiny)
+- Final val_loss: 3.5518 (vs v0.3.3's 3.4458, +0.106). Note: val sets are not directly comparable across phases because the v0.3.5 val distribution covers six sources vs v0.3.3's NVD-dominated val. The cleaner read is per-source perplexity below.
+- Same model, same recipe, same step count as v0.3.3. Smaller training corpus (8.8M vs 26.4M tokens) and more diverse mix.
+
+### Eval results — the rebalance bought what we projected
+
+**Per-source perplexity (val split, 100 records per source, lower is better):**
+
+| Source | v0.3.3 | v0.3.5 | Δ% |
+|---|---|---|---|
+| mitre_attack | 615.43 | 55.14 | **−91%** |
+| ctftime | 184.24 | 60.71 | **−67%** |
+| capec | 326.11 | 133.81 | **−59%** |
+| synthetic CTF | 67.57 | 28.48 | **−58%** |
+| arxiv | 671.09 | 354.95 | **−47%** |
+| nvd | 24.19 | 27.55 | +14% |
+| **overall** | **171.84** | **66.05** | **−62%** |
+
+The directional shift is exactly what was hypothesized: every diversity source dropped 47–91%, NVD paid a small expected cost (+14%), overall PPL fell 62%. The model went from "knows NVD register, treats everything else as generic English" to "models each domain in proportion to its training share."
+
+The synthetic CTF improvement (−58%) is a free win the rebalance produced without any new data — the same 3K records were used in both phases. Subsampling NVD freed up parameter capacity that v0.3.3 was spending on memorizing duplicate CVE descriptions, and v0.3.5 redirected that capacity onto sources it hadn't fully modeled.
+
+**PMI-corrected security task accuracy (3 tasks, 30 questions, random baseline 15%):**
+
+| Task | v0.3.3 | v0.3.5 |
+|---|---|---|
+| CVE Severity Classification | 1/10 (10%) | 4/10 (40%) |
+| Vulnerability Type Detection | 3/10 (30%) | 4/10 (40%) |
+| Attack Technique Identification | 2/10 (20%) | 4/10 (40%) |
+| **Overall** | **6/30 (20%)** | **12/30 (40%)** |
+
+Doubled accuracy at fixed model size and (slightly smaller) training data. The previous logp-based scoring reported every phase at 4/30 = 13.3% (below random) — that was the eval being mode-collapsed, not the model failing. PMI scoring (commit aee8008) fixed the eval; this is the first phase where the eval can actually discriminate.
 
 ---
 
