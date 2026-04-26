@@ -14,6 +14,12 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.rebuild_corpus import select_corpus_sources
+
 
 CVE_ID_RE = re.compile(r"CVE-(\d{4})-\d+")
 
@@ -226,12 +232,19 @@ def main():
     print("GhostLM Data Audit")
     print("=" * 50)
 
+    selected_paths, _ = select_corpus_sources(raw, prefer_full_nvd=True)
+    selected = {Path(p).stem: Path(p) for p in selected_paths}
     raw_files = {p.stem: p for p in sorted(raw.glob("*.jsonl"))}
+
+    excluded = [name for name in raw_files if name not in selected]
+    if excluded:
+        print(f"\n[info] excluded from training merge (superseded): {', '.join(excluded)}")
+
     raw_stats = {}
     per_source_chars = defaultdict(int)
     all_raw_records = []
 
-    for name, path in raw_files.items():
+    for name, path in selected.items():
         records, malformed = load_jsonl(path)
         if malformed:
             print(f"\n[warn] {name}: {malformed} malformed lines skipped")
@@ -241,14 +254,14 @@ def main():
         all_raw_records.extend(records)
 
     cve_years = Counter()
-    cve_key = "cve_full" if "cve_full" in raw_files else ("cve" if "cve" in raw_files else None)
+    cve_key = "cve_full" if "cve_full" in selected else ("cve" if "cve" in selected else None)
     if cve_key:
-        records, _ = load_jsonl(raw_files[cve_key])
+        records, _ = load_jsonl(selected[cve_key])
         cve_years = audit_cve(records)
 
     ctf_cats = Counter()
-    if "ctf" in raw_files:
-        records, _ = load_jsonl(raw_files["ctf"])
+    if "ctf" in selected:
+        records, _ = load_jsonl(selected["ctf"])
         ctf_cats = audit_ctf(records)
 
     audit_token_share(per_source_chars)
