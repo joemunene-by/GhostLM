@@ -1,4 +1,4 @@
-![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-Phase%203%20Complete-green.svg)
+![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-Phase%203.5%20Complete-green.svg)
 
 # GhostLM
 
@@ -128,18 +128,21 @@ make plot
 
 ## Training Data
 
-The released v0.3.3 checkpoint was trained on the post-NVD-pull corpus:
+The released v0.3.5 checkpoint was trained on the **rebalanced** Phase 3.5 corpus. NVD's full 333,540-record pull is on disk; its training contribution is capped at 6M tokens by deterministic content-hash subsample so the corpus isn't 90% CVE descriptions:
 
-| Source | Records | Type | Coverage |
-|---|---|---|---|
-| NVD CVE Database | 333,540 | Real | Full pull, 1999–2026 (28 years), `startIndex`-paginated |
-| arXiv cs.CR Abstracts | 2,000 | Real | Recent-first (submittedDate descending) |
-| Synthetic CTF Writeups | 3,000 | Synthetic | Generated via local LLM, varied template + topic mix |
-| **Total (post-dedup)** | **~309K** | | **~30M tokens** (train: ~293K / val: ~15K) |
+| Source | Records (raw → trained) | Trained tokens | Share | Type |
+|---|---|---|---|---|
+| NVD CVE Database | 333,540 → 71,828 | ~5.74M | **65.3%** | Real, capped via `--max-cve-tokens 6000000` |
+| Synthetic CTF Writeups | 3,000 | ~1.51M | 17.2% | Synthetic, placeholder until real CTFtime grows |
+| arXiv cs.CR Abstracts | 2,000 | ~0.74M | 8.4% | Real |
+| CTFtime real writeups | 473 → 467 | ~0.47M | 5.3% | Real, inline-only, attributed |
+| MITRE ATT&CK | 691 | ~0.26M | 2.9% | Real (Apache 2.0) |
+| CAPEC | 609 | ~0.07M | 0.9% | Real (Apache 2.0) |
+| **Total (post-dedup)** | **74,635** | **~8.79M** | | train: 70,965 / val: 3,670 |
 
-Token share is currently lopsided — NVD ~87%, CTF ~5%, papers ~2%. The next *corpus* track is diversity (CTFtime, MITRE ATT&CK), not deeper NVD. The pipeline produces a deterministic, leakage-proof split (content-hash bucketing, leakage check returns 0). `scripts/data_audit.py` runs the diagnostics and writes a 4-panel chart to `logs/data_audit.png`.
+Token share went from **NVD 87% in v0.3.3** → **NVD 65% in v0.3.5**. The pipeline produces a deterministic, leakage-proof split (content-hash bucketing, leakage check returns 0). The subsample is reproducible — `python3 scripts/rebuild_corpus.py --max-cve-tokens 6000000` always produces the same 71,828-record CVE prefix. `scripts/data_audit.py` runs the diagnostics and writes a 4-panel chart to `logs/data_audit.png`.
 
-For where the corpus is heading — sources targeted (CTFtime archives, security research blogs, MITRE ATT&CK, tool docs) and licensing notes — see [CORPUS.md](CORPUS.md).
+For where the corpus is heading — Phase 3.6 volume targets (CTFtime expansion, security research blogs, full-text papers, Exploit-DB) and licensing notes — see [CORPUS.md](CORPUS.md).
 
 ---
 
@@ -149,37 +152,69 @@ For where the corpus is heading — sources targeted (CTFtime archives, security
 |---|---|---|---|---|
 | ghost-tiny Phase 1 (pre-audit corpus) | 10,000 | 2.66M (leaky) | 2.74 | Superseded — leaky train/val split, archived under `archive/` |
 | ghost-tiny Phase 2 (rebalanced corpus) | 10,000 | 2.66M | 3.7813 | Archived as `checkpoints/best_model_phase2.pt` |
-| **ghost-tiny Phase 3 (post-NVD-pull corpus)** | **30,000** | **~30M** | **3.4458** | **Current canonical model.** Hardware-of-record: Mac Mini M4 (CPU), ~3h48m wall-clock |
+| ghost-tiny Phase 3 (post-NVD-pull corpus) | 30,000 | ~30M | 3.4458 | NVD-dominated (87%); preserved as `checkpoints/phase3_refresh/best_model.pt` |
+| **ghost-tiny Phase 3.5 (rebalanced corpus)** | **30,000** | **~8.8M** | **3.5518** | **Current canonical model.** NVD share 65%, six sources balanced. Hardware: Mac Mini M4 (CPU), ~3h13m wall-clock |
 
-> Phase 1's val_loss 2.74 was measured on a leaky split — not directly comparable to later phases. Phase 2 (3.78) and Phase 3 (3.45) are both on clean deterministic-hash splits, so the **0.34 nat drop is a real corpus-quality dividend** at fixed model size. Same recipe, ~12× the data, ~29% lower perplexity on val.
+> Cross-phase val_loss is **not directly comparable** between v0.3.3 and v0.3.5: the validation distribution changed when we added MITRE/CAPEC/CTFtime to the corpus. v0.3.5 sits 0.10 nats higher on a different val set; that does not mean the model is worse. The eval-axis numbers below are the cleaner read.
 
-The Phase 3 checkpoint is `checkpoints/best_model.pt`. Phase 1 and Phase 2 checkpoints are preserved as `checkpoints/best_model_phase1.pt` and `checkpoints/best_model_phase2.pt` for archaeological reference.
+The Phase 3.5 checkpoint is the current canonical model. Phase 3 is preserved as `checkpoints/phase3_refresh/best_model.pt` for cross-phase comparison; Phases 1–2 are preserved as `checkpoints/best_model_phase{1,2}.pt`.
 
-The cross-phase perplexity benchmark (same hardcoded 10-sample cyber-text set across all phases — fair comparison):
+### Cross-phase eval — fair comparison (fixed test set)
 
-| Model | Perplexity vs cyber-text benchmark |
+The cyber-text benchmark is 10 hand-picked external samples that overlap none of the training corpora. Directly comparable across phases:
+
+| Model | Cyber-text perplexity (lower better) |
 |---|---|
-| **ghost-tiny — Phase 3 (released)** | **142.09** |
+| **ghost-tiny — Phase 3.5 (released)** | **96.24** |
+| ghost-tiny — Phase 3 | 142.09 |
 | ghost-tiny — Phase 2 | 152.71 |
 | ghost-tiny — Phase 1 | 2,183.94 |
 | GPT-2 (124M baseline) | 26.76 |
 
-Phase 2→3 moved this benchmark only ~7% — the 10-text set has a lot of generic security prose that already overlapped both corpora, so most of the perplexity dividend was earned at Phase 2 (corpus quality + clean split). The Phase 3 win shows up much more strongly on val_loss than on this benchmark. ghost-tiny is still 5.3× behind GPT-2 on raw perplexity, expected for a 14.7M model on ~30M tokens vs. a 124M model on ~40B tokens of WebText. See `logs/phase_comparison.png` for the 3-panel side-by-side and [MODEL_CARD.md](MODEL_CARD.md#evaluation-phase-3--30k-steps-post-nvd-pull-corpus) for the security-task eval (still mode-collapsed at this scale — expected).
+Phase 3 → Phase 3.5 dropped this benchmark **32%** (142.09 → 96.24) at fixed parameter count and 1/3 the training tokens. ghost-tiny is now ~3.6× behind GPT-2 on raw cyber-text perplexity, with ~8× less capacity. The trajectory matters more than the absolute number; full breakdown in [MODEL_CARD.md](MODEL_CARD.md#evaluation).
+
+### Per-source perplexity (val split)
+
+The headline reason the rebalance worked — same model, same recipe, 1/3 the corpus, but with diversity sources actually represented:
+
+| Source | v0.3.3 PPL | v0.3.5 PPL | Δ |
+|---|---|---|---|
+| MITRE ATT&CK | 615.43 | 55.14 | **−91%** |
+| CTFtime real writeups | 184.24 | 60.71 | **−67%** |
+| CAPEC | 326.11 | 133.81 | **−59%** |
+| Synthetic CTF (same data) | 67.57 | 28.48 | **−58%** |
+| arXiv (same data) | 671.09 | 354.95 | **−47%** |
+| NVD CVE | 24.19 | 27.55 | +14% |
+| **Overall** | **171.84** | **66.05** | **−62%** |
+
+The first three sources were 0 records in v0.3.3's training; v0.3.5 modeled them as proper domains. The synthetic-CTF and arXiv 47–58% drops happened with **identical training data** — the gain is parameter capacity that v0.3.3 was burning on memorizing duplicate CVE descriptions being redirected onto already-present sources. NVD pays the small expected cost for less specialization.
+
+### PMI-corrected security task accuracy
+
+3 classification tasks × 10 samples. Random baseline 15%. Old length-normalized scoring was mode-collapsed at 4/30 = 13.3% across all phases (eval failure, not model failure); PMI scoring fixed it. Now: **6/30 (20%) → 12/30 (40%)** — doubled.
 
 ## Sample Generations
 
-These are real generations from `checkpoints/best_model.pt` (Phase 3, val_loss 3.45) at `temperature=0.8, top_k=50`. They reflect what a 14.7M-param model trained on ~30M tokens can actually do — and what it can't:
+Real generations from the v0.3.5 best_model at `temperature=0.7, top_k=40`. The point of these isn't fluency — it's **register diversity**. v0.3.3 collapsed every prompt into CVE prose; v0.3.5 has multiple registers it can switch between depending on the prompt domain.
+
+> **Prompt:** *MITRE ATT&CK technique T1003*
+> T1003.011: defense-evasion
+> Tactic: defense-evasion
+> Adversaries may use-evasion, such as legitimate system-evasion, or malicious payloads.dll, execution, execution, and execution is used for creating a command execution of code is required by a...
+
+This is **MITRE schema output** — the sub-technique ID format (`T1003.011`), the `Tactic:` header, the standard MITRE narrative opening (*"Adversaries may..."*). v0.3.3 had zero MITRE training data and would have produced a fake CVE for this prompt. v0.3.5 produces proper MITRE register because it now models that domain.
+
+> **Prompt:** *The CTF challenge involved*
+> ...leveraging a web application that was vulnerable to SQL injection attacks. The challenge required a specific flaw exists within the application. The issue results from the lack of proper validation of user-supplied data, which can result in a heap corruption condition. An attacker can leverage this vulnerability to execute code in the context...
+
+CTF-writeup voice in the opening (*"leveraging a web application... The challenge required..."*) — narrative rather than the structured CVE template. Drifts back into CVE register mid-sentence (still ghost-tiny, still 14.7M params), but the opening voice is correctly CTF-flavored.
 
 > **Prompt:** *A SQL injection attack works by*
-> ...injecting a crafted payload in the "password" parameter. NOTE: some of these details are obtained from third party information. EINXCMS 3.4.7.2.0 contains a cross-site scripting vulnerability that allows users to embed arbitrary JavaScript code in the Web UI thus altering the intended functionality potentially leading to credentials disclosure within a trusted session. This issue is fixed in 1.0.10. Use after free in Google Chrome before 17.0.66.75 allowed a remote...
+> ...injecting malicious SQL payloads on a payload.php, allowing attackers to execute arbitrary SQL commands via the id parameter.The Web Client (Wise application in Google Chrome prior to 115.0.60.27.48 allowed a remote attacker to perform a heap corruption via a crafted HTML page...
 
-> **Prompt:** *To enumerate Active Directory users from a Linux box, an attacker can*
-> ...exploit an attacker to inject malicious scripts as the target system and execute arbitrary code in the context of the current process. The vulnerability is due to the application... A successful exploit could allow the attacker to obtain sensitive information on the user. The BIO plugin for WordPress is vulnerable to Cross-Site Request Forgery in all versions up to, and including, 2.2. This is due to missing nonce validation on...
+Mixed: starts with the right framing (*"injecting malicious SQL payloads"*), then drifts into CVE-style with a fake Chrome version. CVE register is still default for security-prose prompts, but it's no longer the *only* register.
 
-> **Prompt:** *Cross-site scripting (XSS) allows attackers to*
-> ...inject arbitrary web script or HTML via unspecified vectors. The davcodec_server function in libav.c in the Linux kernel before 4.4.0.5, 4.x before 4.6.1, and 4.x before 4.3.0.x before 4.3.3, does not properly restrict access to (1) Ntcpd) PTP-based LDAP (2) X-3-NAP00-00N-N
-
-**What this shows:** the model has learned the **CVE-database register** — phrases like "Cross-Site Request Forgery in all versions up to, and including, 2.2 — this is due to missing nonce validation," "use after free," "remote attacker," "submitting a crafted link" are real CVE language used in roughly the right context. Compare to Phase 2, which produced fragments like "the login page is used to the login page's name of the login page does not properly sanitization" — same architecture, same param count, just 12× more data. **Hallucinations are still rampant** (made-up products, scrambled version strings, mixed-up vendors) — the model has the *form* of CVE descriptions but not the *facts*. This is the expected outcome of corpus expansion at fixed model size: better surface fluency, no new factual capability. The fix is scale (more params), not more data at this param count — see the [Roadmap](#roadmap).
+**What this shows:** the rebalance produced *behavioral* diversity, not just numerical eval improvements. The model can now switch into MITRE-format output, CTF-narrative voice, or CVE-template prose depending on what the prompt cues. Hallucinations remain rampant in absolute terms (fake Chrome version, scrambled MITRE narrative) — the model has *form* but not *facts*. The 14.7M-param scale is the binding constraint on factual capability; the corpus rebalance fixed what could be fixed at this param count. The fix for hallucinations is more parameters at the same training quality — see the [Roadmap](#roadmap).
 
 ---
 
@@ -218,7 +253,7 @@ GhostLM/
 
 GhostLM is a multi-year effort. The honest framing is that ghost-tiny is a learning artifact and a working pipeline — *not* a useful cyber-task model. The path to "useful" is the scale ladder below, paired with a corpus that grows by ~100× from where it is today. See [ROADMAP.md](ROADMAP.md) for full milestones, compute estimates, and corpus targets.
 
-**Where we are (Phase 3, complete — v0.3.3):** ghost-tiny @ 30K steps on the post-NVD-pull ~30M-token corpus, val_loss 3.4458, perplexity 142.09 on the cyber-text benchmark. Same architecture as Phase 2, ~12× the data, **~29% lower perplexity on val**. The recipe scales with data — that's the result Phase 4 (ghost-small) gating was waiting on.
+**Where we are (Phase 3.5, complete — v0.3.5):** ghost-tiny @ 30K steps on the rebalanced ~8.8M-token corpus (NVD share 65%, six sources balanced). Cyber-text perplexity dropped 32% (142.09 → 96.24), per-source val PPL dropped 62% overall (172 → 66), PMI security task accuracy doubled (20% → 40%). The model now switches register between CVE / MITRE / CTF prompts where v0.3.3 collapsed everything into CVE prose. The recipe both scales with data (Phase 2→3) and benefits from source diversity (Phase 3→3.5) — both Phase 4 (ghost-small) gates met on the recipe side.
 
 **Where we're going:**
 
@@ -229,7 +264,7 @@ GhostLM is a multi-year effort. The honest framing is that ghost-tiny is a learn
 
 **Realistic timeline:** 2–3 years of sustained work to a useful 1B from-scratch cyber LM. That is the actual shape of this work — there are no shortcuts for "from scratch" at scale. Detailed phase plan in [ROADMAP.md](ROADMAP.md).
 
-For changelog history (v0.1.0 → v0.3.3), see [CHANGELOG.md](CHANGELOG.md).
+For changelog history (v0.1.0 → v0.3.5), see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
