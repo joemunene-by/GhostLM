@@ -347,12 +347,13 @@ def score_candidate(
     candidate: str,
     device: str,
     context_length: int,
+    aggregate: str = "mean",
 ) -> float:
-    """Compute the average log-probability of a candidate completion given a prompt.
+    """Compute log-probability of a candidate completion given a prompt.
 
     Concatenates the prompt token IDs with the candidate token IDs, runs the
-    model forward pass, and averages the log-probabilities over the candidate
-    token positions only.
+    model forward pass, and aggregates the log-probabilities over the
+    candidate token positions only.
 
     Args:
         model: GhostLM model in eval mode.
@@ -361,9 +362,14 @@ def score_candidate(
         candidate: Candidate text string to score.
         device: Device string.
         context_length: Maximum sequence length for the model.
+        aggregate: ``"mean"`` averages log-prob over candidate tokens
+            (length-normalized; the historical default). ``"sum"`` returns
+            the total log-prob and is the right choice for PMI scoring,
+            where the same candidate is scored under two prompts of equal
+            candidate length and length normalization would cancel out.
 
     Returns:
-        Average log-probability (higher is better, less negative).
+        Aggregated log-probability (higher is better, less negative).
     """
     cand_ids = tokenizer.encode(candidate)
     if not cand_ids:
@@ -373,7 +379,6 @@ def score_candidate(
     # Truncate from the left if too long, keeping the end (candidate) intact
     if len(full_ids) > context_length:
         full_ids = full_ids[-context_length:]
-        # Recalculate where the candidate starts
         cand_len = len(cand_ids)
     else:
         cand_len = len(cand_ids)
@@ -387,12 +392,8 @@ def score_candidate(
     with torch.no_grad():
         logits, _ = model(x, targets=y)
 
-    # logits shape: (1, seq_len, vocab_size)
     log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
 
-    # Score only the candidate tokens (last cand_len - 1 positions in target)
-    # The candidate starts at position len(input_ids) - cand_len + 1 in the
-    # target sequence (since we shifted by 1)
     start = max(0, len(target_ids) - cand_len)
     total_logp = 0.0
     count = 0
@@ -404,6 +405,8 @@ def score_candidate(
     if count == 0:
         return float("-inf")
 
+    if aggregate == "sum":
+        return total_logp
     return total_logp / count
 
 
@@ -415,11 +418,25 @@ def classify(
     task_prompt: str,
     device: str,
     context_length: int,
-) -> str:
+    scoring: str = "pmi",
+) -> Tuple[str, Dict[str, float]]:
     """Classify a description by scoring each candidate label.
 
-    Constructs a prompt from the task instruction and description, then scores
-    each candidate label to find the one with highest average log-probability.
+    Two scoring modes:
+
+    * ``"pmi"`` (default) — pointwise mutual information. Score is
+      log P(candidate | task_prompt + description) - log P(candidate | task_prompt).
+      Subtracting the task-prompt-only baseline cancels the model's
+      unconditional prior toward common labels (the failure mode where
+      the model picks "High" or "XSS" for every sample regardless of
+      input). Both terms use ``aggregate="sum"`` so length normalization
+      does not interfere.
+
+    * ``"logp"`` — historical length-normalized log-probability of
+      candidate given full prompt. Mode-collapses when one candidate's
+      tokens are unconditionally more likely than the others, which is
+      exactly what we observed across Phases 1-3 (4/30 = 13.3%, below
+      the 15% random baseline).
 
     Args:
         model: GhostLM model in eval mode.
@@ -429,23 +446,40 @@ def classify(
         task_prompt: Task-specific instruction prefix.
         device: Device string.
         context_length: Maximum sequence length for the model.
+        scoring: ``"pmi"`` or ``"logp"``.
 
     Returns:
-        The candidate label with the highest score.
+        ``(best_label, scores)`` — the winning label plus the per-candidate
+        score dict (useful for debugging and per-sample inspection).
     """
-    prompt = f"{task_prompt}\n\nDescription: {description}\n\nClassification:"
-    prompt_ids = tokenizer.encode(prompt)
+    full_prompt = f"{task_prompt}\n\nDescription: {description}\n\nClassification:"
+    full_ids = tokenizer.encode(full_prompt)
 
-    best_label = candidates[0]
-    best_score = float("-inf")
+    baseline_ids = None
+    if scoring == "pmi":
+        baseline_prompt = f"{task_prompt}\n\nClassification:"
+        baseline_ids = tokenizer.encode(baseline_prompt)
 
+    aggregate = "sum" if scoring == "pmi" else "mean"
+
+    scores: Dict[str, float] = {}
     for cand in candidates:
-        score = score_candidate(model, tokenizer, prompt_ids, f" {cand}", device, context_length)
-        if score > best_score:
-            best_score = score
-            best_label = cand
+        cand_text = f" {cand}"
+        conditional = score_candidate(
+            model, tokenizer, full_ids, cand_text, device, context_length,
+            aggregate=aggregate,
+        )
+        if scoring == "pmi":
+            unconditional = score_candidate(
+                model, tokenizer, baseline_ids, cand_text, device, context_length,
+                aggregate=aggregate,
+            )
+            scores[cand] = conditional - unconditional
+        else:
+            scores[cand] = conditional
 
-    return best_label
+    best_label = max(scores.items(), key=lambda kv: kv[1])[0]
+    return best_label, scores
 
 
 def run_task(
@@ -457,30 +491,17 @@ def run_task(
     tokenizer: GhostTokenizer,
     device: str,
     context_length: int,
+    scoring: str = "pmi",
 ) -> Dict:
-    """Run a classification task over a set of samples and return accuracy metrics.
-
-    Args:
-        task_name: Human-readable name for the task.
-        samples: List of dicts with 'description' and 'label' keys.
-        candidates: List of possible label strings.
-        task_prompt: Instruction prefix for the prompt.
-        model: GhostLM model in eval mode.
-        tokenizer: GhostTokenizer instance.
-        device: Device string.
-        context_length: Maximum sequence length.
-
-    Returns:
-        Dict with task_name, correct count, total count, accuracy, and per-sample details.
-    """
+    """Run a classification task over a set of samples and return accuracy metrics."""
     correct = 0
     total = len(samples)
     details = []
 
     for sample in samples:
-        predicted = classify(
+        predicted, scores = classify(
             model, tokenizer, sample["description"], candidates,
-            task_prompt, device, context_length,
+            task_prompt, device, context_length, scoring=scoring,
         )
         is_correct = predicted == sample["label"]
         if is_correct:
@@ -490,14 +511,28 @@ def run_task(
             "expected": sample["label"],
             "predicted": predicted,
             "correct": is_correct,
+            # Round for clean JSON without losing useful precision
+            "scores": {k: round(v, 3) for k, v in scores.items()},
         })
 
     accuracy = correct / total if total > 0 else 0.0
+    # Distribution check — flags mode-collapse, the failure mode that
+    # killed the previous eval. If one label was predicted >70% of the
+    # time the eval is not actually discriminating, regardless of
+    # accuracy.
+    pred_counts: Dict[str, int] = {}
+    for d in details:
+        pred_counts[d["predicted"]] = pred_counts.get(d["predicted"], 0) + 1
+    most_common_share = max(pred_counts.values()) / total if total > 0 else 0.0
+
     return {
         "task": task_name,
         "correct": correct,
         "total": total,
         "accuracy": accuracy,
+        "scoring": scoring,
+        "prediction_distribution": pred_counts,
+        "most_common_share": round(most_common_share, 3),
         "details": details,
     }
 
@@ -567,6 +602,20 @@ def main():
         default="logs/eval_security.json",
         help="Where to save evaluation results",
     )
+    parser.add_argument(
+        "--scoring",
+        type=str,
+        choices=["pmi", "logp"],
+        default="pmi",
+        help=(
+            "Candidate-scoring strategy. 'pmi' (default) subtracts the "
+            "unconditional log-prob from the conditional log-prob — fixes "
+            "the mode-collapse failure mode where the model picked the "
+            "same label for every sample. 'logp' is the historical "
+            "length-normalized scorer kept for back-compat / regression "
+            "comparison."
+        ),
+    )
     args = parser.parse_args()
 
     # Resolve device
@@ -605,6 +654,8 @@ def main():
     # Run evaluation tasks
     results = []
 
+    print(f"Scoring: {args.scoring}")
+
     print("\n[1/3] CVE Severity Classification...")
     results.append(run_task(
         task_name="CVE Severity Classification",
@@ -618,9 +669,11 @@ def main():
         tokenizer=tokenizer,
         device=device,
         context_length=context_length,
+        scoring=args.scoring,
     ))
 
-    print(f"  Accuracy: {results[-1]['accuracy']:.1%}")
+    r = results[-1]
+    print(f"  Accuracy: {r['accuracy']:.1%}  (most-common-share: {r['most_common_share']:.0%})")
 
     print("\n[2/3] Vulnerability Type Detection...")
     results.append(run_task(
@@ -635,9 +688,11 @@ def main():
         tokenizer=tokenizer,
         device=device,
         context_length=context_length,
+        scoring=args.scoring,
     ))
 
-    print(f"  Accuracy: {results[-1]['accuracy']:.1%}")
+    r = results[-1]
+    print(f"  Accuracy: {r['accuracy']:.1%}  (most-common-share: {r['most_common_share']:.0%})")
 
     print("\n[3/3] Attack Technique Identification...")
     results.append(run_task(
@@ -652,9 +707,11 @@ def main():
         tokenizer=tokenizer,
         device=device,
         context_length=context_length,
+        scoring=args.scoring,
     ))
 
-    print(f"  Accuracy: {results[-1]['accuracy']:.1%}")
+    r = results[-1]
+    print(f"  Accuracy: {r['accuracy']:.1%}  (most-common-share: {r['most_common_share']:.0%})")
 
     elapsed = time.time() - t0
 
@@ -668,13 +725,17 @@ def main():
     save_data = {
         "device": device,
         "checkpoint": args.checkpoint,
+        "scoring": args.scoring,
         "elapsed_seconds": round(elapsed, 1),
         "tasks": [
             {
                 "task": r["task"],
+                "scoring": r["scoring"],
                 "correct": r["correct"],
                 "total": r["total"],
                 "accuracy": round(r["accuracy"], 4),
+                "prediction_distribution": r["prediction_distribution"],
+                "most_common_share": r["most_common_share"],
                 "details": r["details"],
             }
             for r in results
