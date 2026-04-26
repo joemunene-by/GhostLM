@@ -6,24 +6,27 @@ This document is the working record of what's currently in the corpus, what's kn
 
 ---
 
-## Current corpus (Phase 3 in progress, post-NVD pull)
+## Current corpus (Phase 3.5 endpoint, NVD-subsampled rebalance)
 
-After the full NVD pull on 2026-04-25 (`scripts/collect_nvd_full.py`):
+After the diversity collectors landed and the NVD-subsample knob shipped (2026-04-26):
 
-| Source | Records | Tokens (approx) | Type | Notes |
-|---|---|---|---|---|
-| NVD CVE Database | 333,540 | ~27.4M | Real | Full pull, paginated, 1999–2026 (28 years). `data/raw/cve_full.jsonl` |
-| arXiv cs.CR Abstracts | 2,000 | ~0.7M | Real | arXiv Atom API, recent-first |
-| Synthetic CTF Writeups | 3,000 | ~1.5M | Synthetic | Local-LLM generated; will be replaced by real CTFtime when the scraper lands |
-| **Total (post-dedup)** | **~309,000** | **~30M** | | train: ~293,500 / val: ~15,500 |
+| Source | Records on disk | After rebuild | Tokens (post-subsample) | Share | Type |
+|---|---|---|---|---|---|
+| NVD CVE Database | 333,540 | 71,828 | ~5.74M | **65.3%** | Real — capped via `--max-cve-tokens 6000000` |
+| Synthetic CTF Writeups | 3,000 | 3,000 | ~1.51M | **17.2%** | Synthetic — placeholder until CTFtime grows |
+| arXiv cs.CR Abstracts | 2,000 | 2,000 | ~0.74M | **8.4%** | Real |
+| CTFtime Writeups | 473 | 467 | ~0.47M | **5.3%** | Real, inline-only, attributed |
+| MITRE ATT&CK | 691 | 691 | ~0.26M | **2.9%** | Real (Apache 2.0) |
+| CAPEC | 609 | 609 | ~0.07M | **0.9%** | Real (Apache 2.0) |
+| **Total (post-dedup)** | **340,313** | **74,635** | **~8.79M** | | train: 70,965 / val: 3,670 |
 
-NVD CVE distribution: 2025: 43,381 · 2024: 38,840 · 2023: 25,198 · 2022: 24,279 · 2021: 22,729. By decade: 1990s: 857 · 2000s: 40,156 · 2010s: 102,581 · 2020s: 189,946. The corpus is heavily weighted toward 2018+ — a real reflection of how CVE publication has scaled, not a sampling artifact.
+**Rebuild command:** `python3 scripts/rebuild_corpus.py --max-cve-tokens 6000000`
 
-NVD has 7.9% intra-source duplication (4,635 dup groups, 26,316 extra records) caught by the merge dedup. Remaining cross-source duplication is negligible.
+Without the cap, NVD's 27.4M tokens would dominate at ~90% share, drowning every other source. Subsampling is deterministic by content hash so the same input + same target always produces the same prefix — train/val splits stay reproducible across rebuilds. CTF synthetic dropped 4 records to dedup; CTFtime dropped 6 records to intra-source dedup. NVD's 7.9% intra-source duplicates are pre-empted by the subsample (the prefix size is set independently of the duplicate count).
 
-**Status:** raw files collected and merged into `data/processed/{train,val}.jsonl`. **No model has been trained on this corpus yet** — the v0.3.0 ghost-tiny checkpoint was trained on the v0.3.0 baseline below. The next training run (ghost-tiny refresh on the new corpus) will be the first to use this. Split is deterministic by content hash — `scripts/data_audit.py` runs the diagnostics.
+**Status:** corpus rebalanced and ready. **No model has been trained on this corpus yet** — the v0.3.0 ghost-tiny checkpoint was trained on the small v0.3.0 baseline below; the v0.3.3 refresh was trained on the pre-rebalance Phase 3 corpus (NVD ~90% share). The next training run (ghost-tiny refresh on this Phase 3.5 corpus) will be the first to actually benefit from a balanced source distribution.
 
-This is a **~12× corpus expansion** vs. the v0.3.0 baseline. Token share is now 87% NVD / 5% CTF / 2% papers — the lopsidedness is the case for prioritizing CTFtime + MITRE ATT&CK next so the next-but-one expansion improves diversity, not just CVE volume.
+NVD CVE distribution (full file): 2025: 43,381 · 2024: 38,840 · 2023: 25,198 · 2022: 24,279 · 2021: 22,729. By decade: 1990s: 857 · 2000s: 40,156 · 2010s: 102,581 · 2020s: 189,946. The subsample preserves this year skew because hash-based selection is uniform across the input — i.e. the kept ~72K records still skew recent.
 
 ---
 
