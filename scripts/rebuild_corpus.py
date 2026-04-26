@@ -75,6 +75,15 @@ def parse_args():
         action="store_false",
         help="Force using the legacy cve.jsonl even if cve_full.jsonl exists.",
     )
+    p.add_argument(
+        "--max-cve-tokens",
+        type=int,
+        default=None,
+        help="Cap NVD CVE contribution at this many tokens. Without this, NVD's ~27M "
+             "tokens dominate the corpus (~90%% share) and dilute every other source. "
+             "Sampling is deterministic by content hash so re-runs are reproducible. "
+             "Default: no cap.",
+    )
     return p.parse_args()
 
 
@@ -88,6 +97,8 @@ def main():
     print("Rebuild corpus")
     print(f"  raw dir:    {raw}")
     print(f"  CVE source: {cve_choice}")
+    if args.max_cve_tokens is not None:
+        print(f"  CVE cap:    {args.max_cve_tokens:,} tokens (deterministic subsample)")
     print(f"  sources ({len(sources)}):")
     for s in sources:
         print(f"    - {s}")
@@ -99,6 +110,7 @@ def main():
         input_paths=sources,
         output_path=args.output,
         val_split=args.val_split,
+        max_cve_tokens=args.max_cve_tokens,
     )
 
 

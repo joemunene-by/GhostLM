@@ -20,9 +20,11 @@ from data.collect import (
     collect_mitre_attack,
     deduplicate_records,
     load_jsonl,
+    merge_datasets,
     parse_ctftime_event_tasks,
     parse_ctftime_task_writeups,
     parse_ctftime_writeup,
+    subsample_cve_records,
 )
 from scripts.rebuild_corpus import select_corpus_sources
 
@@ -756,3 +758,116 @@ def test_ctftime_collector_skips_already_collected_writeups(tmp_path):
     assert "brand new exploit narrative" in new["text"]
     # /writeup/30000 must not have been fetched
     assert not any(p.endswith("/writeup/30000") for p in fetched_paths)
+
+
+# ---------- subsample_cve_records ----------
+
+def _make_cve(cid, char_count):
+    """Build a CVE record with a given text length and unique content.
+    Including the CVE ID in the text guarantees each record has a distinct
+    md5, mirroring real-world CVE descriptions which are never identical."""
+    pad = "A" * max(0, char_count - len(cid) - 1)
+    return {"id": cid, "text": f"{cid} {pad}", "source": "nvd"}
+
+
+def test_subsample_caps_cve_chars_at_target():
+    """A CVE pool that overshoots the budget should be cut to the prefix that
+    just covers it. Char count after the cap is roughly token_budget * 4 (the
+    last record can push us over by its size, but never under)."""
+    cves = [_make_cve(f"CVE-2024-{i:04d}", 1000) for i in range(100)]
+    others = [{"id": "P-1", "text": "paper", "source": "papers"}]
+    out = subsample_cve_records(cves + others, max_cve_tokens=5000)
+
+    out_cve = [r for r in out if r["source"] == "nvd"]
+    out_other = [r for r in out if r["source"] == "papers"]
+
+    # Budget is 5000 tokens = 20000 chars. Each record is 1000 chars,
+    # so we expect exactly 20 records.
+    assert len(out_cve) == 20
+    # Non-CVE records are passed through untouched
+    assert out_other == others
+
+
+def test_subsample_no_op_when_already_under_budget():
+    """If total CVE chars are already within budget, the helper returns the
+    input unchanged — no records dropped or reordered."""
+    cves = [_make_cve(f"CVE-2024-{i:04d}", 1000) for i in range(10)]
+    others = [{"id": "P-1", "text": "paper", "source": "papers"}]
+    inp = cves + others
+    # 10 * 1000 = 10000 chars = ~2500 tokens; budget is 100000 tokens
+    out = subsample_cve_records(inp, max_cve_tokens=100000)
+    assert out is inp  # same object — full passthrough
+
+
+def test_subsample_no_op_when_no_cve_records():
+    """If the corpus has no NVD records at all, the helper is a no-op even
+    when a budget is set."""
+    others = [
+        {"id": "P-1", "text": "paper", "source": "papers"},
+        {"id": "M-1", "text": "mitre", "source": "mitre_attack"},
+    ]
+    out = subsample_cve_records(others, max_cve_tokens=100)
+    assert out is others
+
+
+def test_subsample_is_deterministic():
+    """Two runs over the same input must keep the same CVE prefix.
+    Determinism is what makes train/val splits reproducible after a rebuild."""
+    cves = [_make_cve(f"CVE-2024-{i:04d}", 1000) for i in range(50)]
+    others = [{"id": "P-1", "text": "paper", "source": "papers"}]
+
+    a = subsample_cve_records(cves + others, max_cve_tokens=2500)
+    b = subsample_cve_records(cves + others, max_cve_tokens=2500)
+    assert [r["id"] for r in a] == [r["id"] for r in b]
+
+
+def test_subsample_independent_of_input_order():
+    """Reordering the input list should not change which CVE records are kept
+    (the sort is by content hash, not by index). Otherwise subsampling would
+    silently depend on whichever file got loaded first."""
+    cves = [_make_cve(f"CVE-2024-{i:04d}", 1000) for i in range(50)]
+    others = [{"id": "P-1", "text": "paper", "source": "papers"}]
+
+    a = subsample_cve_records(cves + others, max_cve_tokens=2500)
+    b = subsample_cve_records(others + list(reversed(cves)), max_cve_tokens=2500)
+    assert sorted(r["id"] for r in a if r["source"] == "nvd") == \
+           sorted(r["id"] for r in b if r["source"] == "nvd")
+
+
+def test_merge_datasets_applies_cve_subsample(tmp_path):
+    """End-to-end: merge_datasets with max_cve_tokens should reflect the cap
+    in the resulting train+val output, while non-CVE sources land intact."""
+    cve_path = tmp_path / "cve_full.jsonl"
+    other_path = tmp_path / "papers.jsonl"
+
+    # 200 CVE records of 1000 chars each = 200K chars = 50K tokens.
+    # Budget of 5000 tokens = 20K chars = 20 records.
+    with open(cve_path, "w", encoding="utf-8") as f:
+        for i in range(200):
+            f.write(json.dumps({"id": f"CVE-2024-{i:04d}",
+                                "text": "A" * 1000 + f" {i}",
+                                "source": "nvd"}) + "\n")
+    with open(other_path, "w", encoding="utf-8") as f:
+        for i in range(5):
+            f.write(json.dumps({"id": f"PAPER-{i}",
+                                "text": "research abstract " * 20 + f"{i}",
+                                "source": "papers"}) + "\n")
+
+    out_path = tmp_path / "train.jsonl"
+    val_path = tmp_path / "val.jsonl"
+    merge_datasets(
+        input_paths=[str(cve_path), str(other_path)],
+        output_path=str(out_path),
+        val_split=0.05,
+        max_cve_tokens=5000,
+    )
+
+    # Count across both splits — the deterministic-hash split routes a
+    # small fraction to val so we can't just count train.
+    all_kept = load_jsonl(str(out_path)) + load_jsonl(str(val_path))
+    cve_kept = [r for r in all_kept if r["source"] == "nvd"]
+    other_kept = [r for r in all_kept if r["source"] == "papers"]
+
+    # ~20 CVE records survive the cap; non-CVE pass through fully
+    assert 18 <= len(cve_kept) <= 22  # boundary record may push us slightly over
+    assert len(other_kept) == 5

@@ -594,7 +594,7 @@ def collect_ctftime_writeups(
     request_delay: float = 1.0,
     request_timeout: int = 30,
     min_chars: int = 200,
-    max_chars: int = 12000,
+    max_chars: int = 30000,
     user_agent: str = "GhostLM-corpus-collector/1.0 (educational research)",
     max_writeups: Optional[int] = None,
     flush_every: int = 50,
@@ -1421,12 +1421,72 @@ def deduplicate_records(records: List[Dict], key: str = "text") -> List[Dict]:
     return unique
 
 
+def subsample_cve_records(records: List[Dict], max_cve_tokens: int) -> List[Dict]:
+    """Cap NVD's token contribution by deterministic content-hash subsample.
+
+    NVD's full pull is ~27M tokens, dwarfing every other source combined
+    (~3M). Without a cap, NVD owns ~90% of training tokens regardless of
+    how much non-CVE diversity we add, so the model effectively learns
+    CVE-prose-completion. This helper caps the CVE contribution at
+    ``max_cve_tokens`` so other sources can compete on share.
+
+    Sampling is uniform-random but deterministic: records are sorted by
+    md5(text), then a prefix is taken until accumulated chars reach the
+    target (chars/4 ≈ tokens). Same input + same target = same prefix,
+    so re-running the merge is reproducible. Non-CVE records pass
+    through untouched.
+
+    Args:
+        records: All loaded records (mixed sources).
+        max_cve_tokens: Token budget for CVE/NVD records. Records with
+            ``source == "nvd"`` are subsampled until cumulative
+            ``chars/4`` reaches this value.
+
+    Returns:
+        New list with the sampled CVE prefix + all non-CVE records.
+        Returns ``records`` unchanged if no CVE records present or if
+        the CVE total is already within budget.
+    """
+    cve = [r for r in records if r.get("source") == "nvd"]
+    other = [r for r in records if r.get("source") != "nvd"]
+
+    if not cve:
+        return records
+
+    total_cve_chars = sum(len(r.get("text", "")) for r in cve)
+    target_chars = max_cve_tokens * 4
+
+    if total_cve_chars <= target_chars:
+        print(f"  CVE subsample: target {max_cve_tokens:,} tokens already covers "
+              f"all {len(cve):,} CVE records (~{total_cve_chars // 4:,} tokens) — no-op")
+        return records
+
+    cve_sorted = sorted(
+        cve,
+        key=lambda r: hashlib.md5(r.get("text", "").encode("utf-8")).hexdigest(),
+    )
+
+    kept: List[Dict] = []
+    accumulated = 0
+    for rec in cve_sorted:
+        kept.append(rec)
+        accumulated += len(rec.get("text", ""))
+        if accumulated >= target_chars:
+            break
+
+    print(f"  CVE subsample: kept {len(kept):,} of {len(cve):,} CVE records "
+          f"(~{accumulated // 4:,} tokens, target {max_cve_tokens:,})")
+
+    return kept + other
+
+
 def merge_datasets(
     input_paths: List[str],
     output_path: str = "data/processed/train.jsonl",
     val_split: float = 0.05,
     shuffle: bool = True,
     seed: int = 42,
+    max_cve_tokens: Optional[int] = None,
 ) -> None:
     """Merge multiple JSONL datasets and split into train/validation sets.
 
@@ -1440,6 +1500,12 @@ def merge_datasets(
         val_split: Fraction of data to reserve for validation (0.0 to 1.0).
         shuffle: Whether to shuffle train records (affects order only).
         seed: Random seed for shuffling.
+        max_cve_tokens: Optional cap on NVD CVE token contribution
+            (records with ``source == "nvd"``). When set, CVE records
+            are subsampled deterministically by content hash until
+            cumulative ``chars/4`` reaches the budget. Use to balance
+            token share across sources. Default ``None`` keeps every
+            CVE record.
     """
     print("Merging datasets...")
     all_records: List[Dict] = []
@@ -1455,6 +1521,9 @@ def merge_datasets(
     if not all_records:
         print("  Warning: No records to merge.")
         return
+
+    if max_cve_tokens is not None:
+        all_records = subsample_cve_records(all_records, max_cve_tokens)
 
     all_records = deduplicate_records(all_records)
 

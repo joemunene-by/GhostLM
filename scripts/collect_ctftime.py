@@ -41,8 +41,10 @@ def parse_args():
                    help="Per-request HTTP timeout in seconds.")
     p.add_argument("--min-chars", type=int, default=200,
                    help="Drop writeups shorter than this.")
-    p.add_argument("--max-chars", type=int, default=12000,
-                   help="Truncate writeups longer than this.")
+    p.add_argument("--max-chars", type=int, default=30000,
+                   help="Truncate writeups longer than this. Default 30000 — real CTF "
+                        "writeups with full exploit transcripts often run 15-25K chars; "
+                        "the previous 12K cap was truncating most records mid-exploit.")
     p.add_argument("--max-writeups", type=int, default=None,
                    help="Stop after collecting this many new writeups (smoke testing).")
     return p.parse_args()
