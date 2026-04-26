@@ -146,6 +146,20 @@ Three classification tasks × 10 hand-crafted samples each. PMI scoring (commit 
 
 Doubled accuracy at fixed model size. v0.3.5's 40% is 2.7× random.
 
+### Cyber-text perplexity vs GPT-2 (fixed external test set, ten samples)
+
+The benchmark sample is held out from training and unchanged across phases — it's directly comparable.
+
+| Phase | Perplexity | vs prior |
+|---|---|---|
+| Phase 1 | 2,183.94 | — |
+| Phase 2 | 152.71 | −93% |
+| Phase 3 (v0.3.3) | 142.09 | −7% |
+| **Phase 3.5 (v0.3.5)** | **96.24** | **−32%** |
+| GPT-2 small (117M) | 26.76 | (frozen baseline) |
+
+ghost-tiny is 14.7M params vs GPT-2 small's 117M — so we're closing the cyber-text gap with ~8× less capacity. Still far behind GPT-2 in absolute terms, which is correct: a 14.7M-param ghost-tiny is a learning artifact, not a competitor. The trajectory is what matters.
+
 ### Note on val_loss
 
 Final v0.3.5 val_loss is 3.5518 vs v0.3.3's 3.4458. **Do not read this as v0.3.3 being a better model.** The val sets are different — v0.3.5's val covers six sources (NVD, arxiv, ctftime, mitre, capec, synthetic) while v0.3.3's was NVD-dominated. A more diverse val set is harder to predict per-token regardless of model quality. The per-source perplexity table above is the cleaner read.

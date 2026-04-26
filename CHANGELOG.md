@@ -272,6 +272,18 @@ The synthetic CTF improvement (−58%) is a free win the rebalance produced with
 
 Doubled accuracy at fixed model size and (slightly smaller) training data. The previous logp-based scoring reported every phase at 4/30 = 13.3% (below random) — that was the eval being mode-collapsed, not the model failing. PMI scoring (commit aee8008) fixed the eval; this is the first phase where the eval can actually discriminate.
 
+**Cyber-text perplexity vs GPT-2 baseline (fixed external test set, directly comparable across phases):**
+
+| Phase | Perplexity | Δ vs prior |
+|---|---|---|
+| Phase 1 | 2,183.94 | (baseline) |
+| Phase 2 | 152.71 | −93% |
+| Phase 3 (v0.3.3) | 142.09 | −7% |
+| **Phase 3.5 (v0.3.5)** | **96.24** | **−32%** |
+| GPT-2 (117M, frozen baseline) | 26.76 | — |
+
+Phase 3.5 is the largest single-phase perplexity improvement since Phase 1→2. The cyber-text benchmark is 10 hand-picked external samples that overlap none of our training corpus, so the improvement is genuinely from better domain modeling, not from corpus-level memorization shifts.
+
 ---
 
 ## [Unreleased] — Upcoming
