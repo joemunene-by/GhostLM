@@ -1,8 +1,8 @@
 """Plot a final-state phase comparison for ghost-tiny.
 
-Auto-detects Phase 1, Phase 2, and (when present) Phase 3 outputs and
-plots three panels: final val_loss, perplexity vs. the GPT-2 baseline,
-and security-task accuracy. Phases without data for a given panel are
+Auto-detects each phase's outputs (Phase 1 → Phase 3.5) and plots three
+panels: final val_loss, perplexity vs. the GPT-2 baseline, and
+security-task accuracy. Phases without data for a given panel are
 skipped in that panel only — re-running this script after each new
 benchmark/eval round picks up the new data automatically.
 
@@ -48,6 +48,15 @@ PHASES = [
         "bench": Path("logs/benchmark_phase3.json"),
         "sec": Path("logs/eval_security_phase3.json"),
         "note": "v0.3.3 released ghost-tiny on the post-NVD-pull corpus",
+    },
+    {
+        "name": "Phase 3.5",
+        "label": "Phase 3.5\n(rebalanced corpus)",
+        "color": "#4AB3B3",
+        "log": Path("logs/phase3.5_balanced/training_log.json"),
+        "bench": Path("logs/benchmark_phase3.5.json"),
+        "sec": Path("logs/eval_security_phase3.5.json"),
+        "note": "NVD subsampled to 6M tokens — diversity sources at ~35% share",
     },
 ]
 

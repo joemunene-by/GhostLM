@@ -6,44 +6,70 @@ This roadmap is honest about what each rung needs (compute, corpus, time) and wh
 
 ---
 
-## Where we are: Phase 3 complete (v0.3.3)
+## Where we are: Phase 3.5 corpus rebalanced (v0.3.5), ghost-tiny refresh in flight
 
-| Item | Value |
-|---|---|
-| Variant | ghost-tiny |
-| Params | 14.7M |
-| Training tokens | ~30M (post-NVD-pull corpus, post-dedup) |
-| Steps | 30,000 (from scratch, not resumed) |
-| Final val_loss | **3.4458** (perplexity ≈ 31) |
-| Cyber-text perplexity | 142.09 (vs Phase 2 152.71, GPT-2 26.76) |
-| Security task eval | 4/30 (13.3%) — mode-collapsed; below the ~33% random baseline |
-| Compute used | Mac Mini M4 (CPU), ~3h48m wall-clock |
+The released checkpoint is still v0.3.3 (Phase 3 ghost-tiny on the post-NVD-pull corpus, val_loss 3.4458). Phase 3.5 landed today as **corpus work** — the structural rebalance and three new diversity collectors. The ghost-tiny refresh on the rebalanced corpus is currently training on the Mac M4 (run-name `phase3.5_balanced`); when it finishes, the eval/benchmark pass will populate the v0.3.5 numbers below.
 
-**Headline:** the recipe scales with data at fixed model size. Phase 2→3 used the same architecture and training loop, just ~12× the tokens, and val_loss dropped 0.34 nats (~29% lower perplexity on val). This was the gating result for Phase 4 (ghost-small).
+| Item | v0.3.3 (released) | v0.3.5 (training) |
+|---|---|---|
+| Variant | ghost-tiny | ghost-tiny |
+| Params | 14.7M | 14.7M |
+| Training tokens | ~30M (NVD 90%) | ~8.8M (NVD 65%, balanced) |
+| Steps | 30,000 | 30,000 |
+| Final val_loss | **3.4458** | _(in flight)_ |
+| Cyber-text perplexity | 142.09 | _(pending eval)_ |
+| Security task eval | 4/30 (13.3%, mode-collapsed) | _(pending eval)_ |
 
-**Capability characterization:** the model now produces CVE-database register — proper CVE-style descriptions, security-prose grammar, real CVE phrasing in roughly the right context. Hallucinations are still rampant (made-up products, scrambled version chains) — form is right, facts are not. See MODEL_CARD's Sample Generations.
+**Phase 2→3 headline still holds:** the recipe scales with data at fixed model size. Phase 3→3.5 is a *different* test — same model size, fewer total tokens but more balanced source mix. The val_loss number is not directly comparable (different val distribution), but the eval-task numbers will be — that's the cleaner read on whether diversity beats raw NVD volume at fixed parameters.
 
-**Phase 1 + Phase 2 archived** as `checkpoints/best_model_phase{1,2}.pt` for archaeological reference. Phase 1 was on a leaky split (val_loss 2.74 not directly comparable). Phase 2 (val_loss 3.78 on the 2.66M-token corpus) is the cleaner predecessor.
+**Capability characterization (v0.3.3):** produces CVE-database register — proper CVE-style descriptions, security-prose grammar, real CVE phrasing in roughly the right context. Hallucinations are still rampant — form is right, facts are not. See MODEL_CARD's Sample Generations.
+
+**Phase 1 + Phase 2 archived** as `checkpoints/best_model_phase{1,2}.pt` for archaeological reference.
 
 ---
 
-## Phase 3.5 — Corpus diversity (next)
+## Phase 3.5 — Corpus rebalance (complete, 2026-04-26)
 
-Corpus is the long-term moat. It compounds across every future scale rung and is the work that pays off even when compute is the bottleneck. Phase 3 brought the corpus to ~30M tokens but with NVD at 87% token share — the next track is *diversity*, not more NVD.
+Corpus is the long-term moat. Phase 3 brought volume (~30M tokens) but with NVD at ~90% token share, which made every other source statistically irrelevant. Phase 3.5 fixed the structural problem first; volume comes next.
 
-| Source | Phase 3 corpus | Target |
+**What landed:**
+- **MITRE ATT&CK collector** — 691 enterprise techniques (Apache 2.0)
+- **CAPEC collector** — 609 attack patterns (Apache 2.0)
+- **CTFtime real-writeup collector** — 473 inline writeups across 28 curated 2020-2024 events; per-record attribution; off-site links deliberately not followed (per-page licensing not auditable)
+- **GitHub-CTF-repos collector** — config-driven, JSON list of repos with explicit SPDX license per entry
+- **NVD subsampling** — `rebuild_corpus.py --max-cve-tokens N` deterministically caps NVD's contribution by content-hash prefix. Without it, NVD owns ~90%; at `--max-cve-tokens 6000000` NVD owns 65.3% with diversity sources at ~35%.
+
+**Current corpus state:**
+
+| Source | Records | Tokens | Share |
+|---|---|---|---|
+| NVD CVE (subsampled) | 71,828 / 333,540 | 5.74M | 65.3% |
+| Synthetic CTF (placeholder) | 3,000 | 1.51M | 17.2% |
+| arXiv cs.CR abstracts | 2,000 | 0.74M | 8.4% |
+| CTFtime real writeups | 467 | 0.47M | 5.3% |
+| MITRE ATT&CK | 691 | 0.26M | 2.9% |
+| CAPEC | 609 | 0.07M | 0.9% |
+| **Total (post-dedup)** | **74,635** | **~8.8M** | |
+
+Per-source license notes: see [CORPUS.md](CORPUS.md). Reproducible via `python3 scripts/rebuild_corpus.py --max-cve-tokens 6000000` (deterministic by content hash).
+
+---
+
+## Phase 3.6 — Corpus volume (next)
+
+The structural rebalance is done; the next track is volume on the non-NVD side. The corpus is currently 8.8M tokens — well below Chinchilla-optimal for ghost-small at 55M params (~1.1B tokens). Filling that gap means growing the diversity sources, not pulling more NVD.
+
+| Source | Phase 3.5 | Phase 3.6 target |
 |---|---|---|
-| NVD CVE | 333,540 ✓ | Done — re-run periodically to top up |
-| arXiv cs.CR | 2,000 | 10,000+ (broader date range, full abstracts + selected full-text) |
-| CTF writeups | 3,000 (synthetic) | Replace with real corpus from CTFtime + GitHub writeup repos |
-| Security research blogs | 0 | Project Zero, PortSwigger Research, Trail of Bits, Google Security blog, etc. |
-| MITRE ATT&CK | 0 | Full structured + unstructured |
-| Tool docs | 0 | nmap, metasploit, burp, ghidra, pwntools, etc. |
-| **Total tokens** | **~30M** | **~1B** |
+| CTFtime real writeups | 473 | 3,000+ (expand event list, add CTFtime crawl beyond curated 28-event seed) |
+| arXiv cs.CR | 2,000 abstracts | 5,000+ abstracts + selected full-text PDFs |
+| Security research blogs | 0 | Project Zero, PortSwigger Research, Trail of Bits, Google Security blog (license-gated per source) |
+| Tool docs | 0 | nmap, metasploit, burp, ghidra, pwntools (license per upstream tool) |
+| Exploit-DB | partial (PR #19) | Full corpus with PoC code linked to CVE descriptions |
+| Drop synthetic CTF | 3,000 (placeholder) | 0 (drop once real CTFtime + GitHub-CTF-repos exceed it in token volume) |
+| **Total tokens** | **~8.8M** | **~50–100M** |
 
-Tracking and per-source license notes: see [CORPUS.md](CORPUS.md).
-
-This is realistically a 6–12 month effort done well. It does not require new compute — it can run in parallel with continued ghost-tiny iteration.
+This is realistically a 3–6 month track. It does not require new compute — it runs in parallel with continued ghost-tiny iteration.
 
 ---
 
@@ -59,8 +85,9 @@ This is realistically a 6–12 month effort done well. It does not require new c
 The first scale-up rung. Validates whether the recipe scales — same architecture, same training loop, more layers, more dim, more data. Expected to produce noticeably more coherent generation than ghost-tiny but still well below "useful."
 
 **Gating:**
-1. ✓ **Recipe-scales-with-data validated** — Phase 3 ghost-tiny refresh on the ~30M-token corpus dropped val_loss 0.34 nats vs Phase 2 at fixed model size. Same recipe, more data, better model. Done.
-2. ✗ **Corpus volume** — still ~30M tokens. Need ~500M–1B for Chinchilla-optimal at 55M params. The Phase 3.5 diversity track (CTFtime + MITRE ATT&CK + security blogs) needs to land first; otherwise the larger model will overfit a small corpus and the comparison won't be informative.
+1. ✓ **Recipe-scales-with-data validated** — Phase 2→3 ghost-tiny refresh dropped val_loss 0.34 nats at fixed model size, same recipe + more data. Done.
+2. ✓ **Source-mix structurally balanced** — Phase 3.5 brought NVD share from 90% to 65% with real diversity sources at 35%. The model can no longer learn "complete-the-CVE-template" as the dominant objective. Done.
+3. ✗ **Corpus volume** — at 8.8M tokens post-rebalance, well below the ~1.1B target for Chinchilla-optimal training at 55M params. Phase 3.6 (corpus volume) needs to land first; otherwise ghost-small will overfit a small corpus and the comparison vs ghost-tiny won't be informative.
 
 ---
 

@@ -205,13 +205,48 @@ Corpus milestone, not a model release. The released checkpoint is still v0.3.0's
 
 ---
 
+## [0.3.5] — 2026-04-26 — Phase 3.5 Corpus Rebalance
+
+### Diversity collectors
+- MITRE ATT&CK collector — 691 enterprise techniques pulled from the Apache 2.0 STIX bundle, ~258K tokens. `make data-mitre`.
+- CAPEC collector — 609 attack patterns from the CAPEC STIX bundle, ~75K tokens. `make data-capec`.
+- CTFtime real-writeup collector — `collect_ctftime_writeups()` walks event → tasks → writeups, extracts the inline body from the `id_description` container, skips off-site redirects (their licensing is not auditable per-event). Resume-safe by writeup_id. Polite default 1 req/sec, configurable. Each record carries full attribution: ctftime_url, original_url, event_id, event_name, task_id, task_name, team, rating, license. `make data-ctftime`.
+- Curated CTFtime starter list (`data/ctftime_events.json`) — 28 events 2020–2024, weight ≥ 50, ≥ 50 participants. PlaidCTF, Google CTF, HITCON, ASIS, 0CTF/TCTF, Hack.lu, DEF CON Quals, Real World CTF, plus regional events.
+- GitHub-CTF-repos collector (parametric, JSON-config'd) — `collect_ctf_repos()` shallow-clones a list of repos, walks `*.md` files, tags each with SPDX license. Per-repo licensing is auditable rather than baked into code.
+
+### NVD subsampling
+- New `scripts/rebuild_corpus.py --max-cve-tokens N` flag — caps the NVD CVE contribution to N tokens via deterministic content-hash prefix (sort by md5(text), take prefix until cumulative chars/4 reaches N). Without the cap, NVD's 27.4M tokens dominate at ~90% share; with `--max-cve-tokens 6000000` NVD share drops to ~65% and real diversity sources hold ~35%.
+- Reproducible: same input + same target → byte-identical output. Train/val splits stay stable across rebuilds.
+- 6 new tests for the subsample logic in `tests/test_data.py` (cap enforcement, no-op when under budget or no CVEs, determinism, order-independence, end-to-end via merge_datasets).
+
+### Audit fixes
+- `scripts/data_audit.py` token-share now computed from processed splits, not raw files. The previous version reported raw chars regardless of subsampling — with the cap applied, the report claimed "NVD 89.9%" while the actual training corpus had NVD at 65.3%. Now shows both columns side-by-side ("raw" / "kept %") when subsampling has materially shrunk a source.
+- `scripts/data_audit.py` source-selection now mirrors `rebuild_corpus.py`'s `select_corpus_sources()` so `cve.jsonl` isn't double-counted when `cve_full.jsonl` is present.
+- 9 new tests for the CTFtime parser quirks hit on real HTML (entity-encoded titles, team links shadowed by user links, empty rating spans).
+
+### Bumped
+- CTFtime collector default `--max-chars` raised from 12000 → 30000. The first scrape audit showed length p90/p95/p99/max all hitting the 12K cap — most real writeups with full exploit transcripts run 15–25K chars and were truncated mid-narrative.
+
+### Corpus state
+- Train: 70,965 records · val: 3,670 records · 8.79M tokens total
+- Token share: nvd 65.3% · synthetic-ctf 17.2% · arxiv 8.4% · ctftime-real 5.3% · mitre 2.9% · capec 0.9%
+- Leakage: 0
+- 39/39 data tests pass on Linux; 49/49 (data + model) on Mac
+
+### Workflow
+- Direct SSH from Linux dev box to Mac M4 workhorse via `ssh ghostlm-mac` alias (mDNS-resolved, key-authed). Replaces the prior Nemotron-relay loop, which couldn't compose long jobs against a 120s tool timeout. Cross-machine rule still applies — Mac owns long jobs, Linux owns code edits — SSH just removes the email-relay friction.
+
+### Status
+- ghost-tiny refresh on the rebalanced corpus: in progress at time of release tag (run-name `phase3.5_balanced`, 30,000 steps, CPU). The v0.3.3 release artifacts are preserved in `checkpoints/phase3_refresh/`.
+
+---
+
 ## [Unreleased] — Upcoming
 
-### Planned for v0.4.0 — Corpus expansion
-- CTFtime archive ingestion.
-- Curated security-research-blog corpus (Project Zero, PortSwigger, Trail of Bits, etc.).
-- MITRE ATT&CK structured + unstructured.
-- Target: 10–100× current corpus size as substrate for ghost-small.
+### Planned for v0.4.0 — ghost-small training rung
+- Pending: ghost-small (55M params) training on the rebalanced Phase 3.5 corpus, GPU-required.
+- Pending: corpus expansion to 50–100M tokens via full-text security papers (arXiv cs.CR), Exploit-DB ingestion, and additional CTFtime events. The structural rebalance (NVD subsample) is done; the next round is volume on the non-NVD side.
+- Pending: drop the synthetic 3K CTF set once real CTFtime + GitHub-CTF-repos corpus exceeds it in token volume.
 
 ### Planned for v1.0.0 — Release
 - ghost-small fully trained weights released.
