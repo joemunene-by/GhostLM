@@ -28,12 +28,12 @@ PHASES = [
         "color": "#888888",
         "log": Path("archive/logs_v1_pre_corpus_fix/training_log.json"),
         "bench": Path("archive/logs_v1_pre_corpus_fix/benchmark_step_10000.json"),
-        # PMI-corrected score (Phase 1 also has a legacy logp file at
-        # archive/logs_v1_pre_corpus_fix/eval_security.json — kept for
-        # historical reference, not used here because the previous
-        # length-normalized scoring was mode-collapsed and reported
-        # 4/30 = 13.3% on every phase).
-        "sec": Path("logs/eval_security_phase1_pmi.json"),
+        # Score from the expanded 125-sample suite (5 tasks × 25 samples,
+        # PMI scoring). Earlier 30-sample _pmi.json files and the
+        # length-normalized eval_security.json are kept on disk for
+        # archaeology but not plotted — both had noise floors that masked
+        # cross-phase gains, particularly the Phase 2→3 +1.6 pp move.
+        "sec": Path("logs/eval_security_phase1_expanded.json"),
         "note": "leaky split — not directly comparable",
     },
     {
@@ -42,7 +42,7 @@ PHASES = [
         "color": "#E8943A",
         "log": Path("logs/training_log.json"),
         "bench": Path("logs/benchmark_phase2.json"),
-        "sec": Path("logs/eval_security_phase2_pmi.json"),
+        "sec": Path("logs/eval_security_phase2_expanded.json"),
         "note": "clean deterministic-hash split",
     },
     {
@@ -51,7 +51,7 @@ PHASES = [
         "color": "#6FB76F",
         "log": Path("logs/phase3_refresh/training_log.json"),
         "bench": Path("logs/benchmark_phase3.json"),
-        "sec": Path("logs/eval_security_phase3_pmi.json"),
+        "sec": Path("logs/eval_security_phase3_expanded.json"),
         "note": "v0.3.3 released ghost-tiny on the post-NVD-pull corpus",
     },
     {
@@ -60,7 +60,7 @@ PHASES = [
         "color": "#4AB3B3",
         "log": Path("logs/phase3.5_balanced/training_log.json"),
         "bench": Path("logs/benchmark_phase3.5.json"),
-        "sec": Path("logs/eval_security_phase3.5_pmi.json"),
+        "sec": Path("logs/eval_security_phase3.5_expanded.json"),
         "note": "v0.3.5 — NVD subsampled to 6M tokens, diversity sources at ~35% share",
     },
 ]
@@ -162,7 +162,7 @@ def plot_security(ax, phases):
     raw = [f"{c}/{t}" for c, t in (p["security"] for p in rows)]
     colors = [p["color"] for p in rows]
     bars = ax.bar(labels, values, color=colors)
-    ax.set_title("Security tasks (3 tasks, 30 questions)")
+    ax.set_title("Security tasks (5 tasks, 125 questions, PMI scoring)")
     ax.set_ylabel("accuracy (%)")
     ax.set_ylim(0, 100)
     ax.axhline(33.3, color="#666666", linestyle="--", linewidth=1, label="random (≈33%)")
