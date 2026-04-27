@@ -12,11 +12,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from data.collect import (
+    _is_metasploit_module,
     build_nvd_year_windows,
     collect_capec,
     collect_ctf_repos,
     collect_ctftime_writeups,
     collect_cve_full,
+    collect_exploitdb,
     collect_mitre_attack,
     deduplicate_records,
     load_jsonl,
@@ -871,3 +873,288 @@ def test_merge_datasets_applies_cve_subsample(tmp_path):
     # ~20 CVE records survive the cap; non-CVE pass through fully
     assert 18 <= len(cve_kept) <= 22  # boundary record may push us slightly over
     assert len(other_kept) == 5
+
+
+# ---------- collect_exploitdb ----------
+
+def _stub_exploitdb_mirror(mirror_path: Path, csv_rows, files):
+    """Lay out a fake Exploit-DB mirror at ``mirror_path``.
+
+    Pre-creates a ``.git`` directory so the mirror probe in
+    ``_ensure_exploitdb_mirror`` treats this as an existing clone (the
+    ``git pull`` it then tries is mocked away by the caller). Writes
+    ``files_exploits.csv`` from ``csv_rows`` and the per-row exploit
+    files from ``files``.
+
+    Args:
+        mirror_path: Directory to populate.
+        csv_rows: List of dicts to serialize into files_exploits.csv.
+        files: ``{relative_path: content}`` mapping for the exploit files.
+    """
+    mirror_path.mkdir(parents=True, exist_ok=True)
+    (mirror_path / ".git").mkdir(exist_ok=True)
+    if csv_rows:
+        import csv as _csv
+        fieldnames = list(csv_rows[0].keys())
+        with (mirror_path / "files_exploits.csv").open("w", encoding="utf-8", newline="") as f:
+            w = _csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            for row in csv_rows:
+                w.writerow(row)
+    for rel, content in files.items():
+        path = mirror_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+
+def test_is_metasploit_module_detects_path_and_content():
+    """Both path-based and header-based Metasploit detection signals fire."""
+    # Path signal: file under metasploit/ is flagged regardless of content
+    assert _is_metasploit_module("exploits/multiple/metasploit/foo.rb",
+                                 "irrelevant body")
+    # Content signal: Msf:: boilerplate near the top is flagged regardless of path
+    msf_content = (
+        "##\n"
+        "# This module requires Metasploit\n"
+        "##\n"
+        "class MetasploitModule < Msf::Exploit::Remote\n"
+        "  Rank = ExcellentRanking\n"
+        "end\n"
+    )
+    assert _is_metasploit_module("exploits/linux/remote/whatever.rb", msf_content)
+    # Negative case: an ordinary Python PoC is not flagged
+    assert not _is_metasploit_module(
+        "exploits/php/webapps/12345.py",
+        "#!/usr/bin/env python3\n# CVE-2024-1234 PoC\nimport requests\n",
+    )
+
+
+def test_exploitdb_extracts_metadata_and_writes_record(tmp_path):
+    """A single PoC under a fake mirror produces a record with structured metadata."""
+    mirror = tmp_path / "mirror"
+    out = tmp_path / "exploitdb.jsonl"
+
+    csv_rows = [{
+        "id": "50001",
+        "file": "exploits/linux/local/50001.py",
+        "description": "Linux Kernel 5.x privilege escalation via PoC",
+        "date_published": "2024-03-12",
+        "author": "research-team",
+        "type": "local",
+        "platform": "linux",
+        "port": "",
+        "screenshot_url": "",
+        "application_url": "",
+        "source_url": "",
+        "codes": "CVE-2024-99999",
+        "tags": "",
+        "aliases": "",
+        "verified": "1",
+    }]
+    poc = (
+        "#!/usr/bin/env python3\n"
+        "# CVE-2024-99999 — Linux kernel UAF privilege escalation PoC.\n"
+        "# Tested on Ubuntu 22.04 with kernel 5.15.0-91-generic.\n"
+        "import ctypes, os\n\n"
+        + ("payload = b'A' * 4096\n" * 30)
+    )
+    files = {"exploits/linux/local/50001.py": poc}
+    _stub_exploitdb_mirror(mirror, csv_rows, files)
+
+    with patch("data.collect.subprocess.run",
+               return_value=MagicMock(returncode=0, stdout="", stderr="")):
+        collect_exploitdb(
+            output_path=str(out),
+            mirror_path=str(mirror),
+            max_records=10,
+        )
+
+    records = load_jsonl(str(out))
+    assert len(records) == 1
+    r = records[0]
+    assert r["id"] == "edb-50001"
+    assert r["source"] == "exploitdb"
+    assert r["platform"] == "linux"
+    assert r["type"] == "local"
+    assert r["codes"] == "CVE-2024-99999"
+    assert r["language"] == "py"
+    assert r["date"] == "2024-03-12"
+    assert r["license"] == "GPL-2.0"
+    # The header lines (Exploit-DB #, Platform, CVE, Date, Author) must
+    # land at the start of the cleaned text so downstream readers can
+    # see what the record is without reaching into structured fields.
+    assert r["text"].startswith("Exploit-DB #50001:")
+    assert "Platform: linux / local" in r["text"][:500]
+    assert "CVE: CVE-2024-99999" in r["text"][:500]
+
+
+def test_exploitdb_skips_metasploit_modules_by_default(tmp_path):
+    """Metasploit framework modules are filtered unless ``skip_metasploit=False``."""
+    mirror = tmp_path / "mirror"
+    out = tmp_path / "exploitdb.jsonl"
+
+    csv_rows = [
+        {
+            "id": "60001",
+            "file": "exploits/linux/remote/msf_module.rb",
+            "description": "Some Metasploit module",
+            "date_published": "2023-01-01", "author": "msf",
+            "type": "remote", "platform": "linux", "codes": "",
+        },
+        {
+            "id": "60002",
+            "file": "exploits/php/webapps/clean_poc.py",
+            "description": "Clean python PoC",
+            "date_published": "2023-02-01", "author": "researcher",
+            "type": "webapps", "platform": "php", "codes": "CVE-2023-1111",
+        },
+    ]
+    msf_body = (
+        "##\n"
+        "class MetasploitModule < Msf::Exploit::Remote\n"
+        "  include Msf::Exploit::Remote::HttpClient\n"
+        "  def exploit\n    print_status('go')\n  end\n"
+        "end\n"
+    ) + ("# filler\n" * 30)
+    clean_body = ("# Clean PoC\n" + ("import requests\nrequests.get('/')\n" * 30))
+
+    files = {
+        "exploits/linux/remote/msf_module.rb": msf_body,
+        "exploits/php/webapps/clean_poc.py": clean_body,
+    }
+    _stub_exploitdb_mirror(mirror, csv_rows, files)
+
+    with patch("data.collect.subprocess.run",
+               return_value=MagicMock(returncode=0, stdout="", stderr="")):
+        collect_exploitdb(
+            output_path=str(out), mirror_path=str(mirror), max_records=10,
+        )
+
+    ids = {r["id"] for r in load_jsonl(str(out))}
+    assert ids == {"edb-60002"}, "Metasploit module should be filtered out"
+
+    # With keep_metasploit, both records survive
+    out2 = tmp_path / "exploitdb_keep.jsonl"
+    with patch("data.collect.subprocess.run",
+               return_value=MagicMock(returncode=0, stdout="", stderr="")):
+        collect_exploitdb(
+            output_path=str(out2), mirror_path=str(mirror), max_records=10,
+            skip_metasploit=False,
+        )
+    ids2 = {r["id"] for r in load_jsonl(str(out2))}
+    assert ids2 == {"edb-60001", "edb-60002"}
+
+
+def test_exploitdb_resume_preserves_existing_and_appends(tmp_path):
+    """A re-run keeps already-saved records and only appends new ones."""
+    mirror = tmp_path / "mirror"
+    out = tmp_path / "exploitdb.jsonl"
+
+    csv_rows = [
+        {"id": "70001", "file": "exploits/a.py", "description": "first",
+         "type": "webapps", "platform": "linux", "codes": "",
+         "date_published": "", "author": ""},
+        {"id": "70002", "file": "exploits/b.py", "description": "second",
+         "type": "webapps", "platform": "linux", "codes": "",
+         "date_published": "", "author": ""},
+    ]
+    body = ("import requests\n" * 40)
+    files = {"exploits/a.py": body, "exploits/b.py": body}
+    _stub_exploitdb_mirror(mirror, csv_rows, files)
+
+    # First run: only allow one record through
+    with patch("data.collect.subprocess.run",
+               return_value=MagicMock(returncode=0, stdout="", stderr="")):
+        collect_exploitdb(
+            output_path=str(out), mirror_path=str(mirror), max_records=1,
+        )
+    first_pass = load_jsonl(str(out))
+    assert len(first_pass) == 1
+    first_id = first_pass[0]["id"]
+
+    # Second run: cap raised to 2, the prior record must persist and the
+    # new one appended without duplicating the first.
+    with patch("data.collect.subprocess.run",
+               return_value=MagicMock(returncode=0, stdout="", stderr="")):
+        collect_exploitdb(
+            output_path=str(out), mirror_path=str(mirror), max_records=2,
+        )
+    second_pass = load_jsonl(str(out))
+    ids = [r["id"] for r in second_pass]
+    assert len(ids) == 2
+    assert ids.count(first_id) == 1, "Prior record must not be duplicated on resume"
+    assert {"edb-70001", "edb-70002"} == set(ids)
+
+
+def test_exploitdb_truncates_long_records_preserves_header(tmp_path):
+    """Records longer than max_chars are truncated; the metadata header survives."""
+    mirror = tmp_path / "mirror"
+    out = tmp_path / "exploitdb.jsonl"
+
+    csv_rows = [{
+        "id": "80001", "file": "exploits/big.py",
+        "description": "Very long PoC", "type": "local", "platform": "linux",
+        "codes": "CVE-2024-0001", "date_published": "", "author": "",
+    }]
+    files = {"exploits/big.py": ("A" * 50_000)}  # way past the 12K default
+    _stub_exploitdb_mirror(mirror, csv_rows, files)
+
+    with patch("data.collect.subprocess.run",
+               return_value=MagicMock(returncode=0, stdout="", stderr="")):
+        collect_exploitdb(
+            output_path=str(out), mirror_path=str(mirror), max_records=10,
+            max_chars=12000,
+        )
+
+    records = load_jsonl(str(out))
+    assert len(records) == 1
+    assert len(records[0]["text"]) == 12000
+    # Header survives the truncation because it is at the start.
+    assert records[0]["text"].startswith("Exploit-DB #80001:")
+    assert "CVE: CVE-2024-0001" in records[0]["text"][:300]
+
+
+def test_exploitdb_drops_short_records(tmp_path):
+    """Records cleaned to fewer than min_chars are skipped."""
+    mirror = tmp_path / "mirror"
+    out = tmp_path / "exploitdb.jsonl"
+
+    csv_rows = [
+        {"id": "90001", "file": "exploits/tiny.py", "description": "x",
+         "type": "webapps", "platform": "linux", "codes": "",
+         "date_published": "", "author": ""},
+        {"id": "90002", "file": "exploits/ok.py", "description": "ok",
+         "type": "webapps", "platform": "linux", "codes": "",
+         "date_published": "", "author": ""},
+    ]
+    files = {
+        "exploits/tiny.py": "x",  # well below 100 char floor
+        "exploits/ok.py": ("import requests\n" * 40),
+    }
+    _stub_exploitdb_mirror(mirror, csv_rows, files)
+
+    with patch("data.collect.subprocess.run",
+               return_value=MagicMock(returncode=0, stdout="", stderr="")):
+        collect_exploitdb(
+            output_path=str(out), mirror_path=str(mirror), max_records=10,
+            min_chars=100,
+        )
+
+    ids = {r["id"] for r in load_jsonl(str(out))}
+    assert ids == {"edb-90002"}
+
+
+def test_exploitdb_missing_csv_is_a_no_op(tmp_path):
+    """Mirror without a files_exploits.csv yields no output, no crash."""
+    mirror = tmp_path / "mirror"
+    mirror.mkdir()
+    (mirror / ".git").mkdir()
+    out = tmp_path / "exploitdb.jsonl"
+
+    with patch("data.collect.subprocess.run",
+               return_value=MagicMock(returncode=0, stdout="", stderr="")):
+        collect_exploitdb(
+            output_path=str(out), mirror_path=str(mirror), max_records=10,
+        )
+
+    assert not out.exists()

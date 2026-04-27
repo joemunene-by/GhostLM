@@ -1052,92 +1052,258 @@ def collect_mitre_attack(
         print("  Warning: No ATT&CK records collected.")
 
 
+_METASPLOIT_NEEDLES = (
+    "Msf::Exploit::Remote",
+    "Msf::Exploit::Local",
+    "Msf::Auxiliary",
+    "include Msf::Exploit",
+    "include Msf::Auxiliary",
+    "class Metasploit",
+)
+
+
+def _is_metasploit_module(file_rel: str, content: str) -> bool:
+    """Detect Metasploit framework modules in Exploit-DB.
+
+    Two cheap signals: Metasploit modules typically live under a
+    ``metasploit/`` subdirectory or contain Msf base-class boilerplate
+    near the top of the file. The check looks at only the first ~600
+    chars of content, which is enough to catch the require/inheritance
+    block without paying a full-file scan cost.
+
+    Args:
+        file_rel: Relative path of the exploit file inside the mirror.
+        content: Raw file contents.
+
+    Returns:
+        True if the file looks like a Metasploit module.
+    """
+    if "metasploit" in file_rel.lower():
+        return True
+    head = content[:600]
+    return any(needle in head for needle in _METASPLOIT_NEEDLES)
+
+
+def _ensure_exploitdb_mirror(mirror_path: Path) -> bool:
+    """Clone Exploit-DB on first run, fast-forward pull on subsequent runs.
+
+    Re-cloning a 1.5 GB repository every collection run is wasteful — the
+    persistent mirror at ``mirror_path`` is treated as authoritative once
+    present and is updated in place. A pull failure on an existing mirror
+    does not abort: we proceed with the on-disk snapshot rather than lose
+    the run.
+
+    Args:
+        mirror_path: Local path to the Exploit-DB git mirror.
+
+    Returns:
+        True if the mirror is usable (cloned or pulled); False otherwise.
+    """
+    mirror_path = Path(mirror_path)
+    if (mirror_path / ".git").is_dir():
+        try:
+            subprocess.run(
+                ["git", "-C", str(mirror_path), "pull", "--ff-only"],
+                check=True, capture_output=True, text=True,
+            )
+        except Exception as e:
+            print(f"  Warning: could not pull existing mirror ({e}); using on-disk snapshot.")
+        return True
+
+    mirror_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.run(
+            [
+                "git", "clone", "--depth", "1",
+                "https://gitlab.com/exploit-database/exploitdb.git",
+                str(mirror_path),
+            ],
+            check=True, capture_output=True, text=True,
+        )
+        return True
+    except Exception as e:
+        print(f"  Warning: failed to clone Exploit-DB mirror: {e}")
+        return False
+
+
+def _load_existing_exploitdb_ids(output_path: Path) -> set:
+    """Read an existing JSONL output and return its record ids.
+
+    Used for resume support: a re-run only appends records whose id is
+    not already present, so a long collection that gets interrupted can
+    be resumed without losing prior work.
+
+    Args:
+        output_path: JSONL file to scan.
+
+    Returns:
+        Set of record ids already on disk (may be empty).
+    """
+    if not output_path.exists():
+        return set()
+    seen: set = set()
+    with output_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            rid = rec.get("id")
+            if rid:
+                seen.add(rid)
+    return seen
+
+
 def collect_exploitdb(
     output_path: str = "data/raw/exploitdb.jsonl",
     max_records: int = 5000,
+    mirror_path: str = "data/raw/_exploitdb_mirror",
+    min_chars: int = 100,
+    max_chars: int = 12000,
+    skip_metasploit: bool = True,
 ) -> None:
-    """Fetch exploit texts from a shallow-cloned Exploit-DB repository.
+    """Fetch exploit texts from Exploit-DB, with persistent mirror + resume.
 
-    Shallow clones the Exploit-DB repository, reads `files_exploits.csv`,
-    prepends metadata headers to exploit files, and stores cleaned records.
+    Differences vs. the original implementation:
+
+    * **Persistent mirror.** ``mirror_path`` is cloned once and pulled in
+      place on subsequent runs. The previous version cloned a fresh ~1.5 GB
+      repo into a tempdir on every call.
+    * **Resume support.** If ``output_path`` already exists, its record
+      ids are loaded and appended to rather than overwritten. Lets a
+      partial run be re-driven without losing collected records.
+    * **Metasploit filter.** Default-on filter that drops Metasploit
+      framework modules — boilerplate-heavy and repetitive enough that
+      they dilute offensive-security signal in the corpus.
+    * **Structured metadata.** Each record carries ``platform``, ``type``,
+      ``codes``, ``language``, ``date``, ``license`` fields so downstream
+      filtering (e.g. drop a noisy platform, keep only CVE-linked PoCs)
+      can act on the data without re-parsing the text body.
+    * **Truncate vs. drop.** Records longer than ``max_chars`` are
+      truncated rather than dropped — long PoCs are exactly the
+      tutorial-style records the project wants and the Metasploit-style
+      verbose ones are already excluded by the filter above.
 
     Args:
-        output_path: Destination path for the output JSONL file.
-        max_records: Maximum number of records to collect.
+        output_path: JSONL output path. Resumes if it exists.
+        max_records: Total record cap for this run (counts existing+new).
+        mirror_path: Local persistent clone of the Exploit-DB git mirror.
+        min_chars: Drop records cleaned to fewer chars than this.
+        max_chars: Truncate records longer than this (header is preserved).
+        skip_metasploit: Filter out Metasploit framework modules.
     """
     print("Collecting Exploit-DB records...")
-    records = []
 
-    with tempfile.TemporaryDirectory() as tmp:
-        repo_dir = Path(tmp) / "exploitdb"
+    output = Path(output_path)
+    mirror = Path(mirror_path)
+
+    if not _ensure_exploitdb_mirror(mirror):
+        return
+
+    csv_path = mirror / "files_exploits.csv"
+    if not csv_path.exists():
+        print(f"  Warning: files_exploits.csv not found at {csv_path}")
+        return
+
+    seen_ids = _load_existing_exploitdb_ids(output)
+    if seen_ids:
+        print(f"  Resuming: {len(seen_ids)} existing records will be preserved")
+
+    try:
+        with open(csv_path, "r", encoding="utf-8", errors="ignore", newline="") as f:
+            rows = list(csv.DictReader(f))
+    except Exception as e:
+        print(f"  Warning: failed to parse CSV: {e}")
+        return
+
+    new_records: List[Dict] = []
+    skipped = {"missing_file": 0, "metasploit": 0, "too_short": 0, "duplicate": 0}
+
+    for row in tqdm(rows, desc="Exploit-DB files", leave=False):
+        if len(seen_ids) + len(new_records) >= max_records:
+            break
+
+        edb_id = (row.get("id") or "").strip()
+        if not edb_id:
+            continue
+        record_id = f"edb-{edb_id}"
+        if record_id in seen_ids:
+            skipped["duplicate"] += 1
+            continue
+
+        file_rel = (row.get("file") or "").strip()
+        if not file_rel:
+            skipped["missing_file"] += 1
+            continue
+
+        exploit_path = mirror / file_rel
+        if not exploit_path.exists():
+            skipped["missing_file"] += 1
+            continue
+
         try:
-            subprocess.run(
-                [
-                    "git",
-                    "clone",
-                    "--depth",
-                    "1",
-                    "https://gitlab.com/exploit-database/exploitdb.git",
-                    str(repo_dir),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except Exception as e:
-            print(f"  Warning: Failed to clone Exploit-DB repository: {e}")
-            return
+            with open(exploit_path, "r", encoding="utf-8", errors="ignore") as ef:
+                content = ef.read()
+        except Exception:
+            skipped["missing_file"] += 1
+            continue
 
-        csv_path = repo_dir / "files_exploits.csv"
-        if not csv_path.exists():
-            print("  Warning: files_exploits.csv not found in cloned repository.")
-            return
+        if skip_metasploit and _is_metasploit_module(file_rel, content):
+            skipped["metasploit"] += 1
+            continue
 
-        try:
-            with open(csv_path, "r", encoding="utf-8", errors="ignore", newline="") as f:
-                rows = list(csv.DictReader(f))
-        except Exception as e:
-            print(f"  Warning: Failed to parse Exploit-DB CSV: {e}")
-            return
+        platform = (row.get("platform") or "").strip()
+        ex_type = (row.get("type") or "").strip()
+        codes = (row.get("codes") or "").strip()
+        date = (row.get("date_published") or row.get("date") or "").strip()
+        author = (row.get("author") or "").strip()
+        description = (row.get("description") or "").strip()
 
-        for row in tqdm(rows, desc="Exploit-DB files", leave=False):
-            file_path = (row.get("file") or "").strip()
-            if not file_path:
-                continue
+        header_lines = [f"Exploit-DB #{edb_id}: {description}"]
+        if platform or ex_type:
+            header_lines.append(f"Platform: {platform} / {ex_type}")
+        if codes:
+            header_lines.append(f"CVE: {codes}")
+        if date:
+            header_lines.append(f"Date: {date}")
+        if author:
+            header_lines.append(f"Author: {author}")
+        header = "\n".join(header_lines)
 
-            exploit_path = repo_dir / file_path
-            if not exploit_path.exists():
-                continue
+        cleaned = clean_text(f"{header}\n\n{content}")
+        if len(cleaned) < min_chars:
+            skipped["too_short"] += 1
+            continue
+        if len(cleaned) > max_chars:
+            cleaned = cleaned[:max_chars]
 
-            try:
-                with open(exploit_path, "r", encoding="utf-8", errors="ignore") as ef:
-                    exploit_content = ef.read()
-            except Exception:
-                continue
+        language = exploit_path.suffix.lstrip(".").lower() or "unknown"
 
-            header = (
-                f"Exploit-DB #{row.get('id', '')}: {row.get('description', '')}\n"
-                f"Platform: {row.get('platform', '')} / {row.get('type', '')}"
-            )
-            codes = (row.get("codes") or "").strip()
-            if codes:
-                header += f"\nCVE: {codes}"
+        new_records.append({
+            "id": record_id,
+            "text": cleaned,
+            "source": "exploitdb",
+            "platform": platform,
+            "type": ex_type,
+            "codes": codes,
+            "language": language,
+            "date": date,
+            "license": "GPL-2.0",
+        })
 
-            cleaned = clean_text(f"{header}\n\n{exploit_content}")
-            if 100 <= len(cleaned) <= 8000:
-                records.append({
-                    "id": f"edb-{row.get('id', '')}",
-                    "text": cleaned,
-                    "source": "exploitdb",
-                })
-
-            if len(records) >= max_records:
-                break
-
-    if records:
-        save_jsonl(records, output_path)
+    if new_records:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        mode = "a" if seen_ids else "w"
+        with output.open(mode, encoding="utf-8") as f:
+            for rec in new_records:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        total = len(seen_ids) + len(new_records)
+        print(f"  Saved {len(new_records)} new records (total now {total} in {output})")
     else:
-        print("  Warning: No Exploit-DB records collected.")
+        print("  No new records added.")
+
+    if any(skipped.values()):
+        print(f"  Skipped: {skipped}")
 
 
 def _generate_synthetic_attack_data(count: int = 200) -> List[Dict]:

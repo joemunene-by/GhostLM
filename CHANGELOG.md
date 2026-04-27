@@ -363,10 +363,25 @@ The new `make eval-security-all-phases` target re-runs the suite on every preser
 
 ## [Unreleased] — Upcoming
 
+### Phase 3.6 corpus-volume work — in progress
+
+**Exploit-DB collector hardened (no data pulled yet).** The collector existed but had several problems that made it unsuitable for routine v0.4.0 corpus pulls. Reworked end-to-end:
+
+- **Persistent local mirror at `data/raw/_exploitdb_mirror`.** The previous version cloned the ~1.5 GB Exploit-DB repository into a tempdir on every run, threw it away, and re-cloned next time. The new version clones once and `git pull --ff-only`s on subsequent runs. A pull failure on an existing mirror is non-fatal — the on-disk snapshot is used and the warning is logged.
+- **Resume support.** Re-running against an existing `data/raw/exploitdb.jsonl` loads the existing record ids and only appends new records. Lets long pulls survive interruption.
+- **Metasploit-module filter (default on).** Metasploit framework modules carry boilerplate (`include Msf::Exploit::Remote`, `class Metasploit < Msf::Exploit::Local`, etc.) that is repetitive enough to dilute the corpus signal. Path-based detection (`metasploit/` in the file path) plus content-based detection (Msf:: needles in the first ~600 chars) identifies them. Pass `--keep-metasploit` to override.
+- **Structured metadata per record.** Each record now carries `platform`, `type`, `codes` (CVEs), `language` (file extension), `date`, `license` (`GPL-2.0`) as top-level fields, not just inline header text. Downstream filtering can act on these without re-parsing the body.
+- **Truncate vs. drop.** Records longer than `max_chars` (default 12000) are truncated rather than dropped. The header (Exploit-DB id, platform, CVE, date, author) is at the start so it survives the cut. Long PoCs are exactly the tutorial-style records the project wants and the Metasploit-style verbose ones are already excluded by the filter above.
+- **CLI wrapper at `scripts/collect_exploitdb.py`** with `--max-records`, `--min-chars`, `--max-chars`, `--mirror`, `--keep-metasploit` flags. Parity with the other collectors (`scripts/collect_ctftime.py`, `scripts/collect_ctf_repos.py`).
+- **`make data-exploitdb` target.** Runs the wrapper with defaults.
+- **Seven new unit tests** (`tests/test_data.py`) covering: `_is_metasploit_module` path-and-content detection, metadata extraction, Metasploit filtering with the keep-flag override, resume across runs, max-chars truncation with header preservation, min-chars dropping, and missing-CSV handled as a no-op. All use a `_stub_exploitdb_mirror` helper that lays out a fake mirror in `tmp_path`, so no network access during the test run. 62/62 tests pass.
+
+This is collector infrastructure only — the actual Exploit-DB pull has not been run, no records are in `data/raw/`, and the existing 8.79M-token corpus is unchanged. Running `make data-exploitdb` followed by `make data-rebuild` will fold the Exploit-DB records into the next corpus snapshot.
+
 ### Planned for v0.4.0 — ghost-small training rung
 - Pending: ghost-small (55M params) training on the rebalanced Phase 3.5 corpus, GPU-required.
-- Pending: corpus expansion to 50–100M tokens via full-text security papers (arXiv cs.CR), Exploit-DB ingestion, and additional CTFtime events. The structural rebalance (NVD subsample) is done; the next round is volume on the non-NVD side.
-- Pending: drop the synthetic 3K CTF set once real CTFtime + GitHub-CTF-repos corpus exceeds it in token volume.
+- Pending: corpus expansion to 50–100M tokens via full-text security papers (arXiv cs.CR), additional CTFtime events, and the Exploit-DB pull above. The structural rebalance (NVD subsample) is done; the next round is volume on the non-NVD side.
+- Pending: drop the synthetic 3K CTF set once real CTFtime + GitHub-CTF-repos + Exploit-DB corpus exceeds it in token volume.
 
 ### Planned for v1.0.0 — Release
 - ghost-small fully trained weights released.
