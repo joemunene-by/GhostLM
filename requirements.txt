@@ -10,3 +10,4 @@ safetensors>=0.4.0
 wandb>=0.16.0
 pytest>=8.0.0
 matplotlib>=3.8.0
+pymupdf>=1.24.0  # arXiv full-text PDF extraction (collect_arxiv_full_text)

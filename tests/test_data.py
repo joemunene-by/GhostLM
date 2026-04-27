@@ -12,8 +12,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from data.collect import (
+    _arxiv_id_from_atom,
     _is_metasploit_module,
     build_nvd_year_windows,
+    collect_arxiv_full_text,
     collect_capec,
     collect_ctf_repos,
     collect_ctftime_writeups,
@@ -1204,5 +1206,167 @@ def test_exploitdb_missing_csv_is_a_no_op(tmp_path):
         collect_exploitdb(
             output_path=str(out), mirror_path=str(mirror), max_records=10,
         )
+
+    assert not out.exists()
+
+
+# ---------- collect_arxiv_full_text ----------
+
+def test_arxiv_id_from_atom_strips_prefix_and_version():
+    """Atom feed ids like ``http://arxiv.org/abs/2401.12345v2`` reduce to ``2401.12345``."""
+    assert _arxiv_id_from_atom("http://arxiv.org/abs/2401.12345v2") == "2401.12345"
+    assert _arxiv_id_from_atom("http://arxiv.org/abs/2401.12345") == "2401.12345"
+    # Old-style id with subject prefix
+    assert _arxiv_id_from_atom("http://arxiv.org/abs/cs.CR/0501001v1") == "cs.CR/0501001"
+    # Already bare id is left alone
+    assert _arxiv_id_from_atom("2401.12345") == "2401.12345"
+
+
+def _stub_pdf_response(text_payload):
+    """Build a fake requests.Response that returns the given bytes as PDF content."""
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.content = text_payload.encode("utf-8") if isinstance(text_payload, str) else text_payload
+    return resp
+
+
+def test_arxiv_full_text_writes_record_with_metadata(tmp_path):
+    """A successful PDF fetch + extract produces a JSONL record with title and license."""
+    abstracts = tmp_path / "papers.jsonl"
+    abstracts.write_text(json.dumps({
+        "id": "http://arxiv.org/abs/2401.12345v1",
+        "text": "Real Paper Title Here\n\nAbstract sentence one.",
+        "source": "arxiv",
+    }) + "\n")
+
+    out = tmp_path / "arxiv_full.jsonl"
+    fake_body = "Body text from the PDF. " * 200  # well above min_chars
+
+    with patch("data.collect.requests.get",
+               return_value=_stub_pdf_response(b"%PDF-fake")), \
+         patch("data.collect._extract_pdf_text", return_value=fake_body), \
+         patch("data.collect.time.sleep"):
+        collect_arxiv_full_text(
+            output_path=str(out),
+            abstract_input=str(abstracts),
+            max_records=10,
+            min_chars=100,
+            request_delay=0,
+        )
+
+    records = load_jsonl(str(out))
+    assert len(records) == 1
+    r = records[0]
+    assert r["source"] == "arxiv_full"
+    assert r["arxiv_id"] == "2401.12345"
+    assert r["title"] == "Real Paper Title Here"
+    assert r["license"] == "arXiv-perpetual-non-exclusive"
+    # Title is preserved at the head of the cleaned text
+    assert r["text"].startswith("Real Paper Title Here")
+    assert "Body text from the PDF." in r["text"]
+
+
+def test_arxiv_full_text_resume_skips_existing(tmp_path):
+    """Re-running against an existing output preserves prior records and only appends."""
+    abstracts = tmp_path / "papers.jsonl"
+    abstracts.write_text(
+        json.dumps({"id": "http://arxiv.org/abs/2401.0001",
+                    "text": "Paper One\n\nAbs one.", "source": "arxiv"}) + "\n" +
+        json.dumps({"id": "http://arxiv.org/abs/2401.0002",
+                    "text": "Paper Two\n\nAbs two.", "source": "arxiv"}) + "\n"
+    )
+    out = tmp_path / "arxiv_full.jsonl"
+
+    body = "lots of body text " * 200
+
+    # First run: only allow one record
+    with patch("data.collect.requests.get",
+               return_value=_stub_pdf_response(b"%PDF")), \
+         patch("data.collect._extract_pdf_text", return_value=body), \
+         patch("data.collect.time.sleep"):
+        collect_arxiv_full_text(
+            output_path=str(out), abstract_input=str(abstracts),
+            max_records=1, min_chars=100, request_delay=0,
+        )
+    first_pass = load_jsonl(str(out))
+    assert len(first_pass) == 1
+    first_id = first_pass[0]["id"]
+
+    # Second run: cap at 2, prior record must persist + new appended
+    with patch("data.collect.requests.get",
+               return_value=_stub_pdf_response(b"%PDF")), \
+         patch("data.collect._extract_pdf_text", return_value=body), \
+         patch("data.collect.time.sleep"):
+        collect_arxiv_full_text(
+            output_path=str(out), abstract_input=str(abstracts),
+            max_records=2, min_chars=100, request_delay=0,
+        )
+    second_pass = load_jsonl(str(out))
+    ids = [r["id"] for r in second_pass]
+    assert len(ids) == 2
+    assert ids.count(first_id) == 1
+
+
+def test_arxiv_full_text_drops_short_extracts(tmp_path):
+    """Records whose extracted text is below min_chars are skipped."""
+    abstracts = tmp_path / "papers.jsonl"
+    abstracts.write_text(json.dumps({
+        "id": "http://arxiv.org/abs/2401.0099",
+        "text": "Short Paper\n\nShort abstract.",
+        "source": "arxiv",
+    }) + "\n")
+    out = tmp_path / "arxiv_full.jsonl"
+
+    # Extracted text too short — record must be dropped
+    with patch("data.collect.requests.get",
+               return_value=_stub_pdf_response(b"%PDF")), \
+         patch("data.collect._extract_pdf_text", return_value="tiny"), \
+         patch("data.collect.time.sleep"):
+        collect_arxiv_full_text(
+            output_path=str(out), abstract_input=str(abstracts),
+            max_records=10, min_chars=1500, request_delay=0,
+        )
+
+    assert not out.exists() or len(load_jsonl(str(out))) == 0
+
+
+def test_arxiv_full_text_truncates_long_extracts(tmp_path):
+    """Records longer than max_chars are truncated; title at the head survives."""
+    abstracts = tmp_path / "papers.jsonl"
+    abstracts.write_text(json.dumps({
+        "id": "http://arxiv.org/abs/2401.0100",
+        "text": "Long Paper Title\n\nAbstract.",
+        "source": "arxiv",
+    }) + "\n")
+    out = tmp_path / "arxiv_full.jsonl"
+
+    # 200K-char extracted body, well past the default cap
+    body = "X" * 200_000
+
+    with patch("data.collect.requests.get",
+               return_value=_stub_pdf_response(b"%PDF")), \
+         patch("data.collect._extract_pdf_text", return_value=body), \
+         patch("data.collect.time.sleep"):
+        collect_arxiv_full_text(
+            output_path=str(out), abstract_input=str(abstracts),
+            max_records=1, min_chars=100, max_chars=10000, request_delay=0,
+        )
+
+    records = load_jsonl(str(out))
+    assert len(records) == 1
+    assert len(records[0]["text"]) == 10000
+    assert records[0]["text"].startswith("Long Paper Title")
+
+
+def test_arxiv_full_text_missing_abstracts_is_a_no_op(tmp_path):
+    """Without an abstracts file there's nothing to fetch; no crash, no output."""
+    abstracts = tmp_path / "papers.jsonl"  # not created
+    out = tmp_path / "arxiv_full.jsonl"
+
+    collect_arxiv_full_text(
+        output_path=str(out),
+        abstract_input=str(abstracts),
+        max_records=10,
+    )
 
     assert not out.exists()

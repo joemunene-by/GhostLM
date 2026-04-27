@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: all install test data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-exploitdb data-diversity data-rebuild data-audit train-tiny train-small generate chat benchmark eval-security eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security-all-phases eval-compare-phases eval-perplexity-by-source plot export clean help
+.PHONY: all install test data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-exploitdb data-exploitdb-audit data-arxiv-full data-diversity data-rebuild data-audit train-tiny train-small generate chat benchmark eval-security eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security-all-phases eval-compare-phases eval-perplexity-by-source plot export clean help
 
 help:
 	@echo "GhostLM — Cybersecurity Language Model"
@@ -16,6 +16,7 @@ help:
 	@echo "  data-capec      Pull CAPEC attack patterns (public)"
 	@echo "  data-exploitdb  Pull Exploit-DB records (persistent mirror, resume-aware, GPL-2.0)"
 	@echo "  data-exploitdb-audit  Print structural audit of data/raw/exploitdb.jsonl"
+	@echo "  data-arxiv-full Pull arXiv cs.CR full-text PDFs (needs pymupdf, ~1 req/sec)"
 	@echo "  data-diversity  Run all the corpus-diversity collectors (mitre + capec)"
 	@echo "  data-rebuild    Re-merge data/raw/ into train/val (after a corpus pull)"
 	@echo "  data-audit      Run pre-training corpus diagnostics + chart"
@@ -63,6 +64,9 @@ data-exploitdb:
 
 data-exploitdb-audit:
 	$(PYTHON) scripts/audit_exploitdb.py
+
+data-arxiv-full:
+	$(PYTHON) scripts/collect_arxiv_full.py
 
 data-diversity: data-mitre data-capec
 

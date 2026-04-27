@@ -711,6 +711,225 @@ def collect_ctftime_writeups(
     print(f"  Done. Added {len(new_records)} new records, total {len(existing) + len(new_records)}.")
 
 
+def _arxiv_id_from_atom(atom_id: str) -> str:
+    """Extract the bare arXiv id from an Atom ``<id>`` URL.
+
+    arXiv's Atom feed returns ids like ``http://arxiv.org/abs/2401.12345v2``;
+    the PDF endpoint takes the bare ``2401.12345`` (with or without the
+    version suffix). Strip the prefix and the version so we have a
+    canonical form for both the abstract listing and the PDF fetch.
+
+    Args:
+        atom_id: Full Atom-feed id URL.
+
+    Returns:
+        Bare arXiv id, e.g. ``"2401.12345"``.
+    """
+    aid = atom_id.strip()
+    if "abs/" in aid:
+        aid = aid.split("abs/", 1)[1]
+    # Drop trailing /vN version suffix if present
+    aid = re.sub(r"v\d+$", "", aid)
+    return aid
+
+
+def _extract_pdf_text(pdf_bytes: bytes, max_chars: int = 60000) -> str:
+    """Extract plain text from a PDF byte string using pymupdf.
+
+    Imports pymupdf at call time so the rest of the module stays
+    importable on systems without it. Truncates to ``max_chars`` to
+    cap memory and downstream training cost — academic papers run
+    8K–60K chars of body text, with the long tail being formula-heavy
+    crypto papers whose extracted text is largely garbled anyway.
+
+    Args:
+        pdf_bytes: Raw PDF payload.
+        max_chars: Truncate output to this many chars.
+
+    Returns:
+        Extracted plain text, or empty string on failure.
+    """
+    try:
+        import pymupdf  # type: ignore
+    except ImportError:
+        try:
+            import fitz as pymupdf  # type: ignore
+        except ImportError:
+            print("  ERROR: pymupdf not installed; pip install pymupdf")
+            return ""
+
+    try:
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as e:
+        print(f"  PDF open failed: {e}")
+        return ""
+
+    parts: List[str] = []
+    total = 0
+    try:
+        for page in doc:
+            text = page.get_text("text")
+            if not text:
+                continue
+            parts.append(text)
+            total += len(text)
+            if total >= max_chars:
+                break
+    finally:
+        doc.close()
+
+    return "".join(parts)[:max_chars]
+
+
+def collect_arxiv_full_text(
+    output_path: str = "data/raw/arxiv_full.jsonl",
+    max_records: int = 500,
+    abstract_input: str = "data/raw/papers.jsonl",
+    min_chars: int = 1500,
+    max_chars: int = 60000,
+    request_delay: float = 1.0,
+    request_timeout: int = 60,
+) -> None:
+    """Fetch arXiv cs.CR full-text PDFs and extract their body text.
+
+    Reuses the abstracts already collected by
+    ``collect_security_papers`` as the list of arXiv ids to fetch. For
+    each id the PDF is downloaded from ``arxiv.org/pdf/<id>.pdf``,
+    text is extracted with pymupdf, the title from the abstracts file
+    is prepended as a header, and the result is saved as a JSONL
+    record alongside the original abstract.
+
+    Why a separate collector vs. extending ``collect_security_papers``:
+    the abstract collector runs against an HTTP API that's polite at
+    1 req per 3 sec; it pulls 2000 papers in ~100 minutes. Full-text
+    PDF fetching needs different politeness (one PDF per second is
+    fine) and adds the heavyweight pymupdf dependency. Keeping the
+    two collectors separate lets users run abstracts cheaply and only
+    fold in full-text when they want the +14M-token bump.
+
+    Args:
+        output_path: JSONL output for full-text records. Resumes if
+            it exists — already-collected ids are skipped.
+        max_records: Cap on records pulled this run.
+        abstract_input: Path to the abstracts JSONL whose ids will
+            be re-fetched as PDFs. Must contain ``id`` fields in the
+            form returned by arXiv's Atom feed (i.e.
+            ``http://arxiv.org/abs/...``).
+        min_chars: Drop records whose extracted text is shorter than
+            this. PDFs that are scanned-image-only or that pymupdf
+            can't parse cleanly will fall below this floor.
+        max_chars: Truncate extracted text to this many chars. The
+            paper's title (from the abstract record) survives at the
+            start.
+        request_delay: Seconds between PDF fetches (be polite to
+            arXiv's CDN).
+        request_timeout: Per-request HTTP timeout.
+    """
+    print(f"Collecting arXiv full-text PDFs from {abstract_input}...")
+
+    abstracts_path = Path(abstract_input)
+    if not abstracts_path.exists():
+        print(f"  Warning: {abstracts_path} not found. Run "
+              f"`make data` (or collect_security_papers) first to seed "
+              f"the abstract list.")
+        return
+
+    abstracts = load_jsonl(str(abstracts_path))
+    if not abstracts:
+        print(f"  Warning: {abstracts_path} is empty.")
+        return
+
+    output = Path(output_path)
+    seen_ids: set = set()
+    if output.exists():
+        for rec in load_jsonl(str(output)):
+            rid = rec.get("id")
+            if rid:
+                seen_ids.add(rid)
+        if seen_ids:
+            print(f"  Resuming: {len(seen_ids)} existing records preserved")
+
+    new_records: List[Dict] = []
+    skipped = {"already_have": 0, "fetch_failed": 0, "extract_short": 0,
+               "no_arxiv_id": 0}
+
+    for entry in tqdm(abstracts, desc="arXiv PDFs", leave=False):
+        if len(seen_ids) + len(new_records) >= max_records:
+            break
+
+        atom_id = (entry.get("id") or "").strip()
+        if not atom_id:
+            skipped["no_arxiv_id"] += 1
+            continue
+
+        record_id = atom_id  # keep the full URL as the canonical id
+        if record_id in seen_ids:
+            skipped["already_have"] += 1
+            continue
+
+        arxiv_id = _arxiv_id_from_atom(atom_id)
+        if not arxiv_id:
+            skipped["no_arxiv_id"] += 1
+            continue
+
+        pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+        try:
+            resp = requests.get(pdf_url, timeout=request_timeout)
+            resp.raise_for_status()
+            pdf_bytes = resp.content
+        except Exception as e:
+            print(f"  PDF fetch failed for {arxiv_id}: {e}")
+            skipped["fetch_failed"] += 1
+            time.sleep(request_delay)
+            continue
+
+        body = _extract_pdf_text(pdf_bytes, max_chars=max_chars)
+        if len(body) < min_chars:
+            skipped["extract_short"] += 1
+            time.sleep(request_delay)
+            continue
+
+        # Pull the title back out of the abstract record so the
+        # extracted body has a useful header. The abstract's text
+        # field is "Title\n\nAbstract", so the first line is the
+        # title.
+        abstract_text = (entry.get("text") or "").strip()
+        title = abstract_text.split("\n", 1)[0] if abstract_text else ""
+
+        cleaned = clean_text(f"{title}\n\n{body}" if title else body)
+        if len(cleaned) < min_chars:
+            skipped["extract_short"] += 1
+            time.sleep(request_delay)
+            continue
+        if len(cleaned) > max_chars:
+            cleaned = cleaned[:max_chars]
+
+        new_records.append({
+            "id": record_id,
+            "text": cleaned,
+            "source": "arxiv_full",
+            "arxiv_id": arxiv_id,
+            "title": title,
+            "license": "arXiv-perpetual-non-exclusive",
+        })
+
+        time.sleep(request_delay)
+
+    if new_records:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        mode = "a" if seen_ids else "w"
+        with output.open(mode, encoding="utf-8") as f:
+            for rec in new_records:
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        total = len(seen_ids) + len(new_records)
+        print(f"  Saved {len(new_records)} new records (total now {total} in {output})")
+    else:
+        print("  No new records added.")
+
+    if any(skipped.values()):
+        print(f"  Skipped: {skipped}")
+
+
 def collect_security_papers(
     output_path: str = "data/raw/papers.jsonl",
     max_records: int = 2000,
