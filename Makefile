@@ -15,6 +15,7 @@ help:
 	@echo "  data-mitre      Pull MITRE ATT&CK techniques (Apache 2.0)"
 	@echo "  data-capec      Pull CAPEC attack patterns (public)"
 	@echo "  data-exploitdb  Pull Exploit-DB records (persistent mirror, resume-aware, GPL-2.0)"
+	@echo "  data-exploitdb-audit  Print structural audit of data/raw/exploitdb.jsonl"
 	@echo "  data-diversity  Run all the corpus-diversity collectors (mitre + capec)"
 	@echo "  data-rebuild    Re-merge data/raw/ into train/val (after a corpus pull)"
 	@echo "  data-audit      Run pre-training corpus diagnostics + chart"
@@ -59,6 +60,9 @@ data-capec:
 
 data-exploitdb:
 	$(PYTHON) scripts/collect_exploitdb.py
+
+data-exploitdb-audit:
+	$(PYTHON) scripts/audit_exploitdb.py
 
 data-diversity: data-mitre data-capec
 

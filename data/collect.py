@@ -1161,6 +1161,7 @@ def collect_exploitdb(
     min_chars: int = 100,
     max_chars: int = 12000,
     skip_metasploit: bool = True,
+    sort_by_date_desc: bool = True,
 ) -> None:
     """Fetch exploit texts from Exploit-DB, with persistent mirror + resume.
 
@@ -1191,6 +1192,13 @@ def collect_exploitdb(
         min_chars: Drop records cleaned to fewer chars than this.
         max_chars: Truncate records longer than this (header is preserved).
         skip_metasploit: Filter out Metasploit framework modules.
+        sort_by_date_desc: When True (default) iterate the CSV in
+            descending ``date_published`` order so the most recent
+            exploits are pulled first. The CSV's natural order is by
+            Exploit-DB id (oldest first) — taking the first N records
+            without sorting biases the sample toward 2003–2010 ASP /
+            hardware advisories at the expense of modern threat
+            surfaces. Set False to preserve historical CSV order.
     """
     print("Collecting Exploit-DB records...")
 
@@ -1215,6 +1223,15 @@ def collect_exploitdb(
     except Exception as e:
         print(f"  Warning: failed to parse CSV: {e}")
         return
+
+    if sort_by_date_desc:
+        # Sort newest-first. Rows with no date (or malformed dates) sort
+        # to the end so they only get picked up if max_records exceeds
+        # the dated population.
+        def _date_key(row):
+            d = (row.get("date_published") or row.get("date") or "").strip()
+            return d if d else "0000-00-00"
+        rows.sort(key=_date_key, reverse=True)
 
     new_records: List[Dict] = []
     skipped = {"missing_file": 0, "metasploit": 0, "too_short": 0, "duplicate": 0}

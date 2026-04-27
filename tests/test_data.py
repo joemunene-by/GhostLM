@@ -1144,6 +1144,54 @@ def test_exploitdb_drops_short_records(tmp_path):
     assert ids == {"edb-90002"}
 
 
+def test_exploitdb_sorts_csv_by_date_desc_by_default(tmp_path):
+    """Default ordering is newest-first so capped pulls don't skew old.
+
+    The CSV's natural order is by Exploit-DB id (oldest first). Without
+    sorting, taking the first N records biases the sample toward old
+    ASP / hardware advisories from the 2000s. The collector defaults
+    to sorting by ``date_published`` descending so a capped pull picks
+    modern threat surfaces first.
+    """
+    mirror = tmp_path / "mirror"
+    out = tmp_path / "exploitdb.jsonl"
+
+    # Two rows with very different dates. CSV order is old-first
+    # (the natural id ordering); after the default sort, the newer
+    # record must be the only one kept under max_records=1.
+    csv_rows = [
+        {"id": "100", "file": "exploits/old.py", "description": "old advisory",
+         "type": "webapps", "platform": "linux", "codes": "",
+         "date_published": "2005-06-01", "author": ""},
+        {"id": "200", "file": "exploits/new.py", "description": "new advisory",
+         "type": "webapps", "platform": "linux", "codes": "",
+         "date_published": "2024-09-15", "author": ""},
+    ]
+    body = "import requests\n" * 40
+    files = {"exploits/old.py": body, "exploits/new.py": body}
+    _stub_exploitdb_mirror(mirror, csv_rows, files)
+
+    with patch("data.collect.subprocess.run",
+               return_value=MagicMock(returncode=0, stdout="", stderr="")):
+        collect_exploitdb(
+            output_path=str(out), mirror_path=str(mirror), max_records=1,
+        )
+    ids_default = [r["id"] for r in load_jsonl(str(out))]
+    assert ids_default == ["edb-200"], "Default sort should pick the newer record"
+
+    # With sorting disabled, the natural CSV order is preserved and the
+    # older record wins the cap.
+    out2 = tmp_path / "exploitdb_unsorted.jsonl"
+    with patch("data.collect.subprocess.run",
+               return_value=MagicMock(returncode=0, stdout="", stderr="")):
+        collect_exploitdb(
+            output_path=str(out2), mirror_path=str(mirror), max_records=1,
+            sort_by_date_desc=False,
+        )
+    ids_unsorted = [r["id"] for r in load_jsonl(str(out2))]
+    assert ids_unsorted == ["edb-100"], "Unsorted should preserve CSV order"
+
+
 def test_exploitdb_missing_csv_is_a_no_op(tmp_path):
     """Mirror without a files_exploits.csv yields no output, no crash."""
     mirror = tmp_path / "mirror"

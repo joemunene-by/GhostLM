@@ -363,25 +363,73 @@ The new `make eval-security-all-phases` target re-runs the suite on every preser
 
 ## [Unreleased] — Upcoming
 
-### Phase 3.6 corpus-volume work — in progress
+### Phase 3.6 corpus-volume work — Exploit-DB landed
 
-**Exploit-DB collector hardened (no data pulled yet).** The collector existed but had several problems that made it unsuitable for routine v0.4.0 corpus pulls. Reworked end-to-end:
+**Exploit-DB collector hardened and pulled.** The collector existed but had several problems that made it unsuitable for routine v0.4.0 corpus pulls. Reworked end-to-end and ran a real pull; corpus jumped from 8.79M to ~12.56M tokens (+43%) and NVD share dropped from 65.3% to 45.7% — first time below 50%.
+
+#### Collector changes
 
 - **Persistent local mirror at `data/raw/_exploitdb_mirror`.** The previous version cloned the ~1.5 GB Exploit-DB repository into a tempdir on every run, threw it away, and re-cloned next time. The new version clones once and `git pull --ff-only`s on subsequent runs. A pull failure on an existing mirror is non-fatal — the on-disk snapshot is used and the warning is logged.
 - **Resume support.** Re-running against an existing `data/raw/exploitdb.jsonl` loads the existing record ids and only appends new records. Lets long pulls survive interruption.
-- **Metasploit-module filter (default on).** Metasploit framework modules carry boilerplate (`include Msf::Exploit::Remote`, `class Metasploit < Msf::Exploit::Local`, etc.) that is repetitive enough to dilute the corpus signal. Path-based detection (`metasploit/` in the file path) plus content-based detection (Msf:: needles in the first ~600 chars) identifies them. Pass `--keep-metasploit` to override.
+- **Metasploit-module filter (default on).** Metasploit framework modules carry boilerplate (`include Msf::Exploit::Remote`, `class Metasploit < Msf::Exploit::Local`, etc.) that is repetitive enough to dilute the corpus signal. Path-based detection (`metasploit/` in the file path) plus content-based detection (Msf:: needles in the first ~600 chars) identifies them. 198 modules filtered on the real pull. Pass `--keep-metasploit` to override.
+- **Date-descending CSV sort (default on).** The CSV's natural order is by Exploit-DB id (oldest first); without sorting, the first 5K records skewed 73% to legacy ASP / hardware advisories from 2003–2010. Default sort by `date_published` descending pulls the most recent exploits first. The first audit caught this directly — discovered by running `scripts/audit_exploitdb.py` on the unsorted output and seeing `hardware 41.9% / asp 31.0%` and CVE-prefix top of `CVE-2006 12.1%`. Pass `--no-sort` to preserve historical order.
 - **Structured metadata per record.** Each record now carries `platform`, `type`, `codes` (CVEs), `language` (file extension), `date`, `license` (`GPL-2.0`) as top-level fields, not just inline header text. Downstream filtering can act on these without re-parsing the body.
-- **Truncate vs. drop.** Records longer than `max_chars` (default 12000) are truncated rather than dropped. The header (Exploit-DB id, platform, CVE, date, author) is at the start so it survives the cut. Long PoCs are exactly the tutorial-style records the project wants and the Metasploit-style verbose ones are already excluded by the filter above.
-- **CLI wrapper at `scripts/collect_exploitdb.py`** with `--max-records`, `--min-chars`, `--max-chars`, `--mirror`, `--keep-metasploit` flags. Parity with the other collectors (`scripts/collect_ctftime.py`, `scripts/collect_ctf_repos.py`).
-- **`make data-exploitdb` target.** Runs the wrapper with defaults.
-- **Seven new unit tests** (`tests/test_data.py`) covering: `_is_metasploit_module` path-and-content detection, metadata extraction, Metasploit filtering with the keep-flag override, resume across runs, max-chars truncation with header preservation, min-chars dropping, and missing-CSV handled as a no-op. All use a `_stub_exploitdb_mirror` helper that lays out a fake mirror in `tmp_path`, so no network access during the test run. 62/62 tests pass.
+- **Truncate vs. drop.** Records longer than `max_chars` (default 12000) are truncated rather than dropped. The header (Exploit-DB id, platform, CVE, date, author) is at the start so it survives the cut.
+- **CLI wrapper at `scripts/collect_exploitdb.py`** with `--max-records`, `--min-chars`, `--max-chars`, `--mirror`, `--keep-metasploit`, `--no-sort`. Parity with the other collectors.
+- **`make data-exploitdb`** runs the wrapper with defaults.
 
-This is collector infrastructure only — the actual Exploit-DB pull has not been run, no records are in `data/raw/`, and the existing 8.79M-token corpus is unchanged. Running `make data-exploitdb` followed by `make data-rebuild` will fold the Exploit-DB records into the next corpus snapshot.
+#### Audit script
+
+- **`scripts/audit_exploitdb.py`** — structural audit complementary to `scripts/data_audit.py`. The latter audits the merged train/val corpus; this one audits the raw `exploitdb.jsonl` so bad-distribution problems can be caught before the merge bakes them in. Reports record count, length percentiles, distribution by platform / type / language / year, CVE coverage with year-prefix breakdown, and license sanity check. Wired up as `make data-exploitdb-audit`.
+- This script earned its keep on the very first run: caught the legacy-skew problem in 30 seconds of staring at the output. The collector update was a direct consequence.
+
+#### What the pull contains (5,000 records, post-sort)
+
+| Dimension | Distribution |
+|---|---|
+| Total | 5,000 records · 15.2 MB chars · ~3.80M tokens |
+| Length (chars) | p10=920 · p50=2108 · p90=6538 · p99=12000 |
+| By platform (top 5) | php 43.8% · windows 19.4% · multiple 14.5% · hardware 11.1% · linux 3.1% |
+| By type | webapps 67.7% · local 15.2% · remote 9.3% · dos 7.3% · hardware 0.5% |
+| By language | txt 65.1% · py 27.5% · sh 1.5% · c 1.4% · html 0.9% |
+| By date year | 2020 26.3% · 2021 22.6% · 2019 14.9% · 2023 13.7% · 2022 7.9% · 2025 7.4% · 2024 6.3% |
+| CVE coverage | 36.4% (1,822 of 5,000 records carry a CVE id) · top years CVE-2019 21.7% · CVE-2020 17.5% · CVE-2021 14.8% · CVE-2023 11.6% |
+| License | 100% GPL-2.0 |
+
+Of note:
+- **Python share jumped 8.6% → 27.5%** versus the unsorted pull. Modern Exploit-DB submissions are predominantly Python PoCs (vs the old Perl/C era), which is exactly the format the eval revealed the model is weakest at (CTF Web Exploitation 0%, Binary Exploitation poor).
+- **PHP webapps 43.8%** dominates by platform. Reasonable read of the recent CVE landscape — PHP web stacks (WordPress plugins, Joomla, etc.) generate continuous CVE flow.
+- **CVE coverage is 36.4%, lower than the unsorted sample's 69.8%** because recent EDB entries are often submitted before a CVE is assigned. Older advisories had years to accumulate CVE-id back-references.
+
+#### Corpus state after `make data-rebuild`
+
+| Source | Phase 3.5 share | Phase 3.6 share | Phase 3.6 tokens |
+|---|---|---|---|
+| nvd | 65.3% | **45.7%** | ~5.74M (cap held at 6M) |
+| exploitdb | — | **30.0%** | ~3.77M (new) |
+| synthetic CTF | 17.2% | 12.0% | ~1.51M |
+| arxiv | 8.4% | 5.9% | ~0.74M |
+| ctftime real | 5.3% | 3.7% | ~0.47M |
+| mitre_attack | 2.9% | 2.1% | ~0.26M |
+| capec | 0.9% | 0.6% | ~0.07M |
+| **Total** | **8.79M** | **~12.56M** | **+43%** |
+
+Records: 79,601 total (up from 74,635) · train 75,676 / val 3,925 · 26,356 cross-source duplicates collapsed during merge · leakage check 0.
+
+NVD share crossed below 50% for the first time. The structural rebalance (Phase 3.5 NVD subsample) plus the volume add (Phase 3.6 Exploit-DB) move us materially closer to the 50–100M token v0.4.0 target — still ~37M+ tokens away, but on the right trajectory and entirely from non-NVD sources.
+
+#### Tests
+
+- **Eight new unit tests** (`tests/test_data.py`) covering: `_is_metasploit_module` path-and-content detection, metadata extraction, Metasploit filtering with the keep-flag override, resume across runs, max-chars truncation with header preservation, min-chars dropping, missing-CSV handled as a no-op, and date-desc CSV sort behavior with and without the `sort_by_date_desc` flag. All use a `_stub_exploitdb_mirror` helper that lays out a fake mirror in `tmp_path`, so no network access during the test run. 63/63 tests pass.
+
+#### Not yet trained
+
+This is corpus-only — no model training has been run on the new mix. The next step is to retrain ghost-tiny on the Phase 3.6 corpus to see whether (a) the new Exploit-DB language signal moves CTF Categorization Web Exploitation off 0%, and (b) the per-source perplexity table picks up Exploit-DB as a properly-modeled domain. Estimated ~3h on M4 CPU at the current recipe.
 
 ### Planned for v0.4.0 — ghost-small training rung
 - Pending: ghost-small (55M params) training on the rebalanced Phase 3.5 corpus, GPU-required.
-- Pending: corpus expansion to 50–100M tokens via full-text security papers (arXiv cs.CR), additional CTFtime events, and the Exploit-DB pull above. The structural rebalance (NVD subsample) is done; the next round is volume on the non-NVD side.
-- Pending: drop the synthetic 3K CTF set once real CTFtime + GitHub-CTF-repos + Exploit-DB corpus exceeds it in token volume.
+- Pending: continuing corpus expansion toward 50–100M tokens via full-text security papers (arXiv cs.CR PDFs, currently abstract-only), additional CTFtime events, and tool docs (pwntools, scapy, impacket via a generic Sphinx scraper).
+- Pending: drop the synthetic 3K CTF set once real CTFtime + GitHub-CTF-repos + Exploit-DB corpus exceeds it in token volume. Already true under the current pull (Exploit-DB 30% > synthetic 12%).
 
 ### Planned for v1.0.0 — Release
 - ghost-small fully trained weights released.
