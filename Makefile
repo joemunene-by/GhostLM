@@ -103,7 +103,10 @@ eval-security-phase2:
 eval-security-phase3:
 	$(PYTHON) scripts/eval_security.py --checkpoint checkpoints/phase3_refresh/best_model.pt --output logs/eval_security_phase3_expanded.json
 
-eval-security-all-phases: eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security
+eval-security-phase3.6:
+	$(PYTHON) scripts/eval_security.py --checkpoint checkpoints/phase3.6_exploitdb/best_model.pt --output logs/eval_security_phase3.6_expanded.json
+
+eval-security-all-phases: eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security eval-security-phase3.6
 	@$(PYTHON) scripts/compare_phase_evals.py
 
 eval-compare-phases:

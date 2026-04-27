@@ -422,14 +422,75 @@ NVD share crossed below 50% for the first time. The structural rebalance (Phase 
 
 - **Eight new unit tests** (`tests/test_data.py`) covering: `_is_metasploit_module` path-and-content detection, metadata extraction, Metasploit filtering with the keep-flag override, resume across runs, max-chars truncation with header preservation, min-chars dropping, missing-CSV handled as a no-op, and date-desc CSV sort behavior with and without the `sort_by_date_desc` flag. All use a `_stub_exploitdb_mirror` helper that lays out a fake mirror in `tmp_path`, so no network access during the test run. 63/63 tests pass.
 
-#### Not yet trained
+#### Training run — ghost-tiny on the Phase 3.6 corpus
 
-This is corpus-only — no model training has been run on the new mix. The next step is to retrain ghost-tiny on the Phase 3.6 corpus to see whether (a) the new Exploit-DB language signal moves CTF Categorization Web Exploitation off 0%, and (b) the per-source perplexity table picks up Exploit-DB as a properly-modeled domain. Estimated ~3h on M4 CPU at the current recipe.
+Ghost-tiny refresh on the new mix: same recipe as Phase 3.5 (30K steps, batch 2 + grad-accum 4, AdamW with cosine LR), MPS device on the M4 (faster than the 3h13m CPU run). Final val_loss 3.8556, best at step 29000 (3.8555) — converged. Run name `phase3.6_exploitdb`, weights at `checkpoints/phase3.6_exploitdb/best_model.pt`.
 
-### Planned for v0.4.0 — ghost-small training rung
-- Pending: ghost-small (55M params) training on the rebalanced Phase 3.5 corpus, GPU-required.
-- Pending: continuing corpus expansion toward 50–100M tokens via full-text security papers (arXiv cs.CR PDFs, currently abstract-only), additional CTFtime events, and tool docs (pwntools, scapy, impacket via a generic Sphinx scraper).
-- Pending: drop the synthetic 3K CTF set once real CTFtime + GitHub-CTF-repos + Exploit-DB corpus exceeds it in token volume. Already true under the current pull (Exploit-DB 30% > synthetic 12%).
+#### Eval results — the v0.3.6 expanded suite paid for itself
+
+The headline number, on the same 5×25=125-sample suite that evaluated every prior phase:
+
+| Phase | Overall accuracy | Δ vs prior |
+|---|---|---|
+| Phase 1 (early, 2K steps) | 12.0% | (baseline) |
+| Phase 2 (10K, v0.3.0) | 18.4% | +6.4 pp |
+| Phase 3 (30K, v0.3.3) | 20.0% | +1.6 pp |
+| Phase 3.5 (30K, rebalanced corpus) | **31.2%** | **+11.2 pp** |
+| **Phase 3.6 (30K, +Exploit-DB at fixed model size)** | **16.8%** | **−14.4 pp** |
+
+Per-task breakdown:
+
+| Task | Phase 3.5 | Phase 3.6 | Δ |
+|---|---|---|---|
+| CVE Severity Classification | 8/25 (32.0%) [72%] | 4/25 (16.0%) [60%] | −16 pp |
+| Vulnerability Type Detection | 8/25 (32.0%) [44%] | 3/25 (12.0%) [**96%**] | −20 pp |
+| Attack Technique Identification | 10/25 (40.0%) [36%] | 4/25 (16.0%) [60%] | −24 pp |
+| CTF Challenge Categorization | 10/25 (40.0%) [64%] | 5/25 (20.0%) [48%] | −20 pp |
+| MITRE ATT&CK Tactic Classification | 3/25 (12.0%) [40%] | 5/25 (20.0%) [76%] | +8 pp (mode-collapsed) |
+
+The MITRE Tactic +8 pp is not a real win — most-common-share went from 40% to 76%, meaning the model is now predicting one tactic for 19 of 25 samples and getting some of them right by accident. Vuln Type collapsed even harder: 96% of predictions on a single label, meaning the model picks the same answer for 24/25 samples.
+
+#### Per-source perplexity — the capacity reallocation story
+
+Same val split (100 records per source, deterministic seed) on both checkpoints:
+
+| Source | Phase 3.5 PPL | Phase 3.6 PPL | Δ% |
+|---|---|---|---|
+| nvd | 27.55 | 35.44 | +28.6% |
+| synthetic CTF | 28.48 | 38.90 | +36.6% |
+| ctftime | 60.71 | 59.70 | −1.7% |
+| mitre_attack | 55.14 | 70.53 | +27.9% |
+| capec | 133.81 | 179.71 | +34.3% |
+| arxiv | 354.95 | 505.60 | +42.4% |
+| **exploitdb** | — (not in train) | **40.87** | **(new, modeled)** |
+| **Overall (token-weighted)** | **66.05** | **44.36** | **−32.8%** |
+
+The overall PPL number looks like an improvement (−32.8%) and is **misleading**. Exploit-DB landed in the corpus at 30% token share with low intrinsic perplexity (40.87, second-lowest of any source after NVD), which drags the weighted average down regardless of what happens to the other sources. Per-source the picture is unambiguous: every existing source got 28–42% worse. CTFtime is the lone exception, and it survives flat rather than improves.
+
+#### What this means
+
+Ghost-tiny at 14.7M parameters is at capacity for the diversity the corpus is now asking it to model. Adding Exploit-DB without scaling the model up made the model split its parameters less efficiently across the existing seven sources. The eval suite — built in v0.3.6 specifically because earlier suites couldn't reliably distinguish 10pp-noise from real signal — caught the regression cleanly with mode-collapse share and per-task accuracy moving in the same direction.
+
+This is exactly the kind of finding the project's "trajectory matters more than absolute numbers" framing was set up to surface. Three concrete takeaways:
+
+1. **More corpus at fixed model size has hit diminishing returns at this rung.** Phase 2→3 (3× training volume) bought +1.6 pp; Phase 3→3.5 (corpus rebalance at fixed model+steps) bought +11.2 pp; Phase 3.5→3.6 (corpus volume at fixed model+steps) cost 14.4 pp. The corpus-first thesis from the rebalance does not extend indefinitely — it ran out of headroom inside ghost-tiny.
+2. **The path forward is the model, not the data.** ghost-small at 55M params (~3.7× capacity) is the next training rung, with the existing Phase 3.5 corpus or a subsampled Phase 3.6. Adding more corpus at ghost-tiny would be wasted compute.
+3. **Token-weighted overall PPL hides per-source regressions.** Every future ROADMAP report needs the per-source breakdown next to the overall — the headline number can move the wrong way for the right reasons (capacity reallocation onto a new heavy source) and look like a win on paper.
+
+#### Decision: roll back the canonical model to v0.3.5; keep Phase 3.6 corpus + checkpoint as a learning artifact
+
+The released "current canonical model" reference in MODEL_CARD.md and README.md stays at v0.3.5 (`checkpoints/phase3.5_balanced/best_model.pt`). Phase 3.6's checkpoint is preserved at `checkpoints/phase3.6_exploitdb/best_model.pt` for archaeology and for future comparisons (if/when ghost-small is trained on the same corpus, we'll see whether the regression goes away with more parameters — that's the cleanest test of the "ghost-tiny is at capacity" hypothesis).
+
+The Phase 3.6 corpus (12.56M tokens with Exploit-DB) stays in `data/processed/` ready for the ghost-small training run. Re-running `make data-rebuild --max-cve-tokens 6000000` reproduces the same 79,601-record corpus from `data/raw/`.
+
+#### `make eval-security-phase3.6` target
+
+Added to `Makefile` so the Phase 3.6 numbers can be reproduced: `make eval-security-phase3.6` runs the 5×25 suite against the preserved checkpoint and writes to `logs/eval_security_phase3.6_expanded.json`. `make eval-security-all-phases` and `make eval-compare-phases` now include Phase 3.6 in the cross-phase comparison.
+
+### Planned for v0.4.0 — ghost-small training rung (now the immediate next move)
+- ghost-small (55M params) training on the Phase 3.6 corpus, GPU-required (Mac MPS or rented GPU). The same corpus that broke ghost-tiny is the test case: if ghost-small absorbs it without per-source regression, the capacity-reallocation hypothesis is confirmed and ghost-base/ghost-1B planning is unblocked.
+- Continuing corpus expansion toward 50–100M tokens via full-text security papers (arXiv cs.CR PDFs, currently abstract-only — collector landed in v0.3.6 but data not yet pulled), additional CTFtime events (discovery script `scripts/discover_ctftime_events.py` landed but has not been run), and tool docs (pwntools, scapy, impacket via a generic Sphinx scraper, not yet built).
+- Drop the synthetic 3K CTF set once real CTFtime + GitHub-CTF-repos + Exploit-DB corpus exceeds it in token volume. Already true under Phase 3.6 (Exploit-DB 30% > synthetic 12%).
 
 ### Planned for v1.0.0 — Release
 - ghost-small fully trained weights released.

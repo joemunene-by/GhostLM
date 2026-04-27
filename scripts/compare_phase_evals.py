@@ -25,6 +25,7 @@ KNOWN_PHASE_LABELS = {
     "phase2": "Phase 2 (v0.3.0)",
     "phase3": "Phase 3 (v0.3.3)",
     "phase3.5": "Phase 3.5 (v0.3.5)",
+    "phase3.6": "Phase 3.6 (Exploit-DB+)",
     "phase4": "Phase 4 (ghost-small)",
 }
 
