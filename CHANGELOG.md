@@ -286,6 +286,57 @@ Phase 3.5 is the largest single-phase perplexity improvement since Phase 1→2. 
 
 ---
 
+## [0.3.6] — 2026-04-27 — Eval Harness Expansion
+
+Eval-only release. No new training, no new data, no checkpoint changes — just a more honest measurement of the v0.3.5 model so future phases have signal worth trusting.
+
+### Why expand the eval before the next training phase
+
+The v0.3.5 release reported 12/30 (40%) on the security suite. Three tasks × 10 samples is small enough that a swing of three correct answers is worth ten percentage points, which makes it impossible to tell whether a v0.3.6 of 50% is real progress or coin-flip noise. The lesson from Phase 3→3.5 was that the eval matters as much as the corpus — PMI scoring (commit aee8008) was the only reason the rebalance gain was visible at all, since the previous logp scoring sat at the random-baseline floor across every phase. Going into 3-to-6 months of corpus volume work for v0.4.0, the eval needs to be precise enough to register sub-3pp moves and surface mode collapse without relying on lucky sample picks.
+
+### What changed
+
+- Existing three classification tasks expanded from 10 → 25 samples each (75 total). New samples cover label classes the original 10-sample set under-represented: more authenticated/local-vector CVEs, more vuln-type variants on each CWE, more attack-technique scenarios per ATT&CK technique.
+- New task: **CTF Challenge Categorization** (25 samples, 5-way: Web Exploitation / Cryptography / Binary Exploitation / Reverse Engineering / Forensics). Maps directly onto the CTFtime corpus that grew in Phase 3.5 and tests whether the model has internalized that taxonomy.
+- New task: **MITRE ATT&CK Tactic Classification** (25 samples, 12-way: Initial Access through Impact). Distinct from the existing technique-level task — tactics are the higher-level *why* whereas techniques are the *how*. The MITRE corpus is the source for this concept and the eval should reflect it.
+- Total: 5 tasks × 25 samples = 125 evaluations, up from 30. Same PMI scoring engine, no new code paths.
+- New `make eval-security` target points at `checkpoints/phase3.5_balanced/best_model.pt` and writes to `logs/eval_security_phase3.5_expanded.json`. Old `*_pmi.json` log files preserved for comparison; the new filename signals that these numbers are not directly comparable to the 30-sample suite.
+
+### What the larger eval reveals about v0.3.5
+
+Run on the same v0.3.5 checkpoint that scored 12/30 (40%) on the small suite:
+
+| Task | Acc | Random | Above-random | Most-common share |
+|---|---|---|---|---|
+| CVE Severity Classification | 8/25 (32.0%) | 25.0% | +7.0 pp | Critical 72% |
+| Vulnerability Type Detection | 8/25 (32.0%) | 10.0% | +22.0 pp | IDOR 44% |
+| Attack Technique Identification | 10/25 (40.0%) | 10.0% | +30.0 pp | LatMov 36% |
+| CTF Challenge Categorization | 10/25 (40.0%) | 20.0% | +20.0 pp | Forensics 64% |
+| MITRE ATT&CK Tactic Classification | 3/25 (12.0%) | 8.3% | +3.7 pp | LatMov 40% |
+| **Overall** | **39/125 (31.2%)** | ~14.5% (avg) | **+16.7 pp** | — |
+
+The headline number drops from 40% to 31.2% — that is the eval getting more honest, not the model getting worse. Three things the small suite was hiding:
+
+1. **CVE Severity is mode-collapsing toward "Critical" (72% of predictions).** The 10-sample suite happened to have 4 Critical/High labels matching that bias and scored as if the model had learned severity reasoning. With 25 samples spanning Critical/High/Medium/Low more evenly, the prior is exposed: the model has learned that NVD descriptions usually accompany severe CVEs and bets that way regardless of input.
+2. **MITRE Tactics is barely above random (12% vs 8.3% baseline).** Technique identification works (+30 pp above random) because techniques map onto recognizable concrete actions. Tactics are abstract goals (Persistence vs Privilege Escalation vs Defense Evasion can be hard to disambiguate even for humans on a single description) and the model hasn't built that abstraction at 14.7M params on 8.8M tokens. This is the right negative result — it tells us where corpus volume should go (more MITRE tactic-explicit text in v0.4.0) and what to expect to improve at scale.
+3. **CTF Categorization scores 100% on Forensics and Cryptography but 0% on Web Exploitation.** Pwn/Reverse split too. The Phase 3.5 corpus has enough crypto challenge writeups for the model to recognize them, but web/binary exploits get conflated with the categories that *visually share their vocabulary* (forensics shares "memory dump", "binary", "extract"; web exploitation shares less unique vocabulary with the others). Useful and actionable signal for v0.4.0 corpus targeting.
+
+The three tasks where the model is meaningfully above random — Vuln Type (+22 pp), Attack Technique (+30 pp), CTF Categorization (+20 pp) — are exactly the tasks where Phase 3.5's corpus rebalance added real domain text. The story holds; the measurement just got finer.
+
+### Practical implications for v0.4.0
+
+- A 3pp move on the new suite represents ~4 correct/incorrect samples, comfortably above noise floor. The previous suite couldn't reliably distinguish two models within 10pp of each other.
+- Most-common-share is now reported per task and exposes mode collapse the small suite would have masked. Future runs that score well on accuracy but show >60% most-common-share on any task should be treated as suspect.
+- MITRE Tactic accuracy is the canary metric for whether ghost-small actually learns abstraction or just memorizes more text. It is currently 12% vs 8.3% random; if the next training rung does not move this above ~25%, the architecture/scale jump didn't produce reasoning gains and should be diagnosed before further compute.
+
+### Files touched
+
+- `scripts/eval_security.py` — sample lists expanded, new tasks added, `main()` rewired for 5 tasks. Same scoring engine, no behavior change for callers using `--scoring logp` or older checkpoints.
+- `Makefile` — `eval-security` and `eval-perplexity-by-source` added to `.PHONY` and to the `help` block; new targets pointing at the Phase 3.5 checkpoint.
+- `logs/eval_security_phase3.5_expanded.json` — new baseline. `logs/eval_security_phase3.5_pmi.json` (old 30-sample) preserved unchanged.
+
+---
+
 ## [Unreleased] — Upcoming
 
 ### Planned for v0.4.0 — ghost-small training rung

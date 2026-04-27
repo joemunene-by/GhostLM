@@ -191,7 +191,18 @@ The first three sources were 0 records in v0.3.3's training; v0.3.5 modeled them
 
 ### PMI-corrected security task accuracy
 
-3 classification tasks × 10 samples. Random baseline 15%. Old length-normalized scoring was mode-collapsed at 4/30 = 13.3% across all phases (eval failure, not model failure); PMI scoring fixed it. Now: **6/30 (20%) → 12/30 (40%)** — doubled.
+5 classification tasks × 25 samples = 125 evaluations (expanded from the 30-sample suite in v0.3.6). Old length-normalized scoring was mode-collapsed at 4/30 = 13.3% across all phases under logp scoring (eval failure, not model failure); PMI scoring fixed it.
+
+| Task | Labels | Random | v0.3.5 | Most-common share |
+|---|---|---|---|---|
+| CVE Severity Classification | 4 | 25.0% | 8/25 (32.0%) | Critical 72% |
+| Vulnerability Type Detection | 10 | 10.0% | 8/25 (32.0%) | IDOR 44% |
+| Attack Technique Identification | 10 | 10.0% | 10/25 (40.0%) | LatMov 36% |
+| CTF Challenge Categorization | 5 | 20.0% | 10/25 (40.0%) | Forensics 64% |
+| MITRE ATT&CK Tactic Classification | 12 | 8.3% | 3/25 (12.0%) | LatMov 40% |
+| **Overall** | — | ~14.5% | **39/125 (31.2%)** | — |
+
+The 30-sample suite reported 12/30 = 40% on this same checkpoint. The drop to 31.2% is the eval getting more honest, not the model getting worse: with 25 balanced samples per task we now see CVE Severity is mode-collapsing toward "Critical" (72%) and MITRE Tactic is barely above random (12% vs 8.3% baseline). Vulnerability Type, Attack Technique, and CTF Categorization remain meaningfully above random (+22, +30, +20 pp) — those are the corpora that grew in the Phase 3.5 rebalance. See `CHANGELOG.md` v0.3.6 for the full discussion.
 
 ## Sample Generations
 

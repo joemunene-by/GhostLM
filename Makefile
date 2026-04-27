@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: all install test data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-diversity data-rebuild data-audit train-tiny train-small generate chat benchmark plot export clean help
+.PHONY: all install test data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-diversity data-rebuild data-audit train-tiny train-small generate chat benchmark eval-security eval-perplexity-by-source plot export clean help
 
 help:
 	@echo "GhostLM — Cybersecurity Language Model"
@@ -22,6 +22,8 @@ help:
 	@echo "  generate        Generate text from trained checkpoint"
 	@echo "  chat            Interactive chat with trained model"
 	@echo "  benchmark       Compare GhostLM vs GPT-2 perplexity"
+	@echo "  eval-security   Run the 5-task PMI security classification suite"
+	@echo "  eval-perplexity-by-source  Per-source held-out perplexity breakdown"
 	@echo "  plot            Plot training loss curve"
 	@echo "  clean           Remove cache files"
 	@echo "  help            Show this help message"
@@ -74,6 +76,12 @@ chat:
 
 benchmark:
 	$(PYTHON) scripts/benchmark.py --checkpoint checkpoints/best_model.pt
+
+eval-security:
+	$(PYTHON) scripts/eval_security.py --checkpoint checkpoints/phase3.5_balanced/best_model.pt --output logs/eval_security_phase3.5_expanded.json
+
+eval-perplexity-by-source:
+	$(PYTHON) scripts/eval_perplexity_by_source.py --checkpoint checkpoints/phase3.5_balanced/best_model.pt --output logs/eval_perplexity_by_source_phase3.5.json
 
 export:
 	$(PYTHON) scripts/export.py --checkpoint checkpoints/best_model.pt --format both

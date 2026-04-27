@@ -135,16 +135,24 @@ The rebalance shifted the model from "knows NVD register, treats everything else
 
 ### PMI-corrected security task accuracy
 
-Three classification tasks × 10 hand-crafted samples each. PMI scoring (commit `aee8008`) replaces the previous mode-collapsed length-normalized scoring that reported 4/30 = 13.3% on every phase. Random baseline = 15%.
+Five classification tasks × 25 hand-crafted samples each (125 total). PMI scoring (commit `aee8008`) replaces the previous mode-collapsed length-normalized scoring that reported 4/30 = 13.3% on every phase under logp scoring. Per-task random baseline depends on the number of candidate labels.
 
-| Task | v0.3.3 | v0.3.5 |
-|---|---|---|
-| CVE Severity Classification | 1/10 (10%) | 4/10 (40%) |
-| Vulnerability Type Detection | 3/10 (30%) | 4/10 (40%) |
-| Attack Technique Identification | 2/10 (20%) | 4/10 (40%) |
-| **Overall** | **6/30 (20%)** | **12/30 (40%)** |
+The eval was expanded from 30 → 125 samples in v0.3.6 — the v0.3.5 model below was re-scored on the larger suite, so the numbers in this table are not directly comparable to the 30-sample numbers in older releases. The expanded suite is the new canonical measurement; future phases will be reported on it. The smaller suite is preserved at `logs/eval_security_phase3.5_pmi.json` for archaeology.
 
-Doubled accuracy at fixed model size. v0.3.5's 40% is 2.7× random.
+| Task | Labels | Random | v0.3.5 (125-sample) | Most-common share |
+|---|---|---|---|---|
+| CVE Severity Classification | 4 | 25.0% | 8/25 (32.0%) | Critical 72% |
+| Vulnerability Type Detection | 10 | 10.0% | 8/25 (32.0%) | IDOR 44% |
+| Attack Technique Identification | 10 | 10.0% | 10/25 (40.0%) | LatMov 36% |
+| CTF Challenge Categorization | 5 | 20.0% | 10/25 (40.0%) | Forensics 64% |
+| MITRE ATT&CK Tactic Classification | 12 | 8.3% | 3/25 (12.0%) | LatMov 40% |
+| **Overall** | — | ~14.5% (avg) | **39/125 (31.2%)** | — |
+
+Reading the table:
+
+- **Vulnerability Type Detection (+22 pp), Attack Technique Identification (+30 pp), CTF Challenge Categorization (+20 pp)** are the three tasks where v0.3.5 is meaningfully above random. These map onto the corpora that grew during the Phase 3.5 rebalance (CWE-tagged CVE bodies, MITRE technique pages, CTFtime real writeups) and the eval picks up that the model has internalized those domains.
+- **CVE Severity Classification (+7 pp above random with 72% prediction collapse onto Critical).** The model has learned that NVD descriptions usually accompany severe CVEs and bets that way regardless of input. The previous 10-sample suite happened to over-weight Critical/High labels in a way that masked this; the 25-sample suite with balanced severity distribution exposes it. This is the canary metric for whether subsequent training rungs learn calibrated severity reasoning.
+- **MITRE ATT&CK Tactic Classification (+3.7 pp above random).** Tactic-level classification is the model's weakest task — distinguishing Persistence from Privilege Escalation from Defense Evasion is hard from a single description even for humans, and ghost-tiny at 14.7M params on 8.8M tokens has not built that abstraction. This is the metric to watch when ghost-small is trained: if scaling the model doesn't move tactic accuracy above ~25%, the architectural jump didn't produce reasoning gains.
 
 ### Cyber-text perplexity vs GPT-2 (fixed external test set, ten samples)
 
@@ -185,9 +193,11 @@ Final v0.3.5 val_loss is 3.5518 vs v0.3.3's 3.4458. **Do not read this as v0.3.3
 - **Surface-level fluency, weak grounding:** the model has learned the CVE-database register and surface vocabulary of cyber writing — it produces structurally correct CVE descriptions and security-prose grammar — but will hallucinate version chains, mix product names, and bind topic only loosely. See [Sample Generations](#sample-generations) below.
 - **Hallucinated CVE-shaped output:** prompting with `CVE-YYYY-NNNNN is a vulnerability in...` will produce plausible-looking but entirely fabricated CVE descriptions, including invented version chains. **Do not use these as factual.**
 - **No instruction tuning:** ghost-tiny is a base language model. It generates text completions, not structured answers.
-- **Below random-guess on structured-task eval:** on 4-way multiple choice security tasks the model mode-collapses to the most-frequent label per task (4/30 = 13.3% vs ~33% random baseline). Confirms the model is not yet doing real classification at this scale.
-- **Synthetic CTF share:** ~5% of training tokens are synthetic CTF writeups. Replacement with real CTFtime / GitHub writeup corpus is the priority next-track work.
-- **NVD corpus skew:** 87% of training tokens are CVE descriptions. The model will tend toward CVE-style prose even when the prompt isn't CVE-shaped.
+- **Mode-collapse on severity classification:** the model predicts "Critical" on 72% of CVE Severity samples regardless of input. Above random (32% vs 25% baseline) but the prior is doing most of the work. Calibrated severity reasoning is not present at this scale.
+- **No tactic-level abstraction:** MITRE ATT&CK Tactic Classification accuracy is 12% (vs 8.3% random baseline) — the model can identify concrete techniques but not the higher-level adversary goal that groups them. Expected to be the slowest reasoning capability to emerge with scale.
+- **Web/binary CTF confusion:** CTF Categorization scores 100% on Forensics and Cryptography but 0% on Web Exploitation — the model conflates web-exploit writeups with adjacent categories. Targeted corpus expansion in v0.4.0 should focus there.
+- **Synthetic CTF share:** 17.2% of training tokens are synthetic CTF writeups. Replacement with real CTFtime / GitHub writeup corpus is the priority next-track work; the synthetic source will be dropped once real-writeup volume exceeds it.
+- **NVD corpus weight:** 65.3% of training tokens are CVE descriptions (down from 87% pre-rebalance). The model still tilts toward CVE-style prose on neutral prompts.
 - **English only.**
 
 ## Sample Generations
