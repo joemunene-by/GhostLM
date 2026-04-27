@@ -361,7 +361,22 @@ The new `make eval-security-all-phases` target re-runs the suite on every preser
 
 ---
 
-## [Unreleased] — Upcoming
+## [0.3.7] — 2026-04-28 — Phase 3.6 attempted; ghost-tiny capacity ceiling found
+
+Honest-result release. Two units: collector infrastructure (Exploit-DB,
+arXiv full-text scaffolding, CTFtime event discovery, audit + tracker
+tooling) plus the Phase 3.6 ghost-tiny training run those collectors
+enabled. The training run regressed on the eval suite (31.2% → 16.8%).
+Documented end-to-end so the negative result is the artifact: future
+phases inherit the lesson that more corpus at fixed model size has hit
+diminishing returns at this rung.
+
+The released canonical model stays at v0.3.5
+(`checkpoints/phase3.5_balanced/best_model.pt`). Phase 3.6 weights are
+preserved at `checkpoints/phase3.6_exploitdb/best_model.pt` for
+archaeology and as the cleanest training target for ghost-small —
+if/when ghost-small absorbs the same corpus without per-source
+regression, the capacity-reallocation hypothesis is confirmed.
 
 ### Phase 3.6 corpus-volume work — Exploit-DB landed
 
@@ -496,3 +511,13 @@ Added to `Makefile` so the Phase 3.6 numbers can be reproduced: `make eval-secur
 - ghost-small fully trained weights released.
 - Public REST API.
 - HuggingFace Hub publication (safetensors).
+
+---
+
+## [Unreleased] — Upcoming
+
+ghost-small training will run on external GPU hardware. The
+`checkpoints/phase3.6_exploitdb/best_model.pt` artifact + the 12.56M-
+token Phase 3.6 corpus in `data/processed/` are the cleanest training
+target. Returning numbers for the eval suite + per-source PPL on
+ghost-small lands as v0.4.0 when complete.

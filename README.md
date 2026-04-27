@@ -154,10 +154,11 @@ For where the corpus is heading — Phase 3.6 volume targets (CTFtime expansion,
 | ghost-tiny Phase 2 (rebalanced corpus) | 10,000 | 2.66M | 3.7813 | Archived as `checkpoints/best_model_phase2.pt` |
 | ghost-tiny Phase 3 (post-NVD-pull corpus) | 30,000 | ~30M | 3.4458 | NVD-dominated (87%); preserved as `checkpoints/phase3_refresh/best_model.pt` |
 | **ghost-tiny Phase 3.5 (rebalanced corpus)** | **30,000** | **~8.8M** | **3.5518** | **Current canonical model.** NVD share 65%, six sources balanced. Hardware: Mac Mini M4 (CPU), ~3h13m wall-clock |
+| ghost-tiny Phase 3.6 (+Exploit-DB) | 30,000 | ~12.56M | 3.8556 | **Regressed on the eval suite** (31.2% → 16.8%); ghost-tiny capacity ceiling found. Preserved at `checkpoints/phase3.6_exploitdb/best_model.pt` as the ghost-small training target — see CHANGELOG v0.3.7 for the full per-source breakdown |
 
-> Cross-phase val_loss is **not directly comparable** between v0.3.3 and v0.3.5: the validation distribution changed when we added MITRE/CAPEC/CTFtime to the corpus. v0.3.5 sits 0.10 nats higher on a different val set; that does not mean the model is worse. The eval-axis numbers below are the cleaner read.
+> Cross-phase val_loss is **not directly comparable** between phases when the corpus changes: each phase from 3.5 onward has a different validation distribution. The eval-axis numbers below are the cleaner read.
 
-The Phase 3.5 checkpoint is the current canonical model. Phase 3 is preserved as `checkpoints/phase3_refresh/best_model.pt` for cross-phase comparison; Phases 1–2 are preserved as `checkpoints/best_model_phase{1,2}.pt`.
+The Phase 3.5 checkpoint is the current canonical model. Phase 3.6 was an attempted next training run that regressed; it's preserved as a learning artifact and as the ghost-small training target rather than promoted to canonical. See [CHANGELOG.md](CHANGELOG.md) v0.3.7 for the per-source perplexity breakdown that surfaced the capacity-reallocation finding.
 
 ### Cross-phase eval — fair comparison (fixed test set)
 
@@ -203,6 +204,23 @@ The first three sources were 0 records in v0.3.3's training; v0.3.5 modeled them
 | **Overall** | — | ~14.5% | **39/125 (31.2%)** | — |
 
 The 30-sample suite reported 12/30 = 40% on this same checkpoint. The drop to 31.2% is the eval getting more honest, not the model getting worse: with 25 balanced samples per task we now see CVE Severity is mode-collapsing toward "Critical" (72%) and MITRE Tactic is barely above random (12% vs 8.3% baseline). Vulnerability Type, Attack Technique, and CTF Categorization remain meaningfully above random (+22, +30, +20 pp) — those are the corpora that grew in the Phase 3.5 rebalance. See `CHANGELOG.md` v0.3.6 for the full discussion.
+
+#### Phase 3.6 attempted next, regressed (v0.3.7)
+
+The next training run added Exploit-DB (~3.77M tokens, 30% of the new corpus) and re-trained ghost-tiny at the same 30K-step recipe. The result was a 14.4 pp drop on the same eval suite:
+
+| Task | Phase 3.5 | Phase 3.6 | Δ |
+|---|---|---|---|
+| CVE Severity Classification | 8/25 (32.0%) [72%] | 4/25 (16.0%) [60%] | −16 pp |
+| Vulnerability Type Detection | 8/25 (32.0%) [44%] | 3/25 (12.0%) [**96%**] | −20 pp |
+| Attack Technique Identification | 10/25 (40.0%) [36%] | 4/25 (16.0%) [60%] | −24 pp |
+| CTF Challenge Categorization | 10/25 (40.0%) [64%] | 5/25 (20.0%) [48%] | −20 pp |
+| MITRE ATT&CK Tactic Classification | 3/25 (12.0%) [40%] | 5/25 (20.0%) [76%] | +8 pp (mode-collapsed) |
+| **Overall** | **31.2%** | **16.8%** | **−14.4 pp** |
+
+Per-source perplexity confirmed the diagnosis: every existing source got 28–42% worse while Exploit-DB landed cleanly modeled (PPL 40.87). The "improved" overall PPL of −32.8% was misleading — Exploit-DB's heavy token share dragged the weighted average down regardless of how the existing sources fared.
+
+**Conclusion:** ghost-tiny at 14.7M params is at capacity. More corpus at fixed model size has hit diminishing returns at this rung. The path forward is the model (ghost-small at 55M params), not more data. Phase 3.6 corpus + checkpoint preserved at `checkpoints/phase3.6_exploitdb/best_model.pt` as the ghost-small training target — if ghost-small absorbs the same corpus without per-source regression, the capacity-reallocation hypothesis is confirmed. See `CHANGELOG.md` v0.3.7 for the full per-source breakdown and reasoning.
 
 ## Sample Generations
 
