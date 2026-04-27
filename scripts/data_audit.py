@@ -209,6 +209,87 @@ def audit_leakage(train_texts, val_texts):
     return leaked
 
 
+# ROADMAP-anchored token targets per scale rung. The lower bound is the
+# minimum we should hit before progressing to that rung; the upper bound
+# is the Chinchilla-comfortable target. ghost-tiny is "done" at any
+# corpus size (it's the throwaway-rung educational artifact); the
+# others gate ghost-small / ghost-base advancement.
+V040_TOKEN_TARGETS = {
+    "v0.4.0 — ghost-small (55M params)": (50_000_000, 100_000_000),
+    "v0.5.0 — ghost-base (350M params)": (1_000_000_000, 7_000_000_000),
+}
+
+# What the project plans to add for v0.4.0 corpus volume per ROADMAP.md.
+# Estimated upper bound is what the source would contribute at full
+# pull. Currently-collected lets the audit print "X collected /
+# Y planned" without requiring all sources to exist on disk yet.
+V040_PLANNED_SOURCES = [
+    ("nvd",            "NVD CVE descriptions (capped)",                 6_000_000),
+    ("exploitdb",      "Exploit-DB PoCs (real code + advisories)",      8_000_000),
+    ("ctftime",        "CTFtime real writeups (depth ≥ 3K)",            5_000_000),
+    ("ctf_repos",      "GitHub CTF writeup repos (permissive only)",    4_000_000),
+    ("arxiv",          "arXiv cs.CR (full-text PDFs, not abstracts)",  15_000_000),
+    ("mitre_attack",   "MITRE ATT&CK (depth: techniques + groups)",     1_000_000),
+    ("capec",          "CAPEC attack patterns (depth)",                   500_000),
+    ("synthetic",      "Synthetic CTF (deprecating once real ≥ 2x)",    1_500_000),
+    ("tool_docs",      "Tool docs: nmap, pwntools, scapy, impacket",    3_000_000),
+]
+
+
+def audit_v040_target(processed_chars):
+    """Print progress toward the v0.4.0 / v0.5.0 token-volume targets.
+
+    The audit_token_share section above shows the current corpus state.
+    This section answers the next question: "how far are we from the
+    next training rung, and which sources are likely to close the gap?"
+    Token estimates come from ROADMAP.md and CORPUS.md.
+    """
+    header("v0.4.0 corpus target tracker")
+    total_chars = sum(processed_chars.values())
+    total_tokens = total_chars // 4
+    print(f"  current: ~{total_tokens:,} tokens (from audit_token_share above)")
+    print()
+
+    for label, (lo, hi) in V040_TOKEN_TARGETS.items():
+        gap_lo = max(0, lo - total_tokens)
+        pct_lo = min(100, total_tokens / lo * 100) if lo else 0
+        bar_w = 30
+        filled = int(bar_w * pct_lo / 100)
+        bar = "█" * filled + "░" * (bar_w - filled)
+        print(f"  {label}")
+        print(f"    target:   {lo:>15,} – {hi:,} tokens")
+        print(f"    progress: [{bar}] {pct_lo:5.1f}% of lower bound")
+        if gap_lo > 0:
+            print(f"    gap:      {gap_lo:,} tokens to lower bound, "
+                  f"{hi - total_tokens:,} to upper bound")
+        else:
+            print(f"    status:   lower bound met; "
+                  f"{max(0, hi - total_tokens):,} tokens to upper bound")
+        print()
+
+    header("v0.4.0 source roadmap (planned upper-bound tokens)")
+    print(f"  {'source':<14} {'collected':>14}  {'planned':>14}  {'pct':>6}  description")
+    print(f"  {'-'*14} {'-'*14}  {'-'*14}  {'-'*6}  {'-'*44}")
+    total_planned = 0
+    total_collected = 0
+    for src, desc, planned in V040_PLANNED_SOURCES:
+        collected_chars = processed_chars.get(src, 0)
+        # synthetic-CTF lives in raw as ctf.jsonl; its source field is
+        # "synthetic" so the lookup matches; fall back to "ctf" if the
+        # rebuild used the legacy field.
+        if src == "synthetic" and collected_chars == 0:
+            collected_chars = processed_chars.get("ctf", 0)
+        collected = collected_chars // 4
+        pct = collected / planned * 100 if planned else 0
+        total_planned += planned
+        total_collected += collected
+        print(f"  {src:<14} {collected:>14,}  {planned:>14,}  {pct:5.1f}%  {desc}")
+    print(f"  {'-'*14} {'-'*14}  {'-'*14}  {'-'*6}")
+    overall_pct = total_collected / total_planned * 100 if total_planned else 0
+    print(f"  {'TOTAL':<14} {total_collected:>14,}  {total_planned:>14,}  "
+          f"{overall_pct:5.1f}%")
+
+
 def make_plots(raw_stats, cve_years, ctf_cats, token_share, out_path):
     """Save a 2x2 audit figure: lengths/year/token-share/ctf-cats."""
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -310,6 +391,8 @@ def main():
     print(f"  train: {len(train_records):,}  val: {len(val_records):,}  "
           f"ratio: {(len(val_records) / max(1, len(train_records)) * 100):.1f}% val")
     audit_leakage(train_texts, val_texts)
+
+    audit_v040_target(processed_chars_by_source)
 
     # Cross-file dup check
     header("Cross-source duplicates (raw)")
