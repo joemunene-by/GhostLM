@@ -154,6 +154,25 @@ Reading the table:
 - **CVE Severity Classification (+7 pp above random with 72% prediction collapse onto Critical).** The model has learned that NVD descriptions usually accompany severe CVEs and bets that way regardless of input. The previous 10-sample suite happened to over-weight Critical/High labels in a way that masked this; the 25-sample suite with balanced severity distribution exposes it. This is the canary metric for whether subsequent training rungs learn calibrated severity reasoning.
 - **MITRE ATT&CK Tactic Classification (+3.7 pp above random).** Tactic-level classification is the model's weakest task — distinguishing Persistence from Privilege Escalation from Defense Evasion is hard from a single description even for humans, and ghost-tiny at 14.7M params on 8.8M tokens has not built that abstraction. This is the metric to watch when ghost-small is trained: if scaling the model doesn't move tactic accuracy above ~25%, the architectural jump didn't produce reasoning gains.
 
+#### Cross-phase trajectory on the expanded suite
+
+Every preserved ghost-tiny checkpoint was re-scored on the new 125-sample suite so the trajectory is end-to-end comparable. Cells are `correct/total (accuracy) [most-common-share]`:
+
+| Task | Phase 1 (2K, val 5.19) | Phase 2 (10K, v0.3.0) | Phase 3 (30K, v0.3.3) | Phase 3.5 (30K, v0.3.5) |
+|---|---|---|---|---|
+| CVE Severity Classification | 7/25 (28.0%) [100%] | 5/25 (20.0%) [96%] | 4/25 (16.0%) [48%] | 8/25 (32.0%) [72%] |
+| Vulnerability Type Detection | 3/25 (12.0%) [48%] | 6/25 (24.0%) [76%] | 7/25 (28.0%) [48%] | 8/25 (32.0%) [44%] |
+| Attack Technique Identification | 2/25 (8.0%) [24%] | 3/25 (12.0%) [88%] | 5/25 (20.0%) [72%] | 10/25 (40.0%) [36%] |
+| CTF Challenge Categorization | 2/25 (8.0%) [84%] | 7/25 (28.0%) [76%] | 6/25 (24.0%) [88%] | 10/25 (40.0%) [64%] |
+| MITRE ATT&CK Tactic Classification | 1/25 (4.0%) [72%] | 2/25 (8.0%) [76%] | 3/25 (12.0%) [64%] | 3/25 (12.0%) [40%] |
+| **Overall** | **15/125 (12.0%)** | **23/125 (18.4%)** | **25/125 (20.0%)** | **39/125 (31.2%)** |
+
+The clean head-to-head: **Phase 2→3 (3× training volume) bought +1.6 pp overall. Phase 3→3.5 (corpus rebalance, same step count) bought +11.2 pp.** Tripling training steps against an NVD-dominant corpus produced almost no downstream-task lift; restructuring the corpus at fixed steps produced 7× the gain. This is the empirical anchor for the project's central thesis that corpus quality outweighs training volume at this scale.
+
+The CVE Severity column tells a more nuanced story: Phase 3 had the lowest mode-collapse share (48%) of any phase because training on so much NVD made severity signal rich. The rebalance reduced NVD share 87%→65% and gave back some of that severity discrimination — Phase 3.5 picks "Critical" 72% of the time. This was the deliberate trade: lose some CVE-severity calibration to buy 47–91% per-source perplexity drops on MITRE / CTFtime / CAPEC. Restoring CVE-severity calibration is a v0.4.0 acceptance criterion.
+
+Use `make eval-security-all-phases` to re-run end-to-end, or `make eval-compare-phases` to regenerate the table from saved JSONs.
+
 ### Cyber-text perplexity vs GPT-2 (fixed external test set, ten samples)
 
 The benchmark sample is held out from training and unchanged across phases — it's directly comparable.

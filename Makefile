@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: all install test data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-diversity data-rebuild data-audit train-tiny train-small generate chat benchmark eval-security eval-perplexity-by-source plot export clean help
+.PHONY: all install test data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-diversity data-rebuild data-audit train-tiny train-small generate chat benchmark eval-security eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security-all-phases eval-compare-phases eval-perplexity-by-source plot export clean help
 
 help:
 	@echo "GhostLM — Cybersecurity Language Model"
@@ -22,7 +22,9 @@ help:
 	@echo "  generate        Generate text from trained checkpoint"
 	@echo "  chat            Interactive chat with trained model"
 	@echo "  benchmark       Compare GhostLM vs GPT-2 perplexity"
-	@echo "  eval-security   Run the 5-task PMI security classification suite"
+	@echo "  eval-security   Run the 5-task PMI security classification suite (Phase 3.5 checkpoint)"
+	@echo "  eval-security-all-phases  Re-score every preserved checkpoint on the new suite"
+	@echo "  eval-compare-phases       Print a cross-phase comparison table from saved JSONs"
 	@echo "  eval-perplexity-by-source  Per-source held-out perplexity breakdown"
 	@echo "  plot            Plot training loss curve"
 	@echo "  clean           Remove cache files"
@@ -79,6 +81,21 @@ benchmark:
 
 eval-security:
 	$(PYTHON) scripts/eval_security.py --checkpoint checkpoints/phase3.5_balanced/best_model.pt --output logs/eval_security_phase3.5_expanded.json
+
+eval-security-phase1:
+	$(PYTHON) scripts/eval_security.py --checkpoint checkpoints/_backup-20260425-1310/_backup-20260425-1309/best_model.pt --output logs/eval_security_phase1_expanded.json
+
+eval-security-phase2:
+	$(PYTHON) scripts/eval_security.py --checkpoint checkpoints/best_model.pt --output logs/eval_security_phase2_expanded.json
+
+eval-security-phase3:
+	$(PYTHON) scripts/eval_security.py --checkpoint checkpoints/phase3_refresh/best_model.pt --output logs/eval_security_phase3_expanded.json
+
+eval-security-all-phases: eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security
+	@$(PYTHON) scripts/compare_phase_evals.py
+
+eval-compare-phases:
+	@$(PYTHON) scripts/compare_phase_evals.py
 
 eval-perplexity-by-source:
 	$(PYTHON) scripts/eval_perplexity_by_source.py --checkpoint checkpoints/phase3.5_balanced/best_model.pt --output logs/eval_perplexity_by_source_phase3.5.json
