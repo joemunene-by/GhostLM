@@ -1,3 +1,12 @@
-gradio>=4.0.0
-torch
-tiktoken
+# Hugging Face Spaces installs from this file at build time.
+# Pinned conservatively so a Space build doesn't regress on a future
+# breaking change in any of the deps.
+
+gradio>=4.44.0,<5.0.0
+
+# torch >= 2.0 because the model uses scaled_dot_product_attention when
+# the Flash Attention path is enabled. CPU-only is fine on free Spaces.
+torch>=2.0.0
+
+# tiktoken is the GPT-2 BPE backend the GhostTokenizer wraps.
+tiktoken>=0.5.0

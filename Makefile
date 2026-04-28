@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: all install test data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-exploitdb data-exploitdb-audit data-arxiv-full data-diversity data-rebuild data-audit train-tiny train-small generate chat benchmark eval-security eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security-all-phases eval-compare-phases eval-perplexity-by-source plot export clean help
+.PHONY: all install test data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-exploitdb data-exploitdb-audit data-arxiv-full data-diversity data-rebuild data-audit train-tiny train-small generate chat demo demo-compare benchmark eval-security eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security-all-phases eval-compare-phases eval-perplexity-by-source plot export clean help
 
 help:
 	@echo "GhostLM — Cybersecurity Language Model"
@@ -24,6 +24,8 @@ help:
 	@echo "  train-small     Train ghost-small (55M params, GPU recommended)"
 	@echo "  generate        Generate text from trained checkpoint"
 	@echo "  chat            Interactive chat with trained model"
+	@echo "  demo            Launch the Gradio web demo (single checkpoint)"
+	@echo "  demo-compare    Launch Gradio with the Phase 3.5 vs 3.6 compare tab"
 	@echo "  benchmark       Compare GhostLM vs GPT-2 perplexity"
 	@echo "  eval-security   Run the 5-task PMI security classification suite (Phase 3.5 checkpoint)"
 	@echo "  eval-security-all-phases  Re-score every preserved checkpoint on the new suite"
@@ -82,14 +84,30 @@ train-tiny:
 train-small:
 	$(PYTHON) scripts/train.py --preset ghost-small --max-steps 100000 --batch-size 32
 
+# Default checkpoint for the interactive scripts. Phase 3.5 is the
+# canonical model — the Phase 2 default in older versions of this
+# Makefile pointed at checkpoints/best_model.pt which is the
+# pre-rebalance archive. Override with CHECKPOINT=... on the command
+# line for a different one (e.g. CHECKPOINT=checkpoints/phase3.6_exploitdb/best_model.pt).
+CHECKPOINT ?= checkpoints/phase3.5_balanced/best_model.pt
+
 generate:
-	$(PYTHON) scripts/generate.py --checkpoint checkpoints/best_model.pt --prompt "A SQL injection attack works by" --max-tokens 150
+	PYTHONPATH=. $(PYTHON) scripts/generate.py --checkpoint $(CHECKPOINT) --prompt "A SQL injection attack works by" --max-tokens 150
 
 chat:
-	$(PYTHON) scripts/chat.py --checkpoint checkpoints/best_model.pt
+	PYTHONPATH=. $(PYTHON) scripts/chat.py --checkpoint $(CHECKPOINT)
+
+demo:
+	PYTHONPATH=. $(PYTHON) demo/app.py --checkpoint $(CHECKPOINT)
+
+# Compare tab visible — Phase 3.5 vs Phase 3.6 side-by-side.
+demo-compare:
+	PYTHONPATH=. $(PYTHON) demo/app.py \
+		--checkpoint checkpoints/phase3.5_balanced/best_model.pt \
+		--compare-checkpoint checkpoints/phase3.6_exploitdb/best_model.pt
 
 benchmark:
-	$(PYTHON) scripts/benchmark.py --checkpoint checkpoints/best_model.pt
+	$(PYTHON) scripts/benchmark.py --checkpoint $(CHECKPOINT)
 
 eval-security:
 	$(PYTHON) scripts/eval_security.py --checkpoint checkpoints/phase3.5_balanced/best_model.pt --output logs/eval_security_phase3.5_expanded.json
