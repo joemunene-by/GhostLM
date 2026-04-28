@@ -2,11 +2,21 @@
 # Pinned conservatively so a Space build doesn't regress on a future
 # breaking change in any of the deps.
 
-gradio>=4.44.0,<5.0.0
+# Note: gradio is intentionally NOT listed here. HF Spaces auto-installs
+# `gradio[oauth,mcp]==<sdk_version>` on top of this file based on the SDK
+# selection in README.md frontmatter. Listing it here causes a pip
+# version-conflict at build time when our pin disagrees with HF's.
 
-# torch >= 2.0 because the model uses scaled_dot_product_attention when
-# the Flash Attention path is enabled. CPU-only is fine on free Spaces.
+# torch >= 2.0 for the scaled_dot_product_attention path. CPU-only is
+# fine on free Spaces.
 torch>=2.0.0
 
 # tiktoken is the GPT-2 BPE backend the GhostTokenizer wraps.
 tiktoken>=0.5.0
+
+# Python 3.13 removed the stdlib audioop module that gradio's transitive
+# pydub dep imports at module-load time. Without this the entire gradio
+# import chain fails with ModuleNotFoundError: No module named
+# 'pyaudioop'. The PEP 594 replacement is audioop-lts. Conditional so
+# 3.12 and earlier (where stdlib audioop still exists) skip it.
+audioop-lts; python_version >= '3.13'

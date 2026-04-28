@@ -38,11 +38,12 @@ from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM
 from ghostlm.tokenizer import GhostTokenizer
 
-try:
-    import gradio as gr
-except ImportError:
-    print("Install gradio: pip install gradio")
-    sys.exit(1)
+# Don't try/except this — on Hugging Face Spaces a transitive failure
+# inside gradio (e.g. a wheel ABI mismatch under torch) gets swallowed
+# as a generic ImportError, and the user sees the unhelpful "Install
+# gradio" message in the runtime log instead of the real traceback. The
+# raw import lets Python print the actual stack so we can debug.
+import gradio as gr
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +261,8 @@ def build_ui(primary, compare):
     """Construct the Gradio Blocks app. Returns the demo object."""
     primary_model, primary_tok, primary_cfg, primary_meta = primary
 
-    with gr.Blocks(theme=gr.themes.Base(), title="GhostLM Demo") as demo:
+    # theme moved from Blocks() to launch() in Gradio 6.0; title stayed.
+    with gr.Blocks(title="GhostLM Demo") as demo:
         gr.Markdown("# 🔐 GhostLM")
         gr.Markdown(
             "Open-source cybersecurity language model — built from scratch in PyTorch. "
@@ -292,11 +294,13 @@ def build_ui(primary, compare):
                             clear_btn = gr.Button("Clear")
 
                     with gr.Column(scale=3):
+                        # show_copy_button was removed from Textbox in
+                        # Gradio 6.0 — visitors can still copy via the
+                        # browser's native selection.
                         output = gr.Textbox(
                             label="Continuation",
                             lines=8,
                             interactive=False,
-                            show_copy_button=True,
                         )
                         history = gr.Markdown(
                             "_Last 5 generations will appear here._",
@@ -364,8 +368,8 @@ def build_ui(primary, compare):
                         cmp_top_k = gr.Slider(0, 100, value=40, step=5, label="Top-k")
                     cmp_btn = gr.Button("Generate from both", variant="primary")
                     with gr.Row():
-                        left_out = gr.Textbox(label="Left continuation", lines=8, interactive=False, show_copy_button=True)
-                        right_out = gr.Textbox(label="Right continuation", lines=8, interactive=False, show_copy_button=True)
+                        left_out = gr.Textbox(label="Left continuation", lines=8, interactive=False)
+                        right_out = gr.Textbox(label="Right continuation", lines=8, interactive=False)
 
                     def do_compare(p, m, t, k):
                         # Same seed for both models so sampling differences come
@@ -465,10 +469,14 @@ def main():
         compare = load_checkpoint(args.compare_checkpoint)
 
     demo = build_ui(primary, compare)
+    # theme is a launch() arg in Gradio 6.0+. The Base theme keeps the UI
+    # neutral so it inherits the Space's colorFrom/colorTo accents from
+    # the README frontmatter rather than fighting them.
     demo.launch(
         share=args.share,
         server_port=args.port,
         server_name="0.0.0.0",  # bind on all interfaces; HF Spaces requires this
+        theme=gr.themes.Base(),
     )
 
 
