@@ -247,13 +247,17 @@ def parse_args():
 # ---------------------------------------------------------------------------
 
 GROUND_RULES = (
-    "**What to expect.** GhostLM is a 14.7M-parameter learning artifact "
-    "trained on ~8.8M tokens of cybersecurity text. It produces "
-    "structurally correct security prose — CVE-shaped descriptions, "
-    "MITRE-style narratives, CTF writeup phrasing — but **hallucinates "
-    "facts**. CVE IDs are made up. Version chains are invented. Treat "
-    "outputs as register-shaped fiction, not reference material. The "
-    "trajectory is what's interesting; the absolute output isn't useful yet."
+    "**This is a completion model, not a chatbot.** GhostLM has no "
+    "instruction tuning. Prompt it with the *start of a sentence* in a "
+    "register it knows — CVE descriptions, MITRE techniques, CTF "
+    "writeups, arXiv abstracts — and it continues. Prompts like "
+    "`hello`, `who are you`, or `summarize this` produce drifty cyber-"
+    "prose because the model has no notion of an instruction to follow.\n\n"
+    "**What it does well:** structurally correct security prose. "
+    "**What it doesn't:** facts. CVE IDs, version chains, technique IDs "
+    "are all made up. Treat outputs as register-shaped fiction, not "
+    "reference material. The trajectory across phases is the project's "
+    "value, not the absolute output of any one continuation."
 )
 
 
@@ -281,9 +285,14 @@ def build_ui(primary, compare):
                 with gr.Row():
                     with gr.Column(scale=2):
                         prompt = gr.Textbox(
-                            label="Prompt",
+                            label="Prompt (start of a sentence — model continues from here)",
                             lines=4,
-                            placeholder="Try one of the presets below, or write your own.",
+                            placeholder=(
+                                "e.g.  'CVE-2024-99999 is a vulnerability in'\n"
+                                "       'The CTF challenge involved'\n"
+                                "       'MITRE ATT&CK technique T1003 is used to'\n"
+                                "Don't type 'hello' — the model has no instruction tuning."
+                            ),
                         )
                         with gr.Row():
                             max_tokens = gr.Slider(50, 300, value=150, step=10, label="Max tokens")
