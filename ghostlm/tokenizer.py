@@ -21,13 +21,19 @@ class GhostTokenizer:
     EOS = "<|ghost_eos|>"
     PAD = "<|ghost_pad|>"
     UNK = "<|ghost_unk|>"
+    # Chat role markers (added in v0.5 chat-tuning) — IDs appended after the
+    # original four so pre-chat checkpoints can be expanded by 3 rows rather
+    # than reshuffled.
+    USER = "<|ghost_user|>"
+    ASSISTANT = "<|ghost_assistant|>"
+    END = "<|ghost_end|>"
 
     def __init__(self):
         """Initialize the GhostTokenizer with the GPT-2 BPE encoding.
 
         Loads the tiktoken gpt2 encoding and assigns special token IDs
         beyond the standard vocabulary for begin-of-sequence, end-of-sequence,
-        padding, and unknown tokens.
+        padding, unknown, and chat role markers.
         """
         self._encoder = tiktoken.get_encoding("gpt2")
         self._vocab_size = self._encoder.n_vocab
@@ -38,6 +44,9 @@ class GhostTokenizer:
             self.EOS: self._vocab_size + 1,
             self.PAD: self._vocab_size + 2,
             self.UNK: self._vocab_size + 3,
+            self.USER: self._vocab_size + 4,
+            self.ASSISTANT: self._vocab_size + 5,
+            self.END: self._vocab_size + 6,
         }
 
         # Reverse mapping for quick lookup
@@ -48,7 +57,7 @@ class GhostTokenizer:
         """Return the effective vocabulary size including special tokens.
 
         Returns:
-            Total vocabulary size (base vocab + 4 special tokens).
+            Total vocabulary size (base vocab + 7 special tokens).
         """
         return self._vocab_size + len(self._special_tokens)
 
@@ -95,6 +104,67 @@ class GhostTokenizer:
             ids = [i for i in ids if i not in special_ids]
 
         return self._encoder.decode(ids)
+
+    def encode_chat(self, turns: List[dict]) -> tuple:
+        """Encode a multi-turn chat conversation with role markers and a loss mask.
+
+        Format: <|ghost_user|>{content}<|ghost_end|><|ghost_assistant|>{content}<|ghost_end|>...
+        The loss mask is 1 on assistant content tokens and the assistant's trailing
+        <|ghost_end|> (so the model learns to stop), and 0 everywhere else (user
+        prompts and role markers themselves).
+
+        Args:
+            turns: List of {"role": "user"|"assistant", "content": str} dicts,
+                strictly alternating starting with "user".
+
+        Returns:
+            Tuple (token_ids, loss_mask) — same length, both lists of int.
+        """
+        user_id = self._special_tokens[self.USER]
+        assistant_id = self._special_tokens[self.ASSISTANT]
+        end_id = self._special_tokens[self.END]
+
+        ids: List[int] = []
+        mask: List[int] = []
+
+        for turn in turns:
+            role = turn["role"]
+            content_ids = self._encoder.encode(turn["content"], allowed_special="all")
+            if role == "user":
+                ids.append(user_id)
+                mask.append(0)
+                ids.extend(content_ids)
+                mask.extend([0] * len(content_ids))
+                ids.append(end_id)
+                mask.append(0)
+            elif role == "assistant":
+                ids.append(assistant_id)
+                mask.append(0)
+                ids.extend(content_ids)
+                mask.extend([1] * len(content_ids))
+                ids.append(end_id)
+                mask.append(1)
+            else:
+                raise ValueError(f"Unknown role: {role!r}")
+
+        return ids, mask
+
+    def format_chat_prompt(self, turns: List[dict]) -> List[int]:
+        """Encode a chat history and append <|ghost_assistant|> ready for generation.
+
+        Used at inference: feed the resulting token ids to the model; it should
+        generate the assistant's reply followed by <|ghost_end|>.
+
+        Args:
+            turns: List of {"role": "user"|"assistant", "content": str}, ending
+                with a "user" turn (the prompt awaiting a reply).
+
+        Returns:
+            List of token IDs ending in the assistant role marker.
+        """
+        ids, _ = self.encode_chat(turns)
+        ids.append(self._special_tokens[self.ASSISTANT])
+        return ids
 
     def encode_batch(self, texts: List[str], add_bos: bool = False, add_eos: bool = False) -> List[List[int]]:
         """Encode a list of text strings into lists of token IDs.
