@@ -100,10 +100,55 @@ PYTHONPATH=. python3 scripts/eval_chat.py \
 
 ## What worked, what didn't
 
-The first attempt (`phase5_chat`, small-talk at 1.6%) produced a model that
-emitted chat-format-shaped output but ignored the user prompt — every input
-returned a randomly-sampled cybersec answer. The fix was the small-talk
-oversample described above; it's the single largest knob in the pipeline.
+The chat tune ran through three iterations on the way to a model that's
+actually useful:
+
+- **v1 (`phase5_chat`)** — small-talk at 1.6% of training. The model emitted
+  chat-format-shaped output but ignored the user prompt: every input
+  returned a randomly-sampled cybersec answer. CTIBench score: not run
+  because the model wasn't usable.
+- **v2 (`phase5_chat_v2`)** — small-talk × 30 → 30% of training. Identity,
+  OOD-refusal, and chat-shape all started working. CTIBench: 475 / 2500
+  (19.0%), below random.
+- **v3 (`phase5_chat_v3`)** — added 1,802 templated MCQ examples (NVD
+  CWE-class, MITRE tactic, acronym definitions) at 2× oversampling. The
+  assistant turn is the bare letter A/B/C/D, occasionally followed by a
+  one-line justification. CTIBench: **922 / 2500 (36.9%) — +17.9pp over
+  v2**, well above random. **This is the current canonical chat model.**
+
+The MCQ-format examples are the larger of the two unlocks. The chat
+training data was teaching free-form answer shape (CVE description, MITRE
+explanation, etc.) and never teaching "here's a question with four options,
+output one letter." Without that signal the model defaults to the most
+common first-letter token — typically A — regardless of the question.
+
+## Build the v3 dataset
+
+```bash
+# Step 1: generate the MCQ-format chat examples (~1.8K records)
+PYTHONPATH=. python3 scripts/build_mcq_data.py
+
+# Step 2: build the combined chat training set
+PYTHONPATH=. python3 scripts/build_chat_dataset.py \
+    --small-talk-multiplier 30 \
+    --mcq-multiplier 2
+
+# Step 3: SFT
+PYTHONPATH=. python3 scripts/finetune_chat.py \
+    --checkpoint checkpoints/phase4_ghost_small/best_model.pt \
+    --run-name phase5_chat_v3 \
+    --max-steps 1800 --warmup-steps 120 \
+    --learning-rate 3e-5 \
+    --eval-interval 100 --save-interval 600
+```
+
+Held-out eval + benchmark::
+
+    PYTHONPATH=. python3 scripts/eval_chat.py \
+        --checkpoint checkpoints/phase5_chat_v3/best_model.pt
+    PYTHONPATH=. python3 scripts/run_bench.py \
+        --checkpoint checkpoints/phase5_chat_v3/best_model.pt \
+        --device mps --bench ctibench-mcq
 
 Limits of a 45M chat tune (acknowledged up front):
 
@@ -115,3 +160,11 @@ Limits of a 45M chat tune (acknowledged up front):
   the path to better factual grounding.
 - **Short coherence window** — 1024 ctx and 45M params mean long multi-turn
   conversations drift; the chat REPL trims old turns when the prompt overflows.
+- **CTIBench at 36.9% is well above random but well below larger models.**
+  Public reference points: GPT-4 / Claude / Gemini routinely score
+  85-95% on CTIBench MCQ. We're at 36.9% from 45M parameters trained on
+  12.56M tokens of pure cybersecurity text. Two clear paths to lift this:
+  (1) the v0.4.2 corpus expansion + v0.5 retrain bundled in
+  `docs/v0.5_architecture.md`; (2) RAFT-style retrieval-aware fine-tune
+  on top of the existing RAG index (the index already retrieves the
+  right documents — the model just needs supervision to use them).
