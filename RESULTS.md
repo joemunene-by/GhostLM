@@ -8,3 +8,5 @@ Each row is one (checkpoint × benchmark) score. Updated by `scripts/run_bench.p
 | ghost-small-v0.4 (pretrain, no chat) | ctibench-mcq | 2500 | 446 | 0.178 | 2026-05-01 |
 | ghost-small-v0.5 chat-v2 + RAG(top4) | ctibench-mcq | 2500 | 476 | 0.190 | 2026-05-01 |
 | ghost-small-v0.5 chat-v3 (MCQ-tuned) | ctibench-mcq | 2500 | 922 | 0.369 | 2026-05-01 |
+| ghost-small-v0.5 chat-v4 (RAFT) + RAG(top4) | ctibench-mcq | 2500 | 540 | 0.216 | 2026-05-02 |
+| ghost-small-v0.5 chat-v4 (RAFT, no retrieval) | ctibench-mcq | 2500 | 626 | 0.250 | 2026-05-02 |
