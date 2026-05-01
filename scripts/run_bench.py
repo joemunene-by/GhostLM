@@ -96,21 +96,39 @@ def load_ctibench_mcq() -> List[Dict]:
 # ---------------------------------------------------------------------------
 
 
-def format_mcq_prompt(record: Dict, tokenizer: GhostTokenizer, *, chat_format: bool) -> List[int]:
+def format_mcq_prompt(
+    record: Dict,
+    tokenizer: GhostTokenizer,
+    *,
+    chat_format: bool,
+    rag_passages: Optional[List[Dict]] = None,
+) -> List[int]:
     """Build the prompt token ids for one MCQ.
 
     Uses the chat format when the model was chat-tuned; otherwise emits a
-    plain "Question: ... Answer:" completion prompt.
+    plain "Question: ... Answer:" completion prompt. If ``rag_passages`` is
+    provided, prepends a "Reference passages:" block ahead of the question —
+    this is the RAG path.
     """
     question = record["question"]
     choices = record["choices"]
     body_lines = [f"{k}) {v}" for k, v in choices.items() if v]
-    body = (
+    body_parts = []
+    if rag_passages:
+        ref_lines = []
+        for i, p in enumerate(rag_passages):
+            text = p["text"]
+            if len(text) > 350:
+                text = text[:350].rsplit(" ", 1)[0] + "…"
+            ref_lines.append(f"[{i + 1}] ({p['source']} {p.get('ref', '')}) {text}")
+        body_parts.append("Reference passages:\n\n" + "\n\n".join(ref_lines) + "\n")
+    body_parts.append(
         f"Pick the best answer (A, B, C, or D) for this multiple-choice "
         f"cybersecurity question.\n\nQuestion: {question}\n\n"
         + "\n".join(body_lines)
         + "\n\nAnswer:"
     )
+    body = "\n".join(body_parts)
     if chat_format:
         return tokenizer.format_chat_prompt([{"role": "user", "content": body}])
     return tokenizer.encode(body)
@@ -123,13 +141,17 @@ def score_record(
     *,
     chat_format: bool,
     device: str,
+    rag_passages: Optional[List[Dict]] = None,
 ) -> Tuple[str, Dict[str, float]]:
     """Return the predicted choice + per-choice logits for one record.
 
     The choice with the highest single-token log-probability at the position
-    immediately after the prompt is selected.
+    immediately after the prompt is selected. When ``rag_passages`` is
+    provided, the prompt is prefixed with the retrieved context.
     """
-    prompt_ids = format_mcq_prompt(record, tokenizer, chat_format=chat_format)
+    prompt_ids = format_mcq_prompt(
+        record, tokenizer, chat_format=chat_format, rag_passages=rag_passages,
+    )
     x = torch.tensor(prompt_ids, dtype=torch.long, device=device).unsqueeze(0)
     # Crop if needed
     ctx = model.config.context_length
@@ -163,8 +185,15 @@ def evaluate(
     chat_format: bool,
     device: str,
     limit: Optional[int] = None,
+    retriever=None,
+    top_k: int = 4,
 ) -> Dict:
-    """Run the model over a benchmark and return aggregate accuracy."""
+    """Run the model over a benchmark and return aggregate accuracy.
+
+    If ``retriever`` is non-None, it is called per record as
+    ``retriever(record["question"], k=top_k) -> List[passage_dict]`` and the
+    resulting passages are prepended to the MCQ prompt — i.e. RAG mode.
+    """
     correct = 0
     total = 0
     examples: List[Dict] = []
@@ -173,7 +202,11 @@ def evaluate(
             break
         if not rec["answer"] or rec["answer"] not in CHOICES:
             continue
-        pred, scores = score_record(model, tokenizer, rec, chat_format=chat_format, device=device)
+        passages = retriever(rec["question"], k=top_k) if retriever else None
+        pred, scores = score_record(
+            model, tokenizer, rec,
+            chat_format=chat_format, device=device, rag_passages=passages,
+        )
         ok = pred == rec["answer"]
         correct += int(ok)
         total += 1
@@ -191,6 +224,36 @@ def evaluate(
         "accuracy": correct / total if total else 0.0,
         "examples": examples,
     }
+
+
+def build_retriever(rag_dir: str, device: str):
+    """Return a closure ``query(text, k) -> List[chunk_dict]`` over the RAG index."""
+    import numpy as np
+    import torch.nn.functional as F
+    from scripts.build_rag_index import load_embedder
+
+    rag_path = Path(rag_dir)
+    matrix = np.load(rag_path / "index.npy")
+    chunks: List[Dict] = []
+    with (rag_path / "chunks.jsonl").open("r", encoding="utf-8") as f:
+        for line in f:
+            chunks.append(json.loads(line))
+    e_tok, e_model = load_embedder(device)
+
+    def retrieve(query: str, k: int = 4) -> List[Dict]:
+        """Return top-K passage dicts for ``query``."""
+        text = "Represent this sentence for searching relevant passages: " + query
+        enc = e_tok(text, padding=True, truncation=True, max_length=512,
+                    return_tensors="pt").to(device)
+        with torch.no_grad():
+            out = e_model(**enc)
+        emb = F.normalize(out.last_hidden_state[:, 0], p=2, dim=-1)
+        emb = emb.cpu().to(torch.float32).numpy().reshape(-1)
+        scores = matrix @ emb
+        top = np.argsort(-scores)[:k]
+        return [chunks[i] for i in top]
+
+    return retrieve
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +330,9 @@ def parse_args() -> argparse.Namespace:
                    help="Cap evaluation to N records per benchmark (for smoke tests)")
     p.add_argument("--no-chat-format", action="store_true",
                    help="Force completion-style prompts (use for non-chat-tuned checkpoints)")
+    p.add_argument("--rag-dir", default=None,
+                   help="If set, retrieve from data/rag and prepend top-K passages to each MCQ.")
+    p.add_argument("--rag-top-k", type=int, default=4)
     p.add_argument("--results-md", default="RESULTS.md")
     p.add_argument("--out-json", default=None,
                    help="Optional path to write detailed JSON results")
@@ -283,7 +349,13 @@ def main() -> None:
     chat_format = not args.no_chat_format and cfg.vocab_size >= tokenizer.vocab_size
 
     label = args.label or Path(args.checkpoint).parent.name + "/" + Path(args.checkpoint).stem
-    print(f"Checkpoint: {label}  device={device}  chat_format={chat_format}")
+    rag_label = f" + RAG(top{args.rag_top_k})" if args.rag_dir else ""
+    print(f"Checkpoint: {label}{rag_label}  device={device}  chat_format={chat_format}")
+
+    retriever = None
+    if args.rag_dir:
+        print(f"Loading retriever from {args.rag_dir}...")
+        retriever = build_retriever(args.rag_dir, device)
 
     rows: List[Dict] = []
     detailed: Dict[str, Dict] = {}
@@ -303,13 +375,14 @@ def main() -> None:
         result = evaluate(
             model, tokenizer, data,
             chat_format=chat_format, device=device, limit=args.limit,
+            retriever=retriever, top_k=args.rag_top_k,
         )
         print(f"  Accuracy: {result['correct']}/{result['n']} = {result['accuracy']:.3f}")
         for ex in result["examples"]:
             print(f"    - gold={ex['gold']} pred={ex['pred']} ok={ex['correct']}")
 
         rows.append({
-            "checkpoint": label, "benchmark": bench,
+            "checkpoint": label + rag_label, "benchmark": bench,
             "n": result["n"], "correct": result["correct"],
             "accuracy": result["accuracy"], "date": today,
         })
