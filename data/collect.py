@@ -853,6 +853,15 @@ def collect_arxiv_full_text(
     skipped = {"already_have": 0, "fetch_failed": 0, "extract_short": 0,
                "no_arxiv_id": 0}
 
+    # Append each successful record to disk immediately so a crash / OOM /
+    # power loss doesn't lose hours of crawling. Earlier versions buffered
+    # the entire run in memory and flushed once at the end, which lost
+    # ~5h of work on a long crawl when the machine was rebooted before
+    # completion.
+    output.parent.mkdir(parents=True, exist_ok=True)
+    write_mode = "a" if seen_ids else "w"
+    out_fh = output.open(write_mode, encoding="utf-8", buffering=1)
+
     for entry in tqdm(abstracts, desc="arXiv PDFs", leave=False):
         if len(seen_ids) + len(new_records) >= max_records:
             break
@@ -904,23 +913,22 @@ def collect_arxiv_full_text(
         if len(cleaned) > max_chars:
             cleaned = cleaned[:max_chars]
 
-        new_records.append({
+        rec = {
             "id": record_id,
             "text": cleaned,
             "source": "arxiv_full",
             "arxiv_id": arxiv_id,
             "title": title,
             "license": "arXiv-perpetual-non-exclusive",
-        })
+        }
+        out_fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        out_fh.flush()
+        new_records.append(rec)
 
         time.sleep(request_delay)
 
+    out_fh.close()
     if new_records:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        mode = "a" if seen_ids else "w"
-        with output.open(mode, encoding="utf-8") as f:
-            for rec in new_records:
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         total = len(seen_ids) + len(new_records)
         print(f"  Saved {len(new_records)} new records (total now {total} in {output})")
     else:
