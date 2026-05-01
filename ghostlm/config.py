@@ -21,6 +21,9 @@ class GhostLMConfig:
     dropout: float = 0.1
     bias: bool = True
     use_rope: bool = False
+    rope_base: float = 10000.0
+    use_swiglu: bool = False
+    use_rmsnorm: bool = False
     use_flash_attention: bool = False
 
     # Training
@@ -106,6 +109,17 @@ class GhostLMConfig:
                 "d_model": 768,
                 "n_heads": 12,
                 "d_ff": 3072,
+            },
+            # v0.5 preset — same param shape as ghost-small but flips on
+            # the modern-arch switches. Use this for the v0.4.2 retrain.
+            "ghost-small-v0.5": {
+                "n_layers": 6,
+                "d_model": 512,
+                "n_heads": 8,
+                "d_ff": 2048,
+                "use_rope": True,
+                "use_swiglu": True,
+                "use_rmsnorm": True,
             },
         }
 

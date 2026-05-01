@@ -340,6 +340,15 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--small-talk-val-frac", type=float, default=0.1,
                    help="Fraction of small_talk pairs held out for validation "
                         "(BEFORE oversampling — keeps val pairs unique)")
+    p.add_argument("--mcq-jsonl", default="data/raw/chat/mcq.jsonl",
+                   help="Optional MCQ-format chat data to mix in (built by "
+                        "scripts/build_mcq_data.py). Set to '' to skip.")
+    p.add_argument("--mcq-multiplier", type=int, default=2,
+                   help="Copies of the MCQ set to inject. 2× brings ~3.5K "
+                        "MCQ-format examples into the mix and trains the "
+                        "model to output a single letter after Answer:.")
+    p.add_argument("--mcq-val-frac", type=float, default=0.05,
+                   help="Held-out fraction of MCQs for validation.")
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
@@ -397,11 +406,28 @@ def main() -> None:
     train_pairs.extend(small_talk_train_oversampled)
     val_pairs.extend(small_talk_val)
 
+    # MCQ-format examples — separate stream, mixed in same way as small_talk.
+    # We oversample because the goal is to teach a single new behavior
+    # (output a letter after "Answer:"), and a 2× multiplier on ~1.8K
+    # examples lands the model on that signal across multiple epochs.
+    if args.mcq_jsonl and Path(args.mcq_jsonl).exists():
+        mcq_all = load_jsonl(Path(args.mcq_jsonl))
+        rng.shuffle(mcq_all)
+        n_mcq_val = max(1, int(len(mcq_all) * args.mcq_val_frac))
+        mcq_val = mcq_all[:n_mcq_val]
+        mcq_train_unique = mcq_all[n_mcq_val:]
+        mcq_train_oversampled = mcq_train_unique * args.mcq_multiplier
+        print(f"  mcq: unique={len(mcq_all):,} "
+              f"(val={len(mcq_val):,}, train_unique={len(mcq_train_unique):,}, "
+              f"train_after_×{args.mcq_multiplier}={len(mcq_train_oversampled):,})")
+        train_pairs.extend(mcq_train_oversampled)
+        val_pairs.extend(mcq_val)
+
     rng.shuffle(train_pairs)
     rng.shuffle(val_pairs)
 
     pct_st = 100.0 * len(small_talk_train_oversampled) / max(1, len(train_pairs))
-    print(f"  train mix: small_talk={pct_st:.1f}%, cybersec={100 - pct_st:.1f}%")
+    print(f"  train mix: small_talk={pct_st:.1f}%, cybersec+mcq={100 - pct_st:.1f}%")
 
     n_train = write_jsonl(train_pairs, Path(args.out_train))
     n_val = write_jsonl(val_pairs, Path(args.out_val))
