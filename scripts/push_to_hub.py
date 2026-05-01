@@ -9,6 +9,8 @@ import tempfile
 from dataclasses import asdict, fields
 from pathlib import Path
 
+import torch
+
 try:
     from huggingface_hub import HfApi, login, upload_folder
 except ImportError:
