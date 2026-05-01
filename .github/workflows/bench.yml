@@ -1,0 +1,81 @@
+name: bench
+
+# Re-runs the open cyber-LLM benchmarks on every push to main and on a weekly
+# cron, then commits the updated RESULTS.md back to the repo. Turns the
+# project into a tracked artifact so contributors see the impact of their PRs.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ghostlm/**"
+      - "scripts/run_bench.py"
+      - "scripts/finetune_chat.py"
+      - "checkpoints/**"
+  schedule:
+    - cron: "0 6 * * 1"   # Mondays 06:00 UTC — fresh leaderboard for the week
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true   # checkpoints live behind Git LFS
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache HuggingFace datasets
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-datasets-${{ runner.os }}-cybermetric-ctibench-v1
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch tiktoken datasets
+
+      - name: Run benchmarks (Phase 4 baseline)
+        if: hashFiles('checkpoints/phase4_ghost_small/best_model.pt') != ''
+        env:
+          PYTHONPATH: .
+        run: |
+          python scripts/run_bench.py \
+            --checkpoint checkpoints/phase4_ghost_small/best_model.pt \
+            --label "ghost-small-v0.4 (pretrain)" \
+            --device cpu \
+            --no-chat-format \
+            --bench cybermetric-500 ctibench-mcq
+
+      - name: Run benchmarks (chat-tuned)
+        if: hashFiles('checkpoints/phase5_chat/best_model.pt') != ''
+        env:
+          PYTHONPATH: .
+        run: |
+          python scripts/run_bench.py \
+            --checkpoint checkpoints/phase5_chat/best_model.pt \
+            --label "ghost-small-v0.5 (chat)" \
+            --device cpu \
+            --bench cybermetric-500 ctibench-mcq
+
+      - name: Commit updated RESULTS.md
+        run: |
+          if [ -n "$(git status --porcelain RESULTS.md)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add RESULTS.md
+            git commit -m "bench: refresh leaderboard
+
+            Auto-update from .github/workflows/bench.yml run #${{ github.run_number }}."
+            git push
+          else
+            echo "No RESULTS.md changes — nothing to commit."
+          fi

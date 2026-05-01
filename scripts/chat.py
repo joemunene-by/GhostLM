@@ -34,6 +34,9 @@ def parse_args():
                    help="Nucleus sampling cutoff. Set 1.0 to disable.")
     p.add_argument("--max-tokens", type=int, default=300,
                    help="Max tokens per assistant reply")
+    p.add_argument("--repetition-penalty", type=float, default=1.25,
+                   help="Penalize tokens already in the recent generation window. "
+                        "Typical 1.0 (off) - 1.4. 45M models benefit from ~1.2-1.3.")
     p.add_argument("--device", default="auto")
     p.add_argument("--no-chat-format", action="store_true",
                    help="Disable chat role markers — use raw completion mode")
@@ -82,8 +85,31 @@ def load_model(checkpoint_path: str, device: str) -> tuple:
     return model.to(device), config
 
 
-def sample_next(logits: torch.Tensor, temperature: float, top_k: int, top_p: float) -> int:
-    """Sample one token id from logits using temperature + optional top-k / top-p."""
+def sample_next(
+    logits: torch.Tensor,
+    temperature: float,
+    top_k: int,
+    top_p: float,
+    *,
+    prev_ids: list = None,
+    repetition_penalty: float = 1.0,
+) -> int:
+    """Sample one token id from logits with temperature, top-k / top-p, and
+    optional repetition penalty.
+
+    The repetition penalty is the HF-classic form: divide the logit of any
+    token already emitted in the context by ``repetition_penalty`` if the
+    logit is positive, multiply if negative. With a 45M model that's prone to
+    "Wifi Wifi Wifi…" loops, a value of 1.2-1.4 typically helps.
+    """
+    if prev_ids and repetition_penalty != 1.0:
+        seen = set(prev_ids)
+        for tok in seen:
+            if logits[tok] > 0:
+                logits[tok] = logits[tok] / repetition_penalty
+            else:
+                logits[tok] = logits[tok] * repetition_penalty
+
     logits = logits / max(temperature, 1e-6)
     if top_k and top_k > 0:
         v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
@@ -113,10 +139,14 @@ def generate_until_end(
     top_k: int,
     top_p: float,
     device: str,
+    repetition_penalty: float = 1.0,
+    repetition_window: int = 128,
 ) -> list:
     """Greedy-or-sampled generation that stops the moment ``end_id`` is sampled.
 
     Returns only the *newly generated* token ids (excluding the prompt).
+    A trailing-window repetition penalty (default off) helps small models
+    avoid degenerate loops like "Wifi Wifi Wifi…".
     """
     ids = torch.tensor(prompt_ids, dtype=torch.long, device=device).unsqueeze(0)
     new_ids: list = []
@@ -126,7 +156,11 @@ def generate_until_end(
             cond = ids[:, -ctx:]
             logits, _ = model(cond)
             next_logits = logits[:, -1, :].squeeze(0).clone()
-            tok = sample_next(next_logits, temperature, top_k, top_p)
+            window = new_ids[-repetition_window:] if repetition_window > 0 else new_ids
+            tok = sample_next(
+                next_logits, temperature, top_k, top_p,
+                prev_ids=window, repetition_penalty=repetition_penalty,
+            )
             if tok == end_id:
                 break
             new_ids.append(tok)
@@ -187,6 +221,7 @@ def chat_loop_chat_format(model, tokenizer: GhostTokenizer, args, device: str) -
             top_k=args.top_k if args.top_k > 0 else 0,
             top_p=args.top_p,
             device=device,
+            repetition_penalty=args.repetition_penalty,
         )
         reply = tokenizer.decode(new_ids).strip()
         history.append({"role": "assistant", "content": reply})

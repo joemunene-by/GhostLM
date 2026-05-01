@@ -333,6 +333,13 @@ def parse_args() -> argparse.Namespace:
                    help="Number of NVD records to sample (out of 64k)")
     p.add_argument("--exploitdb-target", type=int, default=2000,
                    help="Number of Exploit-DB records to sample")
+    p.add_argument("--small-talk-multiplier", type=int, default=30,
+                   help="How many copies of each small_talk pair to inject. "
+                        "v1 used 1× and the model never learned to follow "
+                        "instructions because cybersec swamped chat-shape signal.")
+    p.add_argument("--small-talk-val-frac", type=float, default=0.1,
+                   help="Fraction of small_talk pairs held out for validation "
+                        "(BEFORE oversampling — keeps val pairs unique)")
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
@@ -365,19 +372,36 @@ def main() -> None:
         print(f"  {s}: {c:,}")
     print(f"  total: {len(pairs):,}")
 
-    # Held-out validation split from the synthetic Q&A only (small-talk all goes to train).
+    # Held-out validation split from the synthetic Q&A.
     rng.shuffle(pairs)
     split = max(1, int(len(pairs) * args.val_frac))
     val_pairs = pairs[:split]
     train_pairs = pairs[split:]
 
-    # Small-talk: always train, never val (we want every greeting / identity
-    # answer baked into the model).
-    small_talk = load_jsonl(Path(args.small_talk))
-    print(f"  small_talk: {len(small_talk):,} (all to train)")
-    train_pairs.extend(small_talk)
+    # Small-talk handling — split out a small held-out set first (so val
+    # measures generalization on chat-shape, not just memorization), then
+    # oversample the training portion. We oversample because v1 had small_talk
+    # at 1.6% of training and the resulting model emitted cybersec answers
+    # regardless of the user prompt. ~30× brings small_talk to ~30% of pairs.
+    small_talk_all = load_jsonl(Path(args.small_talk))
+    rng.shuffle(small_talk_all)
+    n_st_val = max(1, int(len(small_talk_all) * args.small_talk_val_frac))
+    small_talk_val = small_talk_all[:n_st_val]
+    small_talk_train_unique = small_talk_all[n_st_val:]
+    small_talk_train_oversampled = small_talk_train_unique * args.small_talk_multiplier
+
+    print(f"  small_talk: unique={len(small_talk_all):,} "
+          f"(val={len(small_talk_val):,}, train_unique={len(small_talk_train_unique):,}, "
+          f"train_after_×{args.small_talk_multiplier}={len(small_talk_train_oversampled):,})")
+
+    train_pairs.extend(small_talk_train_oversampled)
+    val_pairs.extend(small_talk_val)
 
     rng.shuffle(train_pairs)
+    rng.shuffle(val_pairs)
+
+    pct_st = 100.0 * len(small_talk_train_oversampled) / max(1, len(train_pairs))
+    print(f"  train mix: small_talk={pct_st:.1f}%, cybersec={100 - pct_st:.1f}%")
 
     n_train = write_jsonl(train_pairs, Path(args.out_train))
     n_val = write_jsonl(val_pairs, Path(args.out_val))
