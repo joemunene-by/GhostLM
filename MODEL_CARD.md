@@ -28,13 +28,13 @@ model-index:
 
 | Field | Value |
 |---|---|
-| **Model Names** | `ghostlm/ghost-tiny` (14.7M params, current). Future: `ghost-small`, `ghost-base`, `ghost-1B` |
+| **Model Names** | `ghostlm/ghost-small` (~45M params, current canonical). `ghostlm/ghost-tiny` (14.7M, historical canonical and better PMI-suite scorer). Future: `ghost-base`, `ghost-1B` |
 | **Architecture** | Decoder-only transformer |
 | **Author** | [Joe Munene](https://github.com/joemunene-by) |
 | **License** | MIT |
 | **Language** | English |
 | **Framework** | PyTorch (built from scratch, no pretrained weights) |
-| **Version** | 0.3.5 (Phase 3.5 ghost-tiny refresh — 30K steps on the rebalanced ~8.8M-token corpus, NVD share capped at 65%) |
+| **Version** | 0.4.0 (Phase 4 ghost-small — 30K steps on the 12.56M-token Phase 3.6 corpus, val_loss 2.3535, overall val PPL 11.12 — capacity-reallocation hypothesis confirmed) |
 
 ## Model Description
 
@@ -46,8 +46,8 @@ The model is trained on CVE vulnerability descriptions from the National Vulnera
 
 | Variant | Layers | d_model | Heads | d_ff | Context | Params | Status |
 |---|---|---|---|---|---|---|---|
-| `ghostlm/ghost-tiny` | 2 | 256 | 4 | 1024 | 1024 | 14.7M | **Phase 3.5 complete (30K steps, rebalanced corpus, overall PPL 66 vs 172 in v0.3.3)** |
-| `ghostlm/ghost-small` | 6 | 512 | 8 | 2048 | 1024 | ~55M | Planned (next scale rung; corpus diversity track gates the run) |
+| `ghostlm/ghost-tiny` | 2 | 256 | 4 | 1024 | 1024 | 14.7M | Phase 3.5 (historical canonical). 30K steps on ~8.8M tokens, overall PPL 66, PMI suite 31.2% |
+| `ghostlm/ghost-small` | 6 | 512 | 8 | 2048 | 1024 | ~45M | **Phase 4 complete (current canonical). 30K steps on ~12.56M tokens, overall PPL 11.12 (−83%), val_loss 2.3535** |
 | `ghostlm/ghost-base` | 12 | 768 | 12 | 3072 | 1024 | ~350M | Planned (rented GPU) |
 | `ghostlm/ghost-1B` | 24 | 1024 | 16 | 4096 | 1024 | ~1B | Long-term goal |
 
@@ -158,25 +158,36 @@ Reading the table:
 
 Every preserved ghost-tiny checkpoint was re-scored on the new 125-sample suite so the trajectory is end-to-end comparable. Cells are `correct/total (accuracy) [most-common-share]`:
 
-| Task | Phase 1 (2K) | Phase 2 (v0.3.0) | Phase 3 (v0.3.3) | Phase 3.5 (v0.3.5) | Phase 3.6 (v0.3.7, +Exploit-DB) |
-|---|---|---|---|---|---|
-| CVE Severity Classification | 7/25 (28.0%) [100%] | 5/25 (20.0%) [96%] | 4/25 (16.0%) [48%] | **8/25 (32.0%) [72%]** | 4/25 (16.0%) [60%] |
-| Vulnerability Type Detection | 3/25 (12.0%) [48%] | 6/25 (24.0%) [76%] | 7/25 (28.0%) [48%] | **8/25 (32.0%) [44%]** | 3/25 (12.0%) [**96%**] |
-| Attack Technique Identification | 2/25 (8.0%) [24%] | 3/25 (12.0%) [88%] | 5/25 (20.0%) [72%] | **10/25 (40.0%) [36%]** | 4/25 (16.0%) [60%] |
-| CTF Challenge Categorization | 2/25 (8.0%) [84%] | 7/25 (28.0%) [76%] | 6/25 (24.0%) [88%] | **10/25 (40.0%) [64%]** | 5/25 (20.0%) [48%] |
-| MITRE ATT&CK Tactic Classification | 1/25 (4.0%) [72%] | 2/25 (8.0%) [76%] | 3/25 (12.0%) [64%] | 3/25 (12.0%) [40%] | 5/25 (20.0%) [76%] |
-| **Overall** | **15/125 (12.0%)** | **23/125 (18.4%)** | **25/125 (20.0%)** | **39/125 (31.2%)** | **21/125 (16.8%)** |
+| Task | Phase 1 (2K) | Phase 2 (v0.3.0) | Phase 3 (v0.3.3) | Phase 3.5 (v0.3.5) | Phase 3.6 (v0.3.7) | **Phase 4 (v0.4.0)** |
+|---|---|---|---|---|---|---|
+| CVE Severity Classification | 7/25 (28.0%) [100%] | 5/25 (20.0%) [96%] | 4/25 (16.0%) [48%] | **8/25 (32.0%) [72%]** | 4/25 (16.0%) [60%] | 6/25 (24.0%) [72%] |
+| Vulnerability Type Detection | 3/25 (12.0%) [48%] | 6/25 (24.0%) [76%] | 7/25 (28.0%) [48%] | 8/25 (32.0%) [44%] | 3/25 (12.0%) [96%] | **10/25 (40.0%) [44%]** |
+| Attack Technique Identification | 2/25 (8.0%) [24%] | 3/25 (12.0%) [88%] | 5/25 (20.0%) [72%] | **10/25 (40.0%) [36%]** | 4/25 (16.0%) [60%] | 4/25 (16.0%) [52%] |
+| CTF Challenge Categorization | 2/25 (8.0%) [84%] | 7/25 (28.0%) [76%] | 6/25 (24.0%) [88%] | **10/25 (40.0%) [64%]** | 5/25 (20.0%) [48%] | 7/25 (28.0%) [72%] |
+| MITRE ATT&CK Tactic Classification | 1/25 (4.0%) [72%] | 2/25 (8.0%) [76%] | 3/25 (12.0%) [64%] | 3/25 (12.0%) [40%] | 5/25 (20.0%) [76%] | 2/25 (8.0%) [44%] |
+| **Overall (PMI)** | **15/125 (12.0%)** | **23/125 (18.4%)** | **25/125 (20.0%)** | **39/125 (31.2%)** | **21/125 (16.8%)** | **29/125 (23.2%)** |
 
-Phase 3.5 remains the canonical column. Phase 3.6 (v0.3.7) is included for the trajectory but rolled back from canonical: ghost-tiny at 14.7M params is at capacity, and adding ~3.77M tokens of Exploit-DB (30% of the new corpus) regressed every existing source by 28–42% on per-source PPL while the eval suite picked up a 14.4 pp drop. The MITRE Tactic column is the cleanest illustration: accuracy "improved" 12% → 20% but most-common-share jumped 40% → 76% — the model is just predicting one tactic on 19/25 samples and getting some right by accident. Vuln Type is even more mode-collapsed at 96%.
+Phase 4 ghost-small (v0.4.0) is the new canonical model for density / generation work but lands lower than Phase 3.5 on the PMI scoring above. The honest read requires the second column type — **logp scoring** — which the suite also supports via `--scoring logp`:
 
-The clean head-to-head between deliberate moves:
+| Phase | PMI | logp | Δ (PMI − logp) |
+|---|---:|---:|---:|
+| Phase 3.5 (ghost-tiny) | **31.2%** | 17.6% | +13.6 pp |
+| Phase 4 (ghost-small) | 23.2% | **19.2%** | +4.0 pp |
+
+Two things to note:
+
+1. **PMI flatters Phase 3.5 by 13.6 pp.** PMI subtracts unconditional candidate log-prob to break ties — useful when the model is mode-collapsing because it normalizes for "this candidate is just inherently high-probability". A loose-distribution model with weakly differentiated logits gives PMI more separation to extract; a tight-distribution model gives less. Phase 3.5 (low capacity) gets the bigger PMI uplift; Phase 4 (higher capacity, sharper distribution) gets a smaller one.
+2. **Logp — the more conservative scorer — picks Phase 4.** With logp scoring, Phase 4 narrowly beats Phase 3.5 (19.2% vs 17.6%) on this same 125-sample suite. The PMI vs logp gap diagnoses an eval-methodology limitation rather than a model regression.
+
+The cleanest model metric remains per-source val PPL (no scoring rule, just density), where Phase 4 dominates Phase 3.5 by 59–78% across every source. See README's "Per-source perplexity" section for the full table.
+
+The clean head-to-head between deliberate moves (PMI suite):
 - **Phase 2→3 (3× training volume, fixed corpus): +1.6 pp**
 - **Phase 3→3.5 (corpus rebalance, fixed model+steps): +11.2 pp**
-- **Phase 3.5→3.6 (corpus volume, fixed model+steps): −14.4 pp**
+- **Phase 3.5→3.6 (corpus volume, fixed model+steps): −14.4 pp** (ghost-tiny capacity ceiling)
+- **Phase 3.6→4 (model capacity, fixed corpus+steps): +6.4 pp PMI / +1.6 pp logp / −75% per-source PPL** (capacity-reallocation hypothesis confirmed)
 
-The corpus-first thesis from Phase 3.5 ran out of headroom inside ghost-tiny. The path forward is the model — ghost-small at 55M params on the same Phase 3.6 corpus is the cleanest test of the capacity-reallocation hypothesis.
-
-Use `make eval-security-all-phases` to re-run end-to-end, or `make eval-compare-phases` to regenerate the table from saved JSONs.
+Use `make eval-security-all-phases` to re-run end-to-end, or `make eval-compare-phases` to regenerate the PMI table from saved JSONs. Run with `--scoring logp` to reproduce the logp column.
 
 ### Cyber-text perplexity vs GPT-2 (fixed external test set, ten samples)
 

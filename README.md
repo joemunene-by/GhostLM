@@ -28,7 +28,7 @@ It is explicitly *not* trying to beat Llama on general benchmarks. It's trying t
 
 ## Architecture
 
-The configuration below is for **ghost-tiny**, the current canonical variant. Larger variants share the same architecture with scaled layers / dim / heads — see the [Model Variants](#model-variants) table.
+The configuration below is for **ghost-tiny**, the original architecture variant. As of v0.4.0, the canonical released checkpoint is **ghost-small** (~45M params, 6 layers / 512 d_model / 8 heads) trained on the Phase 3.6 corpus. Both variants share the same architecture with scaled layers / dim / heads — see the [Model Variants](#model-variants) table.
 
 | Parameter | ghost-tiny |
 |---|---|
@@ -153,12 +153,26 @@ For where the corpus is heading — Phase 3.6 volume targets (CTFtime expansion,
 | ghost-tiny Phase 1 (pre-audit corpus) | 10,000 | 2.66M (leaky) | 2.74 | Superseded — leaky train/val split, archived under `archive/` |
 | ghost-tiny Phase 2 (rebalanced corpus) | 10,000 | 2.66M | 3.7813 | Archived as `checkpoints/best_model_phase2.pt` |
 | ghost-tiny Phase 3 (post-NVD-pull corpus) | 30,000 | ~30M | 3.4458 | NVD-dominated (87%); preserved as `checkpoints/phase3_refresh/best_model.pt` |
-| **ghost-tiny Phase 3.5 (rebalanced corpus)** | **30,000** | **~8.8M** | **3.5518** | **Current canonical model.** NVD share 65%, six sources balanced. Hardware: Mac Mini M4 (CPU), ~3h13m wall-clock |
-| ghost-tiny Phase 3.6 (+Exploit-DB) | 30,000 | ~12.56M | 3.8556 | **Regressed on the eval suite** (31.2% → 16.8%); ghost-tiny capacity ceiling found. Preserved at `checkpoints/phase3.6_exploitdb/best_model.pt` as the ghost-small training target — see CHANGELOG v0.3.7 for the full per-source breakdown |
+| ghost-tiny Phase 3.5 (rebalanced corpus) | 30,000 | ~8.8M | 3.5518 | Historical canonical for the existing PMI suite. NVD share 65%, six sources balanced. Hardware: Mac Mini M4 (CPU), ~3h13m wall-clock |
+| ghost-tiny Phase 3.6 (+Exploit-DB) | 30,000 | ~12.56M | 3.8556 | Regressed on the eval suite (31.2% → 16.8%); ghost-tiny capacity ceiling found. Preserved at `checkpoints/phase3.6_exploitdb/best_model.pt` — see CHANGELOG v0.3.7 |
+| **ghost-small Phase 4 (capacity reallocation)** | **30,000** | **~12.56M** | **2.3535** | **Current canonical model for density / generation.** ~45M params (6L / 512d / 8h) on the same Phase 3.6 corpus. **Per-source PPL 59–78% better than Phase 3.5 across every source**, overall PPL 66.05 → 11.12 (−83%). Hardware: Mac Mini M4 (MPS), ~15h wall-clock. See CHANGELOG v0.4.0 |
 
 > Cross-phase val_loss is **not directly comparable** between phases when the corpus changes: each phase from 3.5 onward has a different validation distribution. The eval-axis numbers below are the cleaner read.
 
-The Phase 3.5 checkpoint is the current canonical model. Phase 3.6 was an attempted next training run that regressed; it's preserved as a learning artifact and as the ghost-small training target rather than promoted to canonical. See [CHANGELOG.md](CHANGELOG.md) v0.3.7 for the per-source perplexity breakdown that surfaced the capacity-reallocation finding.
+The Phase 4 ghost-small checkpoint at `checkpoints/phase4_ghost_small/best_model.pt` is the current canonical model for any density / completion / generation work — it dominates Phase 3.5 by 59–78% on per-source perplexity across every source. The Phase 3.5 ghost-tiny checkpoint at `checkpoints/phase3.5_balanced/best_model.pt` remains on disk as the historical canonical and is still the higher number on the existing **PMI** multiple-choice suite (a calibration artifact at small corpus size; see [CHANGELOG.md](CHANGELOG.md) v0.4.0 for the PMI vs logp scoring analysis). Both are kept; pick by use case.
+
+### Chat tuning — v0.5 (current canonical chat model)
+
+A supervised fine-tune on top of Phase 4 ghost-small turns the base completion model into a conversational cybersecurity assistant. The canonical chat model is **`checkpoints/phase5_chat_v3/best_model.pt`** — same 45M params as Phase 4, an additional ~1,800 step SFT run with three new role tokens (`<|ghost_user|>`, `<|ghost_assistant|>`, `<|ghost_end|>`) and 1,802 templated MCQ examples mixed into the chat training data.
+
+| Checkpoint | CTIBench MCQ (n=2500) | Δ vs pretrain |
+|---|---:|---:|
+| `phase4_ghost_small` (pretrain only) | 17.8% (446) | — |
+| `phase5_chat_v2` (free-form SFT) | 19.0% (475) | +1.2 pp |
+| `phase5_chat_v2 + RAG(top4)` | 19.0% (476) | +1.2 pp |
+| **`phase5_chat_v3` (MCQ-tuned)** | **36.9% (922)** | **+19.1 pp** |
+
+Random baseline on 4-way MCQ is 25%. v3 is **1.48× random** — well above chance, well below frontier LLMs (85–95%). The next bump is a from-scratch retrain on a larger corpus (Phase 4.5, ~50M tokens) with the v0.5 architecture switches (RoPE + SwiGLU + RMSNorm) flipped on; that wiring is committed but gated on the corpus landing first. Full recipe in [`docs/chat_tuning.md`](docs/chat_tuning.md), benchmark in [`RESULTS.md`](RESULTS.md), CHANGELOG entry in v0.5.0.
 
 ### Cross-phase eval — fair comparison (fixed test set)
 
@@ -176,19 +190,24 @@ Phase 3 → Phase 3.5 dropped this benchmark **32%** (142.09 → 96.24) at fixed
 
 ### Per-source perplexity (val split)
 
-The headline reason the rebalance worked — same model, same recipe, 1/3 the corpus, but with diversity sources actually represented:
+The cleanest cross-phase read — does the model actually model each source it was trained on. The full trajectory across phases:
 
-| Source | v0.3.3 PPL | v0.3.5 PPL | Δ |
-|---|---|---|---|
-| MITRE ATT&CK | 615.43 | 55.14 | **−91%** |
-| CTFtime real writeups | 184.24 | 60.71 | **−67%** |
-| CAPEC | 326.11 | 133.81 | **−59%** |
-| Synthetic CTF (same data) | 67.57 | 28.48 | **−58%** |
-| arXiv (same data) | 671.09 | 354.95 | **−47%** |
-| NVD CVE | 24.19 | 27.55 | +14% |
-| **Overall** | **171.84** | **66.05** | **−62%** |
+| Source | v0.3.3 (P3) | v0.3.5 (P3.5) | v0.3.7 (P3.6) | **v0.4.0 (P4)** | P4 vs P3.5 |
+|---|---:|---:|---:|---:|---:|
+| arXiv | 671.09 | 354.95 | 505.60 | **116.46** | **−67%** |
+| CAPEC | 326.11 | 133.81 | 179.71 | **54.42** | **−59%** |
+| CTFtime real writeups | 184.24 | 60.71 | 59.70 | **13.23** | **−78%** |
+| Exploit-DB | — | — | 40.87 | **8.60** | new source |
+| MITRE ATT&CK | 615.43 | 55.14 | 70.53 | **19.72** | **−64%** |
+| NVD CVE | 24.19 | 27.55 | 35.44 | **11.29** | **−59%** |
+| Synthetic CTF | 67.57 | 28.48 | 38.90 | **7.88** | **−72%** |
+| **Overall** | **171.84** | **66.05** | **44.36** | **11.12** | **−83%** |
 
-The first three sources were 0 records in v0.3.3's training; v0.3.5 modeled them as proper domains. The synthetic-CTF and arXiv 47–58% drops happened with **identical training data** — the gain is parameter capacity that v0.3.3 was burning on memorizing duplicate CVE descriptions being redirected onto already-present sources. NVD pays the small expected cost for less specialization.
+Three distinct phase-on-phase wins to read off this table:
+
+- **v0.3.3 → v0.3.5 (corpus rebalance, fixed model):** the 47–91% drops on MITRE / CTFtime / CAPEC came from those sources being added to training, the synthetic-CTF / arXiv drops from same data with parameter capacity redirected away from memorizing duplicate CVEs.
+- **v0.3.5 → v0.3.6 (corpus volume, fixed model):** every existing source got 28–42% worse — ghost-tiny ran out of capacity to hold seven sources at once. This is the result that diagnosed the ceiling.
+- **v0.3.6 → v0.4.0 (model capacity, fixed corpus):** every single source improved 68–80% relative to v0.3.6, and 59–78% relative to v0.3.5. ghost-small at 45M params absorbs the corpus that broke ghost-tiny without the per-source tradeoff. **Capacity-reallocation hypothesis confirmed.**
 
 ### PMI-corrected security task accuracy
 
@@ -221,6 +240,28 @@ The next training run added Exploit-DB (~3.77M tokens, 30% of the new corpus) an
 Per-source perplexity confirmed the diagnosis: every existing source got 28–42% worse while Exploit-DB landed cleanly modeled (PPL 40.87). The "improved" overall PPL of −32.8% was misleading — Exploit-DB's heavy token share dragged the weighted average down regardless of how the existing sources fared.
 
 **Conclusion:** ghost-tiny at 14.7M params is at capacity. More corpus at fixed model size has hit diminishing returns at this rung. The path forward is the model (ghost-small at 55M params), not more data. Phase 3.6 corpus + checkpoint preserved at `checkpoints/phase3.6_exploitdb/best_model.pt` as the ghost-small training target — if ghost-small absorbs the same corpus without per-source regression, the capacity-reallocation hypothesis is confirmed. See `CHANGELOG.md` v0.3.7 for the full per-source breakdown and reasoning.
+
+#### Phase 4 ghost-small — capacity-reallocation hypothesis confirmed (v0.4.0)
+
+ghost-small (~45M params, 6 layers / 512 d_model / 8 heads) trained on the same Phase 3.6 corpus that broke ghost-tiny. 30k steps, MPS, 15h wall-clock. Final val_loss **2.3535** — a 1.20-nat (~3.3× perplexity) drop relative to Phase 3.5 ghost-tiny (3.5518), and the loss curve was still descending at the final step.
+
+The PMI security suite is more nuanced. Headline number drops vs Phase 3.5 (39/125 → 29/125, 31.2% → 23.2%), but with **logp scoring** (no PMI-correction) Phase 4 actually beats Phase 3.5 (24/125 vs 22/125, 19.2% vs 17.6%). The PMI advantage at Phase 3.5 is a calibration artifact — PMI subtracts the unconditional candidate log-prob to break ties, and a higher-capacity model with a tighter probability distribution gives PMI less separation to work with. On a 25-sample-per-task suite this can flip the headline.
+
+| Task | P3.5 PMI | P3.5 logp | **P4 PMI** | **P4 logp** |
+|---|---:|---:|---:|---:|
+| CVE Severity | 32% | 24% | 24% | 24% |
+| Vuln Type | 32% | 20% | **40%** | 16% |
+| Attack Tech | **40%** | 8% | 16% | 12% |
+| CTF Cat | **40%** | 28% | 28% | 28% |
+| MITRE Tactic | 12% | 8% | 8% | **16%** |
+| **Overall** | **31.2%** | 17.6% | 23.2% | **19.2%** |
+
+Ranking by metric, honestly:
+1. **Per-source PPL (density):** Phase 4 wins decisively (−83% overall vs Phase 3.5).
+2. **Logp eval (conservative scoring):** Phase 4 wins narrowly (+1.6 pp).
+3. **PMI eval (favors loose-distribution models):** Phase 3.5 wins (+8.0 pp).
+
+Phase 4 is the new canonical for any density / generation use; Phase 3.5 stays on disk as the historical canonical and the higher PMI scorer. See `CHANGELOG.md` v0.4.0 for the full breakdown.
 
 ## Sample Generations
 

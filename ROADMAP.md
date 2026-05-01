@@ -6,25 +6,42 @@ This roadmap is honest about what each rung needs (compute, corpus, time) and wh
 
 ---
 
-## Where we are: Phase 3.5 canonical (v0.3.5); Phase 3.6 attempted, found ghost-tiny capacity ceiling (v0.3.7)
+## Where we are: v0.5.0 — chat-v3 canonical chat model (36.9% on CTIBench MCQ)
 
-The current canonical model is **v0.3.5** (Phase 3.5 ghost-tiny on the rebalanced 8.8M-token corpus, val_loss 3.5518). The Phase 3.6 attempt added Exploit-DB (~3.77M tokens, 30% of the new corpus, total 12.56M) and re-trained ghost-tiny at the same 30K-step recipe. Result was a 14.4 pp regression on the eval suite (31.2% → 16.8%) with every existing per-source PPL 28–42% worse — ghost-tiny at 14.7M params is at capacity. The Phase 3.6 weights are preserved at `checkpoints/phase3.6_exploitdb/best_model.pt` as the cleanest ghost-small training target rather than promoted to canonical.
+**Current canonical model for chat / instruction following:** `checkpoints/phase5_chat_v3/best_model.pt` — Phase 4 ghost-small base + supervised fine-tune on a chat-format dataset that mixes templated cybersec instructions with 1,802 MCQ-format examples (2× oversampled). Lifts CTIBench MCQ accuracy from 17.8% (pretrain) → 19.0% (chat-v2 free-form) → **36.9% (chat-v3 MCQ-tuned)**, +19.1 pp / +447 questions correct over the pretrain baseline. Random baseline on 4-way MCQ is 25%; v3 is **1.48× random**.
 
-| Item | v0.3.5 (canonical) | v0.3.7 / Phase 3.6 (preserved) |
+**Current canonical base model for density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` — ghost-small (~45M params) trained for 30k steps on the 12.56M-token Phase 3.6 corpus. Final val_loss 2.3535, a 1.20-nat (~3.3× perplexity) drop relative to Phase 3.5 ghost-tiny. Per-source perplexity dominates Phase 3.5 by 59–78% across every existing source and the new Exploit-DB source. The capacity-reallocation hypothesis is confirmed: 14.7M params couldn't hold seven sources at once; 45M params hold all seven without the tradeoff.
+
+**v0.5 architecture switches (RoPE / SwiGLU / RMSNorm) are wired and gated on corpus expansion.** A `ghost-small-v0.5` preset in `GhostLMConfig.from_preset` flips all three on, and a forward+loss pass is verified end-to-end (45.0M params, matched parameter budget vs v0.4's 45.2M). The retrain that uses these switches doesn't ship until the v0.4.2 corpus expansion lands — there's no point retraining on the same 12.56M tokens when the architecture can absorb meaningfully more.
+
+| Item | v0.3.5 ghost-tiny (historical canonical) | **v0.4.0 ghost-small (current canonical)** |
 |---|---|---|
-| Variant | ghost-tiny | ghost-tiny |
-| Params | 14.7M | 14.7M |
-| Training tokens | ~8.8M (NVD 65%, balanced) | ~12.56M (NVD 46%, +Exploit-DB 30%) |
-| Steps | 30,000 | 30,000 |
-| Final val_loss | **3.5518** | 3.8556 (different val distribution) |
-| Cyber-text perplexity | **96.24** | _not benchmarked — regression already clear from per-source PPL_ |
-| Security task eval (5×25=125) | **39/125 (31.2%)** | 21/125 (16.8%) — mode collapse on Vuln Type at 96% |
+| Variant | ghost-tiny | **ghost-small** |
+| Params | 14.7M | **~45M** |
+| Training tokens | ~8.8M (NVD 65%, balanced) | **~12.56M** (NVD 46%, +Exploit-DB 30%) |
+| Steps | 30,000 | **30,000** |
+| Final val_loss | 3.5518 | **2.3535** (−1.20 nats vs P3.5) |
+| Per-source PPL (overall) | 66.05 | **11.12** (−83%) |
+| Security task eval, PMI | **39/125 (31.2%)** | 29/125 (23.2%) |
+| Security task eval, logp | 22/125 (17.6%) | **24/125 (19.2%)** |
+| Hardware | Mac M4 (CPU), ~3h13m | Mac M4 (MPS), ~15h |
 
-**The corpus-first thesis from Phase 3.5 ran out of headroom.** Phase 2→3 (3× training volume): +1.6 pp. Phase 3→3.5 (corpus rebalance, fixed steps): +11.2 pp. Phase 3.5→3.6 (corpus volume, fixed steps): −14.4 pp. More corpus at fixed model size doesn't keep paying. The next training rung is the model, not the data.
+**Why ghost-small is canonical despite the PMI dip:** for any density / generation use (the actual product) the model is unambiguously better — overall val PPL dropped by 5.9× (66.05 → 11.12), and **every single source improved 59–78% relative to the Phase 3.5 canonical**. The PMI scoring quirk that flatters Phase 3.5 vanishes under conservative logp scoring, where Phase 4 wins. See `CHANGELOG.md` v0.4.0 for the methodology analysis.
 
-**Capability characterization (v0.3.5):** produces multi-register prose — CVE descriptions for CVE prompts, MITRE narrative for MITRE prompts, CTF writeup-style for CTF prompts. v0.3.3 collapsed everything to CVE register; v0.3.5 picks up source-specific cues. Hallucinations are still rampant — form is right, facts are not. See MODEL_CARD's Sample Generations.
+**The trajectory of training-recipe wins:**
+- Phase 2→3 (3× training volume, fixed model+corpus mix): +1.6 pp on the suite
+- Phase 3→3.5 (corpus rebalance, fixed model+steps): +11.2 pp
+- Phase 3.5→3.6 (corpus volume, fixed model+steps): **−14.4 pp** (capacity ceiling)
+- Phase 3.6→4 (model capacity, fixed corpus+steps): per-source PPL **−75% across the board**
 
-**Phase 1 + Phase 2 archived** as `checkpoints/best_model_phase{1,2}.pt` for archaeological reference. **Phase 3** at `checkpoints/phase3_refresh/best_model.pt`. **Phase 3.6** at `checkpoints/phase3.6_exploitdb/best_model.pt`.
+**Capability characterization (v0.4.0):** ghost-small produces sharper register-matched prose than ghost-tiny — the same kinds of completions but with substantially fewer artifacts and broken token streams. Hallucinations are still rampant; form is right, facts are not. See MODEL_CARD's Sample Generations.
+
+**Checkpoints on disk (in order of release):**
+- Phase 1 / 2 archived: `checkpoints/best_model_phase{1,2}.pt`
+- Phase 3: `checkpoints/phase3_refresh/best_model.pt`
+- Phase 3.5 (historical canonical, better PMI scorer): `checkpoints/phase3.5_balanced/best_model.pt`
+- Phase 3.6 (preserved learning artifact, capacity-ceiling diagnosis): `checkpoints/phase3.6_exploitdb/best_model.pt`
+- **Phase 4 (current canonical):** `checkpoints/phase4_ghost_small/best_model.pt`
 
 ---
 
@@ -83,24 +100,38 @@ The Phase 3.6 corpus is reproducible: `python3 scripts/rebuild_corpus.py --max-c
 
 ---
 
-## Phase 4 — ghost-small (~55M params)
+## Phase 4 — ghost-small (complete, 2026-04-30)
 
 | Item | Value |
 |---|---|
 | Layers / d_model / heads | 6 / 512 / 8 |
-| Params | ~55M (already wired in `GhostLMConfig.from_preset("ghost-small")`) |
-| Hardware target | Mac M4 GPU/MPS (feasible on local hardware) |
-| Training tokens (Chinchilla-optimal) | ~1.1B (20 tokens / param) |
+| Params | ~45M actual (the 55M estimate was the config-side hand-waved figure; real count from `model.num_params()` is 45.17M) |
+| Hardware | Mac Mini M4 (MPS), batch 8 × grad_accum 4, ~15h wall-clock |
+| Training tokens | 12.56M (Phase 3.6 corpus, unchanged) |
+| Steps | 30,000 |
+| Final val_loss | **2.3535** |
+| Best checkpoint | `checkpoints/phase4_ghost_small/best_model.pt` |
 
-The first scale-up rung. Validates whether the recipe scales — same architecture, same training loop, more layers, more dim, more data. Expected to produce noticeably more coherent generation than ghost-tiny but still well below "useful."
+The first scale-up rung delivered cleanly. Loss curve was still descending at step 30k (train ~2.17, val 2.35) — no overfitting plateau visible at this step budget on this corpus, despite the corpus being well below Chinchilla-optimal for 45M params (~1.1B tokens would be the formal target).
 
-**Gating:**
-1. ✓ **Recipe-scales-with-data validated** — Phase 2→3 ghost-tiny refresh dropped val_loss 0.34 nats at fixed model size, same recipe + more data.
-2. ✓ **Source-mix structurally balanced** — Phase 3.5 brought NVD share from 90% to 65% with real diversity sources at 35%. The model can no longer learn "complete-the-CVE-template" as the dominant objective.
-3. ✓ **ghost-tiny capacity ceiling found** — Phase 3.6 attempted volume-add (~12.56M tokens) at fixed model size, regressed 14.4 pp on the eval suite. This *unblocks* the ghost-small jump rather than gating it: there's no more headroom in ghost-tiny to extract from corpus work, so the next training rung is the model, not more data.
-4. ⚠️ **Corpus volume vs. Chinchilla-optimal** — the 12.56M-token Phase 3.6 corpus is well below the ~1.1B target for Chinchilla-optimal training at 55M params. ghost-small on this corpus will likely overfit at long step counts; the goal of the first ghost-small run isn't to be Chinchilla-optimal — it's to test the capacity-reallocation hypothesis. If 55M params absorb the corpus without the per-source regression ghost-tiny showed, the hypothesis is confirmed and corpus expansion (toward 50–100M tokens) becomes the right path. If 55M still regresses, the diagnosis was wrong and we go back to the drawing board.
+**All four gates closed positively:**
+1. ✓ Recipe-scales-with-data validated (Phase 2→3, +1.6 pp eval).
+2. ✓ Source-mix structurally balanced (Phase 3→3.5, +11.2 pp eval, NVD 90% → 65%).
+3. ✓ ghost-tiny capacity ceiling found (Phase 3.6, −14.4 pp + per-source PPL 28–42% worse on every source).
+4. ✓ **Capacity-reallocation hypothesis confirmed.** ghost-small at 45M absorbed the same Phase 3.6 corpus that broke ghost-tiny, with **every existing source improving 59–78%** relative to the Phase 3.5 canonical. Overall val PPL dropped 66.05 → 11.12 (−83%).
 
-**Immediate next move:** ghost-small on the Phase 3.6 corpus, GPU-required. The same corpus that broke ghost-tiny is the cleanest test case.
+**Eval methodology finding (worth flagging for v0.4.x):** the existing PMI security suite favored Phase 3.5 (31.2% vs Phase 4's 23.2%), but with conservative logp scoring Phase 4 wins (19.2% vs 17.6%). PMI subtracts unconditional candidate log-prob to break ties; a higher-capacity model with a tighter probability distribution gives PMI less separation. The 25-sample-per-task suite is small enough that this calibration asymmetry can flip headlines. Resolving cleanly probably requires both: (a) a bigger eval set, (b) a calibration-stable scoring rule.
+
+---
+
+## Phase 4.x — extension and corpus expansion (next on the critical path)
+
+Phase 4 left two cheap, valuable follow-ups before the ghost-base jump:
+
+- **v0.4.1 — extension run.** Train the existing ghost-small for another 30k–60k steps on the Phase 3.6 corpus and observe whether val_loss continues past 2.35 or plateaus into overfit. Cheap (one more overnight on M4). Tells us whether the 30k recipe was meaningfully undertrained at this corpus size, and gives a credible upper bound on what ghost-small can squeeze out of 12.56M tokens.
+- **v0.4.2 — corpus expansion (Phase 4.5 corpus).** Run the arXiv full-text PDF collector at scale (collector landed in v0.3.6 but data not pulled), expand CTFtime past the curated 28-event seed via the discovery script, and ship the security-research-blogs collector. Target: ~50M-token corpus that ghost-small can train on without the per-source mode collapse Phase 3.6 forced on ghost-tiny. This is the corpus that makes Phase 5 (ghost-base) actually informative rather than overfit-prone.
+
+Both are doable on local hardware over weeks. ghost-base is gated on at least the corpus expansion landing.
 
 ---
 
@@ -114,6 +145,11 @@ The first scale-up rung. Validates whether the recipe scales — same architectu
 | Training tokens (Chinchilla-optimal) | ~7B |
 
 The first rung that needs rented GPU compute. This is where domain-coherent generation should start to emerge — the model should be able to produce a few sentences of structurally correct cyber-text without falling apart. Still not factually reliable.
+
+**Gating (after v0.4.0):**
+1. ✓ ghost-small recipe validated (Phase 4 confirmed scaling works).
+2. ⚠ Corpus volume — at 12.56M tokens, ~7B Chinchilla-optimal is 550× away. Phase 4.5 expansion needs to land first; otherwise ghost-base will overfit a tiny corpus before generalization kicks in.
+3. ⚠ External GPU compute or owned 4090/5090-class hardware.
 
 **Cost estimate:** at ~$2–3/H100-hour, a Chinchilla-optimal run is on the order of low-thousand-dollar compute. Doable as a focused-burst project; not casual.
 

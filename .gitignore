@@ -24,6 +24,7 @@ env/
 # Data
 data/raw/*
 data/processed/*
+data/rag/
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 

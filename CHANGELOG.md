@@ -514,10 +514,286 @@ Added to `Makefile` so the Phase 3.6 numbers can be reproduced: `make eval-secur
 
 ---
 
+## [0.5.0] — 2026-05-01 — Chat tuning, MCQ, RAG, and v0.5 architecture wiring
+
+The first chat-tunable, benchmark-scoreable rung of the project. Phase 4
+ghost-small (the v0.4.0 base model below) is now the substrate for a
+proper supervised fine-tune that turns it into a conversational
+cybersecurity assistant — and the first GhostLM model with a credible
+public benchmark number.
+
+### chat-v3 — 36.9% on CTIBench MCQ (2500 questions)
+
+The headline result of v0.5. Three iterations of chat tuning landed on
+top of the Phase 4 base, scored on the full 2500-question CTIBench
+multiple-choice benchmark:
+
+| Checkpoint | n | Correct | Accuracy |
+|---|---:|---:|---:|
+| `phase4_ghost_small` (pretrain only, no chat) | 2500 | 446 | **17.8%** |
+| `phase5_chat_v2` (free-form SFT, small-talk-balanced) | 2500 | 475 | **19.0%** |
+| `phase5_chat_v2 + RAG(top4)` | 2500 | 476 | **19.0%** |
+| **`phase5_chat_v3` (MCQ-format SFT)** | **2500** | **922** | **36.9%** |
+
+v3 lifts +17.9 pp over v2 — **+447 questions correct** — and lands at
+**1.48× random** (random baseline 25.0% on 4-way MCQ). The model is
+still 45M params trained on 12.56M cybersec tokens; only the
+fine-tuning data distribution changed for v3. RESULTS.md tracks the
+table going forward; `scripts/run_bench.py` regenerates rows.
+
+Honest framing: 36.9% is well above random and a respectable result
+for a 45M from-scratch model, but well below frontier-LLM scores
+(85-95%). The gap to "useful" is the v0.4.2 corpus expansion + the
+v0.5 from-scratch retrain (architecture switches below) + a more
+demanding chat dataset, not a clever inference-time trick.
+
+### Chat-tune pipeline (commits `4219637`, `b67987d`)
+
+Built from scratch, no `transformers.Trainer` dependency:
+
+- **3 new role tokens** appended to the GhostTokenizer (vocab
+  50,261 → 50,264): `<|ghost_user|>`, `<|ghost_assistant|>`,
+  `<|ghost_end|>`. Phase 4 weights load by expanding the token
+  embedding three rows and re-tying `lm_head`.
+- **Assistant-only loss masking** — `GhostTokenizer.encode_chat()`
+  emits both token ids and a per-token mask; the trainer fills
+  non-assistant target tokens with `-1` so the existing
+  `cross_entropy(..., ignore_index=-1)` does the rest.
+- **`scripts/build_chat_dataset.py`** — walks the pretrain corpus,
+  applies per-source templates (NVD, MITRE, CAPEC, Exploit-DB,
+  CTFtime, synthetic CTF), and merges in `data/raw/chat/small_talk.jsonl`
+  with `--small-talk-multiplier` (v1 used 1× and produced a model that
+  ignored conversational structure; v2/v3 use 30× for ~30% small-talk
+  share in the training mix).
+- **`scripts/finetune_chat.py`** — loads Phase 4, expands the embedding,
+  runs the standard `GhostTrainer` with SFT-appropriate hyperparameters
+  (lr 3e-5, 1800 steps, 120 warmup, batch 8 × grad_accum 4).
+- **`scripts/eval_chat.py`** — held-out chat eval (identity, refusals,
+  small-talk, free-form cybersec). Confirms v2 → v3 preserved identity
+  and refusal behavior while improving MCQ-format compliance.
+
+Full recipe in `docs/chat_tuning.md`, including the v1 → v2 → v3
+progression and what each iteration actually fixed.
+
+### MCQ training data (commit `879219d`)
+
+`scripts/build_mcq_data.py` templates 1,802 MCQ examples into
+`data/raw/chat/mcq.jsonl`:
+
+- **1,000 NVD CWE-class MCQs** — vulnerability type from description, 4
+  candidates from a 20-class taxonomy.
+- **655 MITRE tactic MCQs** — "which tactic does T1234 belong to?"
+- **147 acronym MCQs** — XSS / SSRF / RCE / etc. → expansion.
+
+Answer-letter distribution balanced (A=455 / B=404 / C=497 / D=446) so
+there's no positional bias to memorize. The assistant turn is the
+bare letter `A`/`B`/`C`/`D`, with a 30% subset followed by a one-line
+justification — teaches the model to actually emit a single letter
+after the `Answer:` cue rather than continuing into prose.
+
+`build_chat_dataset.py` grew `--mcq-jsonl` + `--mcq-multiplier`; v3
+uses 2× oversampling (~20% of the training mix is MCQ-format examples).
+
+### RAG retrieval scaffolding (commits `b67987d`, `80b0cea`, `bd95ada`)
+
+- **`scripts/build_rag_index.py`** — embeds the corpus chunks; index
+  lands at `data/rag/{chunks.jsonl, index.npy, meta.json}` (~177 MB,
+  not committed; rebuild deterministic from the corpus).
+- **`scripts/rag_chat.py`** — retrieval-augmented chat: top-k chunks
+  prepended to the prompt as `[CONTEXT-i]` blocks.
+- **`scripts/run_bench.py --rag-dir`** — same eval harness, RAG-aware.
+
+**Result on the full 2500-q bench: +1 question over no-RAG (476 vs
+475 at chat-v2).** A 100-q smoke had suggested RAG hurt by ~3 pp; the
+smoke variance was the artifact, not RAG. Honest read: at 45M params
+the model can't actually use the retrieved context — it doesn't have
+the in-context-reading capability that RAG benefits depend on. RAG is
+preserved as infrastructure for the v0.5 retrain when the bigger
+model can use it.
+
+### v0.5 architecture switches (commit `879219d`)
+
+Three new flags in `GhostLMConfig`, all defaulting to `False` so every
+existing Phase 1-4 checkpoint loads unchanged:
+
+- `use_rope: bool = False` — already wired in attention.
+- `use_swiglu: bool = False` — gated FFN with three projections, hidden
+  shrunk to ⅔ d_ff to match GELU FeedForward parameter count.
+- `use_rmsnorm: bool = False` — half the params of LayerNorm, no bias;
+  matches LayerNorm quality at this scale per LLaMA / Mistral / Gemma.
+
+A new `ghost-small-v0.5` preset flips all three on. `ghostlm/model.py`
+gains `RMSNorm`, `SwiGLU`, and `make_norm()` / `make_ffn()` dispatch
+helpers that keep the existing `TransformerBlock` and `GhostLM` init
+paths one line.
+
+Verified: `ghost-small-v0.5` runs forward+loss end-to-end (45.0M
+params, matched parameter budget vs v0.4's 45.2M). Phase 4 checkpoint
+still loads into the new model class with zero missing/unexpected
+keys. **The retrain that actually uses these switches is gated on
+the v0.4.2 corpus expansion** — there's no point retraining on the
+same 12.56M tokens when the architecture can absorb meaningfully more.
+
+### Other infra
+
+- **MLX export** — `phase5_chat_v2_mlx_q4/` has the q4-quantized MLX
+  weights for fast inference on Apple silicon (`scripts/mlx_chat.py`).
+- **MCP server** — chat over MCP for IDE integrations (`docs/mcp.md`).
+- **`run_bench.py`** — first benchmark harness in the project. Auto-
+  appends rows to `RESULTS.md`. Currently wired for CTIBench MCQ;
+  schema is benchmark-agnostic so adding e.g. SecQA or CySecBench is
+  a drop-in.
+
+### What's canonical now
+
+- **Base completion model:** ghost-small Phase 4 (v0.4.0) at
+  `checkpoints/phase4_ghost_small/best_model.pt`. Unchanged.
+- **Canonical chat model:** **`checkpoints/phase5_chat_v3/best_model.pt`**.
+  This is the model to use for any chat / MCQ / instruction-following
+  task. v1 and v2 are preserved as `phase5_chat/` and `phase5_chat_v2/`
+  for ablation reference.
+- **v0.5 architecture pretrain:** does not exist yet; the retrain is
+  v0.4.2's job once the corpus lands.
+
+---
+
+## [0.4.0] — 2026-04-30 — Phase 4 ghost-small; capacity-reallocation hypothesis confirmed
+
+The headline training result the project has been working toward since
+Phase 3.6 told us ghost-tiny had hit its capacity ceiling. ghost-small
+(~45M params, 6 layers / 512 d_model / 8 heads) trained for 30,000
+steps on the same 12.56M-token Phase 3.6 corpus that broke ghost-tiny —
+local Mac M4 MPS, ~15 hours wall-clock, batch_size=8 × grad_accum=4
+(effective 32). Full training-log JSON is committed at
+`logs/phase4_ghost_small/training_log.json` and the canonical checkpoint
+is at `checkpoints/phase4_ghost_small/best_model.pt`.
+
+**Loss trajectory (lower is better):**
+- Step 1,000 (mid-warmup): val_loss 5.0758
+- Step 10,000: val_loss 2.6548
+- Step 20,000: val_loss 2.4031
+- Step 30,000 (final): **val_loss 2.3535** — a **1.20-nat improvement**
+  over the Phase 3.5 ghost-tiny canonical (3.5518), equivalent to ~3.3×
+  lower perplexity. Loss was still descending at the final step (no
+  overfitting plateau visible across 30k steps), so further training on
+  the same corpus would likely keep paying.
+
+### Per-source perplexity — the cleanest test
+
+The Phase 3.6 regression diagnosis was per-source: every existing source
+got 28–42% worse on ghost-tiny when Exploit-DB content was added.
+ghost-small absorbs the same corpus and dominates every source — by
+**59–78% relative to Phase 3.5**, by 68–80% relative to Phase 3.6:
+
+| Source | Phase 3.5 | Phase 3.6 | **Phase 4** | vs 3.5 | vs 3.6 |
+|---|---:|---:|---:|---:|---:|
+| arxiv | 354.95 | 505.60 | **116.46** | **−67%** | −77% |
+| capec | 133.81 | 179.71 | **54.42** | **−59%** | −70% |
+| ctftime | 60.71 | 59.70 | **13.23** | **−78%** | −78% |
+| exploitdb | — | 40.87 | **8.60** | — | −79% |
+| mitre_attack | 55.14 | 70.53 | **19.72** | **−64%** | −72% |
+| nvd | 27.55 | 35.44 | **11.29** | **−59%** | −68% |
+| synthetic | 28.48 | 38.90 | **7.88** | **−72%** | −80% |
+| **overall** | **66.05** | **44.36** | **11.12** | **−83%** | **−75%** |
+
+This is the empirical confirmation of the capacity-reallocation
+hypothesis. Phase 3.6 didn't fail because the corpus was bad — it
+failed because 14.7M params couldn't hold seven sources at once. 45M
+params hold all seven without the tradeoff. **The path forward is the
+model, not the data — confirmed.**
+
+### Security task suite — mixed, with a methodology finding
+
+The 5×25 = 125-sample multiple-choice suite (CVE Severity / Vuln Type /
+Attack Technique / CTF Categorization / MITRE Tactic) gives a more
+nuanced read, and reveals an eval-methodology issue worth documenting
+before users misread the numbers:
+
+| Task | Phase 3.5 (PMI) | **Phase 4 (PMI)** | Phase 3.5 (logp) | **Phase 4 (logp)** |
+|---|---:|---:|---:|---:|
+| CVE Severity | 8/25 (32%) | 6/25 (24%) | 6/25 (24%) | 6/25 (24%) |
+| Vuln Type | 8/25 (32%) | **10/25 (40%)** | 5/25 (20%) | 4/25 (16%) |
+| Attack Tech | 10/25 (40%) | 4/25 (16%) | 2/25 (8%) | 3/25 (12%) |
+| CTF Cat | 10/25 (40%) | 7/25 (28%) | 7/25 (28%) | 7/25 (28%) |
+| MITRE Tactic | 3/25 (12%) | 2/25 (8%) | 2/25 (8%) | **4/25 (16%)** |
+| **Overall** | **39/125 (31.2%)** | 29/125 (23.2%) | 22/125 (17.6%) | **24/125 (19.2%)** |
+
+Read the columns top-to-bottom rather than the rows: **with logp
+scoring (the more conservative scorer that does not subtract the
+unconditional log-prob), Phase 4 beats Phase 3.5.** The PMI advantage
+that flatters Phase 3.5 (+13.6 pp PMI vs logp) shrinks dramatically on
+Phase 4 (+4.0 pp PMI vs logp). The mechanism is calibration: PMI
+subtracts the unconditional candidate log-prob to break ties, and a
+higher-capacity model with a tighter probability distribution gives PMI
+less separation to extract. The 25-sample-per-task suite is small
+enough that this calibration asymmetry can flip the headline.
+
+The honest ranking by metric:
+1. **Per-source PPL (density):** Phase 4 wins decisively (−83% overall vs Phase 3.5).
+2. **Logp eval (conservative scoring):** Phase 4 wins narrowly (+1.6 pp).
+3. **PMI eval (favors loose-distribution models):** Phase 3.5 wins (+8.0 pp).
+
+For any user-facing generation work — completion, rewriting, register
+matching — Phase 4 is strictly better. The PMI eval result is preserved
+honestly in the comparison table; ghost-small is promoted to canonical
+for everything except backwards-compatibility with the existing PMI
+suite.
+
+### What changed code-side
+
+- `scripts/train.py` gains a `--warmup-steps` flag so future short smoke
+  runs aren't dominated by the default 2000-step warmup. Used to land
+  the batch=4 and batch=8 smoke runs that informed the full Phase 4
+  recipe (final config: batch=8, grad_accum=4, MPS, 30k steps).
+- `checkpoints/phase4_smoke/`, `checkpoints/phase4_b8_smoke/`, and
+  `checkpoints/phase4_ghost_small/` are all on disk; only the last is
+  the canonical artifact. The smoke checkpoints are kept as the
+  "what would 300 / 100 steps of ghost-small look like" reference.
+
+### What didn't change
+
+- Phase 3.5 ghost-tiny (`checkpoints/phase3.5_balanced/best_model.pt`)
+  remains on disk as the historical canonical and continues to be the
+  better answer on the existing PMI suite. It is **not** removed.
+- The corpus is unchanged (12.56M tokens, Phase 3.6 mix). This release
+  is purely a model-capacity scale-up at fixed corpus.
+
+### Next rung
+
+Phase 4 leaves two open questions the current setup can't answer:
+1. Does the loss curve keep descending past 30k steps on Phase 3.6
+   corpus, or does it overfit? (Worth running — cheap.)
+2. Does ghost-base (~350M) absorb a 50–100M-token corpus the same way
+   ghost-small absorbed 12.56M? (External GPU territory; gated on
+   either compute budget or a meaningful corpus expansion first.)
+
+The Unreleased section below tracks both.
+
+---
+
 ## [Unreleased] — Upcoming
 
-ghost-small training will run on external GPU hardware. The
-`checkpoints/phase3.6_exploitdb/best_model.pt` artifact + the 12.56M-
-token Phase 3.6 corpus in `data/processed/` are the cleanest training
-target. Returning numbers for the eval suite + per-source PPL on
-ghost-small lands as v0.4.0 when complete.
+v0.5 ships chat-tune + benchmark + arch-switch wiring. The **next**
+release tightens the loop on the bottleneck v0.5 surfaced — the
+corpus is too small for the architecture we're holding ready.
+
+- **v0.4.2 — corpus expansion (Phase 4.5 corpus).** The bottleneck.
+  Targeting ~50M tokens via: (1) arXiv full-text PDFs at scale (the
+  v0.3.6 collector exists but hasn't been run), (2) CTFtime beyond
+  the curated 28-event seed via the discovery script, (3) the
+  security-research-blogs collector (not yet built). This is the
+  gate on the v0.5 retrain — all three architecture switches are
+  wired and waiting for a corpus that justifies the compute.
+- **v0.5.1 — `ghost-small-v0.5` from-scratch retrain.** RoPE +
+  SwiGLU + RMSNorm on the Phase 4.5 corpus. Same param budget
+  (~45M), better architecture, ~4× more data. Expected to close
+  meaningfully more of the CTIBench gap to frontier LLMs than chat
+  tuning alone could on the small corpus.
+- **v0.5.2 — RAFT-style retrieval-aware tuning.** RAG at v0.5
+  showed the 45M model can't use retrieved context. Re-trying
+  with retrieval-aware fine-tuning (RAFT) on a meaningfully larger
+  base model is the second path to the next CTIBench bump.
+
+ghost-base (~350M params) remains the next architectural rung but is
+gated on external GPU + the v0.4.2 corpus expansion + a retrained
+v0.5 base model demonstrating the recipe still scales.

@@ -105,6 +105,13 @@ def parse_args():
         default=None,
         help="Override config save_interval (steps between checkpoint saves).",
     )
+    parser.add_argument(
+        "--warmup-steps",
+        type=int,
+        default=None,
+        help="Override config warmup_steps. Useful for short smoke runs where "
+        "the default 2000-step warmup would dominate the run.",
+    )
 
     return parser.parse_args()
 
@@ -143,6 +150,8 @@ def main():
         config.eval_interval = args.eval_interval
     if args.save_interval is not None:
         config.save_interval = args.save_interval
+    if args.warmup_steps is not None:
+        config.warmup_steps = args.warmup_steps
     if args.run_name:
         config.checkpoint_dir = f"checkpoints/{args.run_name}"
         config.log_dir = f"logs/{args.run_name}"
