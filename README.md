@@ -1,4 +1,4 @@
-![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-Phase%203.5%20Complete-green.svg)
+![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-v0.5.0%20chat--tuned-green.svg)
 
 # GhostLM
 
@@ -57,8 +57,9 @@ GhostLM is a multi-year scale ladder. Each rung validates the recipe before clim
 
 | Variant | Layers | Dim | Params | Hardware target | Status |
 |---|---|---|---|---|---|
-| ghost-tiny | 2 | 256 | 14.7M | CPU | Phase 2 complete (10K steps, val_loss 3.78) |
-| ghost-small | 6 | 512 | ~55M | M4 GPU/MPS | Planned |
+| ghost-tiny | 2 | 256 | 14.7M | CPU | Historical — Phase 3.5 canonical on the PMI suite, superseded by ghost-small |
+| ghost-small | 6 | 512 | ~45M | M4 GPU/MPS | **Canonical (v0.4.0)** — Phase 4 base; chat-tuned v3 at 36.9% on CTIBench MCQ (v0.5.0) |
+| ghost-small-v0.5 | 6 | 512 | ~36M | M4 GPU/MPS | Pretraining in progress — RoPE / SwiGLU / RMSNorm + 32K BPE on ~55M-token corpus |
 | ghost-base | 12 | 768 | ~350M | Rented GPU (A/H100) | Planned |
 | ghost-1B | 24 | 1024 | ~1B | Rented or owned GPU | Long-term goal |
 
