@@ -448,7 +448,12 @@ class GhostLM(nn.Module):
         no_decay = set()
 
         whitelist = (nn.Linear,)
-        blacklist = (nn.LayerNorm, nn.Embedding)
+        # RMSNorm is custom (defined in this module), so we include it in the
+        # blacklist by class — its `.weight` should be no-decay just like
+        # LayerNorm's. Without this, the v0.5 ghost-small-v0.5 preset
+        # crashes at optimizer setup with every block's ln_*.weight
+        # uncategorized.
+        blacklist = (nn.LayerNorm, nn.Embedding, RMSNorm)
 
         for mn, m in self.named_modules():
             for pn, p in m.named_parameters():
