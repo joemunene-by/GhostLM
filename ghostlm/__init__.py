@@ -6,7 +6,7 @@ from ghostlm.tokenizer import GhostTokenizer
 from ghostlm.dataset import GhostDataset, build_dataloaders
 from ghostlm.trainer import GhostTrainer
 
-__version__ = "0.1.0"
+__version__ = "0.5.0"
 __author__ = "Joe Munene"
 
 __all__ = [
