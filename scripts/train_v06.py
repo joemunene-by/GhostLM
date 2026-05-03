@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""GhostLM v0.5 from-scratch pretrain — RoPE + SwiGLU + RMSNorm + custom 32K BPE.
+"""GhostLM v0.6 from-scratch pretrain — RoPE + SwiGLU + RMSNorm + GPT-2 50K BPE.
 
-Spins up the full v0.5 stack and starts pretraining ghost-small-v0.5 on
-the expanded v0.4.2 corpus (~58M tokens after the arxiv full-text pull).
-This is a from-scratch run — no checkpoint, random init.
+Tests the leading hypothesis from the v0.5 postmortem: that v0.5 trails v0.4
+on CTIBench MCQ because v0.5's custom 32K BPE fragments cybersec terms that
+v0.4's GPT-2 50K BPE keeps whole. v0.6 keeps everything else from v0.5
+(modern attention stack, expanded corpus) and swaps only the tokenizer.
 
-Defaults:
-  - 60,000 steps, batch_size 8 × grad_accum 4 (effective 32)
-  - Cosine LR schedule, peak 3e-4, 2,000-step warmup
-  - Custom 32K BPE from ``data/tokenizer_v05/tokenizer.json``
-  - Architecture: RoPE + SwiGLU + RMSNorm (the ``ghost-small-v0.5`` preset)
+Architecture: ghost-small-v0.5 preset (RoPE + SwiGLU + RMSNorm), but vocab
+set to 50264 (GPT-2 50K + 7 special tokens) instead of the v0.5 32K BPE.
+Tokenizer: the legacy ``GhostTokenizer`` wrapping tiktoken's GPT-2 BPE.
+Corpus: ``data/processed/train.jsonl`` (307K records — includes the
+2026-05-03 MITRE full + CISA KEV expansion).
 
-Wall-clock estimate on Mac M4 MPS at the existing 1.8s/step throughput:
-about 30 hours for 60K steps. That's a real overnight + half-a-day
-commitment — only kick this off when you can leave the Mac running.
+Defaults sized for an overnight run: 15K steps × ctx 1024 × effective
+batch 32 ≈ 500M tokens, ~7-8h on Mac M4 MPS. v0.4 base was Chinchilla-
+undertrained at ~30K steps and still held the chat-tune ceiling, so
+this should be enough signal to test the BPE-swap hypothesis without a
+multi-day commitment.
 
-Outputs land under ``checkpoints/phase6_v05_pretrain/`` with periodic
-saves and the standard JSON training log.
+Resume-safe via --resume.
 """
 
 import argparse
@@ -27,20 +29,18 @@ import torch
 from ghostlm.config import GhostLMConfig
 from ghostlm.dataset import build_dataloaders
 from ghostlm.model import GhostLM
-from ghostlm.tokenizer import GhostTokenizerV05, load_tokenizer
+from ghostlm.tokenizer import GhostTokenizer
 from ghostlm.trainer import GhostTrainer
 
 
 def parse_args() -> argparse.Namespace:
     """CLI args."""
-    p = argparse.ArgumentParser(description="GhostLM v0.5 from-scratch pretrain")
+    p = argparse.ArgumentParser(description="GhostLM v0.6 from-scratch pretrain (v0.5 arch + GPT-2 BPE)")
     p.add_argument("--train-data", default="data/processed/train.jsonl")
     p.add_argument("--val-data", default="data/processed/val.jsonl")
-    p.add_argument("--tokenizer", default="data/tokenizer_v05/tokenizer.json",
-                   help="Path to the v0.5 BPE tokenizer.json")
-    p.add_argument("--run-name", default="phase6_v05_pretrain")
-    p.add_argument("--max-steps", type=int, default=60_000)
-    p.add_argument("--warmup-steps", type=int, default=2_000)
+    p.add_argument("--run-name", default="phase9_v06_pretrain")
+    p.add_argument("--max-steps", type=int, default=15_000)
+    p.add_argument("--warmup-steps", type=int, default=1_000)
     p.add_argument("--learning-rate", type=float, default=3e-4)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--grad-accum-steps", type=int, default=4)
@@ -50,34 +50,23 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", default="auto")
     p.add_argument("--resume", default=None,
-                   help="Resume from a checkpoint .pt file (typically the latest "
-                        "checkpoint_step_N.pt or best_model.pt under "
-                        "checkpoints/phase6_v05_pretrain/). Restores model + "
-                        "optimizer state + step counter. Use this after an OOM "
-                        "or other crash to continue from the last save.")
+                   help="Resume from a checkpoint .pt file. Restores model + "
+                        "optimizer state + step counter.")
     return p.parse_args()
 
 
 def main() -> None:
-    """Build everything and run the training loop."""
+    """Build everything and run the v0.6 training loop."""
     args = parse_args()
     torch.manual_seed(args.seed)
 
-    # ---- Tokenizer ----
-    tokenizer_path = Path(args.tokenizer)
-    if not tokenizer_path.exists():
-        raise FileNotFoundError(
-            f"v0.5 tokenizer not found at {tokenizer_path}. Run "
-            "`scripts/train_tokenizer.py` first."
-        )
-    tokenizer = load_tokenizer(str(tokenizer_path))
-    if not isinstance(tokenizer, GhostTokenizerV05):
-        raise TypeError("Expected v0.5 tokenizer; got the legacy GhostTokenizer.")
+    # ---- Tokenizer: legacy GPT-2 50K BPE (NOT the v0.5 custom 32K) ----
+    tokenizer = GhostTokenizer()
     print(f"Tokenizer: {tokenizer}")
 
-    # ---- Config: ghost-small-v0.5 architecture (RoPE + SwiGLU + RMSNorm) ----
+    # ---- Config: v0.5 architecture, GPT-2 vocab ----
     config = GhostLMConfig.from_preset("ghost-small-v0.5")
-    config.vocab_size = tokenizer.vocab_size
+    config.vocab_size = tokenizer.vocab_size  # 50264
     config.context_length = args.context_length
     config.batch_size = args.batch_size
     config.grad_accum_steps = args.grad_accum_steps
@@ -91,17 +80,14 @@ def main() -> None:
     config.device = args.device
     print(config)
 
-    # ---- Model ----
     model = GhostLM(config)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"Model parameters: {n_params:,}")
 
-    # ---- Data ----
     train_loader, val_loader = build_dataloaders(
         args.train_data, args.val_data, tokenizer, config,
     )
 
-    # ---- Train ----
     trainer = GhostTrainer(model, config)
     Path(config.checkpoint_dir).mkdir(parents=True, exist_ok=True)
     print(f"Saving to: {config.checkpoint_dir}")
@@ -116,7 +102,7 @@ def main() -> None:
 
     trainer.train(train_loader, val_loader)
     print()
-    print("v0.5 pretrain complete.")
+    print("v0.6 pretrain complete.")
 
 
 if __name__ == "__main__":

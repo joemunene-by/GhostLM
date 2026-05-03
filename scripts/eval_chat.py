@@ -14,7 +14,7 @@ import torch
 
 from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM
-from ghostlm.tokenizer import GhostTokenizer
+from ghostlm.tokenizer import GhostTokenizer, load_tokenizer
 from scripts.chat import generate_until_end, resolve_device
 
 
@@ -73,6 +73,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-tokens", type=int, default=200)
     p.add_argument("--repetition-penalty", type=float, default=1.25)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--tokenizer", default=None,
+                   help="Optional path to a v0.5 tokenizer.json")
     p.add_argument("--out", default=None,
                    help="Optional path to write transcript to (defaults to stdout)")
     return p.parse_args()
@@ -103,7 +105,7 @@ def main() -> None:
     torch.manual_seed(args.seed)
     device = resolve_device(args.device)
     model, cfg = load_model(args.checkpoint, device)
-    tokenizer = GhostTokenizer()
+    tokenizer = load_tokenizer(args.tokenizer) if args.tokenizer else GhostTokenizer()
     end_id = tokenizer._special_tokens[tokenizer.END]
 
     use_chat = cfg.vocab_size >= tokenizer.vocab_size

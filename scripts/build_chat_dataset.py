@@ -82,6 +82,32 @@ SYNTHETIC_QUESTIONS = [
     "Talk me through {topic}.",
 ]
 
+MITRE_FULL_QUESTIONS_GENERIC = [
+    "What is {id}?",
+    "Tell me about {id}.",
+    "Describe MITRE ATT&CK {id}.",
+    "Summarize {id}.",
+    "Explain {id}.",
+]
+
+MITRE_FULL_QUESTIONS_NAMED = [
+    "What is {id} ({name})?",
+    "Tell me about the {name} {type_lower}.",
+    "Describe the {name} {type_lower}.",
+    "Summarize {id} — {name}.",
+    "What does {name} do?",
+]
+
+CISA_KEV_QUESTIONS = [
+    "What is {cve}?",
+    "Tell me about {cve}.",
+    "Has {cve} been exploited in the wild?",
+    "Why is {cve} on the CISA KEV catalog?",
+    "Describe {cve}.",
+    "What product does {cve} affect?",
+    "Summarize {cve}.",
+]
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -267,6 +293,72 @@ def build_ctftime(records: List[dict], rng: random.Random) -> List[dict]:
     return out
 
 
+def build_mitre_full(records: List[dict], rng: random.Random) -> List[dict]:
+    """Template MITRE full STIX records (mitigations, groups, malware, tools,
+    tactics, campaigns) into Q&A pairs. The records share the same
+    "MITRE ATT&CK <Type> <ID>: <Name>\\n" head as build_mitre, just with
+    different type prefixes."""
+    out: List[dict] = []
+    head_re = re.compile(r"MITRE ATT&CK ([\w()/ -]+?)\s+([A-Z]+\d+(?:\.\d+)?):\s*(.+)")
+    for r in records:
+        text = r["text"].strip()
+        first, _, rest = text.partition("\n")
+        m = head_re.match(first)
+        if not m:
+            continue
+        type_label = m.group(1).strip()
+        rid = m.group(2).strip()
+        name = m.group(3).strip()
+        body = rest.strip()
+        body = _trim_to_paragraphs(body, max_chars=1500)
+        if not body:
+            continue
+        answer = f"{rid} — {name}.\n\n{body}"
+
+        # Half the records use a generic id-keyed question; half use the
+        # name to teach name → description retrieval.
+        use_named = (int(hashlib.sha1(rid.encode("utf-8")).hexdigest(), 16) & 1) == 0
+        if use_named:
+            template = _sha_pick(MITRE_FULL_QUESTIONS_NAMED, rid)
+            question = template.format(id=rid, name=name, type_lower=type_label.lower())
+        else:
+            template = _sha_pick(MITRE_FULL_QUESTIONS_GENERIC, rid)
+            question = template.format(id=rid, name=name)
+
+        out.append({
+            "turns": [
+                {"role": "user", "content": question},
+                {"role": "assistant", "content": answer},
+            ],
+            "source": "mitre_full",
+            "ref": rid,
+        })
+    return out
+
+
+def build_cisa_kev(records: List[dict], rng: random.Random) -> List[dict]:
+    """Template CISA KEV records (actively exploited CVEs) into Q&A pairs."""
+    out: List[dict] = []
+    head_re = re.compile(r"CISA KEV\s+—\s+(CVE-[\w-]+)")
+    for r in records:
+        text = r["text"].strip()
+        m = head_re.search(text)
+        if not m:
+            continue
+        cve = m.group(1).strip()
+        body = _trim_to_paragraphs(text, max_chars=1500)
+        question = _sha_pick(CISA_KEV_QUESTIONS, cve).format(cve=cve)
+        out.append({
+            "turns": [
+                {"role": "user", "content": question},
+                {"role": "assistant", "content": body},
+            ],
+            "source": "cisa_kev",
+            "ref": cve,
+        })
+    return out
+
+
 def build_synthetic(records: List[dict], rng: random.Random) -> List[dict]:
     """Template synthetic CTF-style writeups with topic-keyed questions."""
     out: List[dict] = []
@@ -349,6 +441,18 @@ def parse_args() -> argparse.Namespace:
                         "model to output a single letter after Answer:.")
     p.add_argument("--mcq-val-frac", type=float, default=0.05,
                    help="Held-out fraction of MCQs for validation.")
+    p.add_argument("--mcq-cot-jsonl", default="",
+                   help="Optional second MCQ source — CoT-templated records "
+                        "(letter answer + 1-2 sentence justification, built by "
+                        "scripts/build_mcq_cot_data.py). Mixed alongside the "
+                        "raw letter-only MCQs to give the model both the "
+                        "shortcut signal and the reasoning supervision.")
+    p.add_argument("--mcq-cot-multiplier", type=int, default=2,
+                   help="Copies of the CoT MCQ set to inject. Hybrid recipe "
+                        "keeps raw MCQs at high mult and CoT at low mult.")
+    p.add_argument("--exclude-sources", nargs="*", default=[],
+                   help="Source names to skip (e.g. mitre_full cisa_kev) — "
+                        "used to A/B-test which sources help vs hurt.")
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
@@ -374,6 +478,11 @@ def main() -> None:
     pairs.extend(build_exploitdb(by_source.get("exploitdb", []), args.exploitdb_target, rng))
     pairs.extend(build_ctftime(by_source.get("ctftime", []), rng))
     pairs.extend(build_synthetic(by_source.get("synthetic", []), rng))
+    excluded = set(args.exclude_sources)
+    if "mitre_full" not in excluded:
+        pairs.extend(build_mitre_full(by_source.get("mitre_full", []), rng))
+    if "cisa_kev" not in excluded:
+        pairs.extend(build_cisa_kev(by_source.get("cisa_kev", []), rng))
 
     print()
     print("=== Generated Q&A pairs by source ===")
@@ -422,6 +531,19 @@ def main() -> None:
               f"train_after_×{args.mcq_multiplier}={len(mcq_train_oversampled):,})")
         train_pairs.extend(mcq_train_oversampled)
         val_pairs.extend(mcq_val)
+
+    if args.mcq_cot_jsonl and Path(args.mcq_cot_jsonl).exists():
+        cot_all = load_jsonl(Path(args.mcq_cot_jsonl))
+        rng.shuffle(cot_all)
+        n_cot_val = max(1, int(len(cot_all) * args.mcq_val_frac))
+        cot_val = cot_all[:n_cot_val]
+        cot_train_unique = cot_all[n_cot_val:]
+        cot_train_oversampled = cot_train_unique * args.mcq_cot_multiplier
+        print(f"  mcq_cot: unique={len(cot_all):,} "
+              f"(val={len(cot_val):,}, train_unique={len(cot_train_unique):,}, "
+              f"train_after_×{args.mcq_cot_multiplier}={len(cot_train_oversampled):,})")
+        train_pairs.extend(cot_train_oversampled)
+        val_pairs.extend(cot_val)
 
     rng.shuffle(train_pairs)
     rng.shuffle(val_pairs)

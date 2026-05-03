@@ -34,7 +34,7 @@ import torch.nn.functional as F
 
 from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM
-from ghostlm.tokenizer import GhostTokenizer
+from ghostlm.tokenizer import GhostTokenizer, load_tokenizer
 
 
 CHOICES = ["A", "B", "C", "D"]
@@ -166,8 +166,11 @@ def score_record(
     # is missing.
     scores: Dict[str, float] = {}
     for ch in CHOICES:
-        ids_space = tokenizer._encoder.encode(f" {ch}")
-        ids_plain = tokenizer._encoder.encode(ch)
+        # Use the public encode() so this works for both the legacy tiktoken
+        # backend (GhostTokenizer) and the v0.5 HF tokenizers backend
+        # (GhostTokenizerV05) without special-casing the underlying engine.
+        ids_space = tokenizer.encode(f" {ch}")
+        ids_plain = tokenizer.encode(ch)
         candidates = [ids_space[0]] if ids_space else []
         if ids_plain:
             candidates.append(ids_plain[0])
@@ -330,6 +333,9 @@ def parse_args() -> argparse.Namespace:
                    help="Cap evaluation to N records per benchmark (for smoke tests)")
     p.add_argument("--no-chat-format", action="store_true",
                    help="Force completion-style prompts (use for non-chat-tuned checkpoints)")
+    p.add_argument("--tokenizer", default=None,
+                   help="Optional path to a v0.5 tokenizer.json. When provided, "
+                        "uses the 32K BPE; otherwise legacy tiktoken GPT-2.")
     p.add_argument("--rag-dir", default=None,
                    help="If set, retrieve from data/rag and prepend top-K passages to each MCQ.")
     p.add_argument("--rag-top-k", type=int, default=4)
@@ -345,7 +351,7 @@ def main() -> None:
     args = parse_args()
     device = resolve_device(args.device)
     model, cfg = load_model(args.checkpoint, device)
-    tokenizer = GhostTokenizer()
+    tokenizer = load_tokenizer(args.tokenizer) if args.tokenizer else GhostTokenizer()
     chat_format = not args.no_chat_format and cfg.vocab_size >= tokenizer.vocab_size
 
     label = args.label or Path(args.checkpoint).parent.name + "/" + Path(args.checkpoint).stem

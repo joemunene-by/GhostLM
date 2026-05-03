@@ -27,7 +27,7 @@ import torch.nn as nn
 from ghostlm.chat_dataset import build_chat_dataloaders
 from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM
-from ghostlm.tokenizer import GhostTokenizer
+from ghostlm.tokenizer import GhostTokenizer, GhostTokenizerV05, load_tokenizer
 from ghostlm.trainer import GhostTrainer
 
 
@@ -51,15 +51,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--save-interval", type=int, default=500)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", default="auto")
+    p.add_argument("--tokenizer", default=None,
+                   help="Optional path to a v0.5 tokenizer.json. When provided, "
+                        "uses the 32K BPE; otherwise falls back to the legacy "
+                        "tiktoken GPT-2 BPE (50261 base vocab + 7 specials).")
     return p.parse_args()
 
 
 def expand_token_embedding(model: GhostLM, new_vocab_size: int) -> None:
     """Resize the model's tied embedding to ``new_vocab_size``.
 
-    Copies existing rows verbatim and initializes new rows with N(0, 0.02²),
-    matching the model's default embedding init scale. Re-ties lm_head to the
-    new embedding weight in-place.
+    Copies existing rows verbatim. New rows are initialized to the *mean* of the
+    existing embeddings plus tiny N(0, 0.001²) jitter — sub-100M models destabilize
+    when N(0, 0.02²) noise tokens hit the residual stream cold (research call:
+    SmolLM2 retrospective + Komatsuzaki et al. on warm-start). Re-ties lm_head.
     """
     old_emb = model.token_embedding
     old_vocab, d_model = old_emb.weight.shape
@@ -73,7 +78,10 @@ def expand_token_embedding(model: GhostLM, new_vocab_size: int) -> None:
     new_emb = nn.Embedding(new_vocab_size, d_model)
     with torch.no_grad():
         new_emb.weight[:old_vocab] = old_emb.weight
-        new_emb.weight[old_vocab:].normal_(mean=0.0, std=0.02)
+        mean_emb = old_emb.weight.mean(dim=0, keepdim=True)
+        n_new = new_vocab_size - old_vocab
+        new_emb.weight[old_vocab:] = mean_emb.expand(n_new, -1)
+        new_emb.weight[old_vocab:].add_(torch.randn(n_new, d_model) * 0.001)
 
     new_emb = new_emb.to(old_emb.weight.device).to(old_emb.weight.dtype)
     model.token_embedding = new_emb
@@ -97,8 +105,10 @@ def main() -> None:
 
     torch.manual_seed(args.seed)
 
-    # ---- Tokenizer (now with chat role markers) ----
-    tokenizer = GhostTokenizer()
+    # ---- Tokenizer ----
+    # When --tokenizer points at a v0.5 tokenizer.json, use the 32K BPE;
+    # otherwise fall back to the legacy tiktoken GPT-2 wrapper.
+    tokenizer = load_tokenizer(args.tokenizer) if args.tokenizer else GhostTokenizer()
     print(f"Tokenizer: {tokenizer}")
     print(f"  Special tokens: {sorted(tokenizer._special_tokens.items(), key=lambda kv: kv[1])}")
 
@@ -137,6 +147,18 @@ def main() -> None:
     # ---- Build model and load pretrain weights at original vocab size ----
     model = GhostLM(config)
     state = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt["model"]
+
+    # Pos embedding can be larger in the checkpoint (pretrain ctx 1024) than in
+    # the current model (SFT at smaller ctx). Slice down to match — chat data
+    # rarely needs > 512 tokens and shrinking ctx halves attention memory.
+    pe_key = "pos_embedding.weight"
+    if pe_key in state:
+        ckpt_pe = state[pe_key]
+        ctx_now = model.pos_embedding.weight.shape[0]
+        if ckpt_pe.shape[0] > ctx_now:
+            print(f"  Slicing pos_embedding {ckpt_pe.shape[0]} → {ctx_now} for SFT ctx")
+            state[pe_key] = ckpt_pe[:ctx_now]
+
     missing, unexpected = model.load_state_dict(state, strict=False)
     if unexpected:
         print(f"  Unexpected keys (ignored): {unexpected}")
@@ -164,7 +186,16 @@ def main() -> None:
 
     # Persist tokenizer alongside checkpoint so chat.py can load both.
     Path(config.checkpoint_dir).mkdir(parents=True, exist_ok=True)
-    tokenizer.save(f"{config.checkpoint_dir}/tokenizer.json")
+    tok_save_path = f"{config.checkpoint_dir}/tokenizer.json"
+    if isinstance(tokenizer, GhostTokenizerV05):
+        # V05 backend: copy the canonical tokenizer.json verbatim. The
+        # save method on GhostTokenizer only writes special-token metadata,
+        # which doesn't capture the BPE state — for V05 we need the raw
+        # HuggingFace tokenizers JSON.
+        import shutil
+        shutil.copy2(args.tokenizer, tok_save_path)
+    else:
+        tokenizer.save(tok_save_path)
 
     trainer.train(train_loader, val_loader)
 

@@ -1,0 +1,62 @@
+{
+  "base_vocab_size": 32000,
+  "new_vocab_size": 32007,
+  "added_tokens": [
+    {
+      "text": " hello",
+      "new_id": 32000,
+      "was_ids": [
+        6555,
+        298
+      ]
+    },
+    {
+      "text": " hey",
+      "new_id": 32001,
+      "was_ids": [
+        881,
+        95
+      ]
+    },
+    {
+      "text": " bye",
+      "new_id": 32002,
+      "was_ids": [
+        418,
+        75
+      ]
+    },
+    {
+      "text": " I'm",
+      "new_id": 32003,
+      "was_ids": [
+        357,
+        20687
+      ]
+    },
+    {
+      "text": " you're",
+      "new_id": 32004,
+      "was_ids": [
+        2375,
+        12233
+      ]
+    },
+    {
+      "text": " can't",
+      "new_id": 32005,
+      "was_ids": [
+        468,
+        3057
+      ]
+    },
+    {
+      "text": " don't",
+      "new_id": 32006,
+      "was_ids": [
+        8019,
+        3057
+      ]
+    }
+  ]
+}
