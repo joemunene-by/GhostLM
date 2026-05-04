@@ -68,6 +68,35 @@ def load_cybermetric(split: str = "500") -> List[Dict]:
     return out
 
 
+def load_ctf_eval_bench(path: str = "data/raw/ctf_eval_bench.jsonl") -> List[Dict]:
+    """Load the in-repo CTF MCQ evaluation benchmark (issue #6).
+
+    30 hand-written questions across web / crypto / pwn / rev / forensics /
+    stego / misc CTF categories. Schema matches CTIBench MCQ so the same
+    scoring path works. Source: ``data/raw/ctf_eval_bench.jsonl``.
+    """
+    from pathlib import Path as _P
+    p = _P(path)
+    if not p.exists():
+        raise FileNotFoundError(
+            f"CTF benchmark not found at {p}. Run from the GhostLM repo root, "
+            "or pass --ctf-bench-path."
+        )
+    out: List[Dict] = []
+    with p.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            r = json.loads(line)
+            out.append({
+                "question": r["question"],
+                "choices": r["choices"],
+                "answer": r["answer"].strip().upper()[:1],
+            })
+    return out
+
+
 def load_ctibench_mcq() -> List[Dict]:
     """Load the CTIBench multiple-choice subset (2500 records)."""
     from datasets import load_dataset
@@ -326,9 +355,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--bench", nargs="+",
                    default=["ctibench-mcq"],
                    choices=["cybermetric-80", "cybermetric-500",
-                            "cybermetric-2000", "ctibench-mcq"],
+                            "cybermetric-2000", "ctibench-mcq",
+                            "ctf-eval"],
                    help="CyberMetric splits require HuggingFace gated access; "
-                        "CTIBench MCQ is open and the default.")
+                        "CTIBench MCQ is open and the default. ctf-eval is "
+                        "the in-repo 30-question CTF benchmark "
+                        "(data/raw/ctf_eval_bench.jsonl).")
     p.add_argument("--limit", type=int, default=None,
                    help="Cap evaluation to N records per benchmark (for smoke tests)")
     p.add_argument("--no-chat-format", action="store_true",
@@ -374,6 +406,8 @@ def main() -> None:
             data = load_cybermetric(split)
         elif bench == "ctibench-mcq":
             data = load_ctibench_mcq()
+        elif bench == "ctf-eval":
+            data = load_ctf_eval_bench()
         else:
             raise ValueError(f"Unknown bench: {bench}")
         print(f"  Loaded {len(data)} records")

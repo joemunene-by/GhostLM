@@ -26,6 +26,7 @@ data/raw/*
 data/processed/*
 data/rag/
 !data/raw/.gitkeep
+!data/raw/ctf_eval_bench.jsonl
 !data/processed/.gitkeep
 
 # Model checkpoints

@@ -45,6 +45,21 @@ def parse_args():
         action="store_true",
         help="Generate distribution charts",
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit a machine-readable JSON summary on stdout instead of (or in "
+        "addition to) the human-readable text output. Useful for tracking "
+        "dataset statistics in CI, comparing vocabulary drift between "
+        "dataset versions, or piping into a watch / diff workflow.",
+    )
+    parser.add_argument(
+        "--json-out",
+        type=str,
+        default=None,
+        help="Write the JSON summary to this path (instead of stdout). Implies "
+        "--json. The text output continues to print to stdout for human review.",
+    )
 
     return parser.parse_args()
 
@@ -232,6 +247,37 @@ def main():
         plt.close()
     elif args.plot and not HAS_MATPLOTLIB:
         print("\nInstall matplotlib to generate charts: pip install matplotlib")
+
+    # JSON summary for CI / pipelines (#15)
+    if args.json or args.json_out:
+        # Strip the lengths array out of train_stats since it's huge and not
+        # useful in a JSON summary; keep aggregate values.
+        def _strip(stats):
+            if not stats:
+                return {}
+            return {k: v for k, v in stats.items() if k != "lengths"}
+
+        summary = {
+            "train": _strip(train_stats),
+            "val": _strip(val_stats),
+            "vocab": vocab_stats,
+            "totals": {
+                "records": total_records,
+                "estimated_tokens": total_tokens,
+                "unique_sources": len(all_sources),
+                "sources": sorted(all_sources),
+                "ready_for_training": ready,
+            },
+        }
+        payload = json.dumps(summary, indent=2, default=str)
+        if args.json_out:
+            out = Path(args.json_out)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(payload)
+            print(f"\nJSON summary saved to {out}")
+        else:
+            print()
+            print(payload)
 
 
 if __name__ == "__main__":

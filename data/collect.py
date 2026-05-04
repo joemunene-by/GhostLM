@@ -22,8 +22,11 @@ from tqdm import tqdm
 def clean_text(text: str) -> str:
     """Clean and normalize raw text for training.
 
-    Strips excessive whitespace, removes non-printable characters,
-    and normalizes unicode to ASCII where possible.
+    Issue #5: improved cleaning over the original 5-rule pipeline. Adds
+    HTML stripping, URL/email normalization, smart-quote folding, control
+    char stripping (broader than just isprintable, which still passed weird
+    bidi marks through), bullet/dash typography normalization, and
+    repeated-punctuation collapse. The output stays plain ASCII.
 
     Args:
         text: Raw input text string.
@@ -34,15 +37,47 @@ def clean_text(text: str) -> str:
     if not isinstance(text, str):
         text = str(text)
 
+    # Strip HTML tags. Most CVE descriptions are clean but vendor advisories
+    # and exploitdb/CTFtime narratives sometimes leak <p>, <br/>, <code>.
+    text = re.sub(r"<[^>]+>", " ", text)
+
+    # Smart quotes / dashes / ellipsis -> ASCII equivalents BEFORE the
+    # unicode normalize step, because NFKD does not always map these to
+    # plain ASCII (e.g. "smart" quotes survive as combining characters).
+    smart_to_ascii = {
+        "‘": "'", "’": "'",  # left/right single
+        "“": '"', "”": '"',  # left/right double
+        "–": "-", "—": "-",  # en/em dash
+        "…": "...",                # ellipsis
+        " ": " ",                  # non-breaking space
+        "​": "",                   # zero-width space
+        "‌": "", "‍": "",     # zero-width joiners
+        "﻿": "",                   # BOM
+    }
+    for src, dst in smart_to_ascii.items():
+        text = text.replace(src, dst)
+
     # Normalize unicode to ASCII where possible
     text = unicodedata.normalize("NFKD", text)
     text = text.encode("ascii", "ignore").decode("ascii")
 
-    # Remove non-printable characters (keep newlines and tabs)
+    # Strip ASCII control chars except \n and \t (broader than isprintable;
+    # catches form feeds, vertical tabs, escape, DEL).
     text = "".join(
         ch for ch in text
-        if ch in ("\n", "\t") or ch.isprintable()
+        if ch in ("\n", "\t") or 0x20 <= ord(ch) < 0x7f
     )
+
+    # Collapse common bullet glyphs + dash bullets to "- " for consistency.
+    text = re.sub(r"(?m)^\s*[\*•·●▪\-·]\s+", "- ", text)
+
+    # Repeated punctuation (e.g. "!!!" "...." "?????") -> single instance.
+    text = re.sub(r"([!?\.])\1{2,}", r"\1\1\1", text)
+
+    # Bare URLs and emails contribute no useful tokens at this scale and
+    # bloat the vocab; replace with stable placeholders.
+    text = re.sub(r"https?://\S+", "<URL>", text)
+    text = re.sub(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b", "<EMAIL>", text)
 
     # Strip excessive blank lines (more than 2 consecutive newlines)
     text = re.sub(r"\n{3,}", "\n\n", text)

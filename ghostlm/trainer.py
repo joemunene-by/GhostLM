@@ -48,18 +48,53 @@ class GhostTrainer:
         else:
             self.device = config.device
 
+        # Distributed training support (issue #8). Detect whether we are
+        # running inside torchrun / torch.distributed.launch by reading the
+        # standard env vars; if so, set the local-rank device and wrap the
+        # model in DistributedDataParallel after moving to device.
+        # Single-GPU / CPU training is the default and unchanged.
+        self.is_distributed = (
+            "RANK" in os.environ
+            and "WORLD_SIZE" in os.environ
+            and int(os.environ.get("WORLD_SIZE", "1")) > 1
+        )
+        self.local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+        self.world_size = int(os.environ.get("WORLD_SIZE", "1"))
+        self.global_rank = int(os.environ.get("RANK", "0"))
+        self.is_main_process = self.global_rank == 0
+
+        if self.is_distributed:
+            import torch.distributed as dist
+            backend = "nccl" if torch.cuda.is_available() else "gloo"
+            if not dist.is_initialized():
+                dist.init_process_group(backend=backend)
+            if torch.cuda.is_available():
+                torch.cuda.set_device(self.local_rank)
+                self.device = f"cuda:{self.local_rank}"
+
         self.model = self.model.to(self.device)
 
-        # Mixed precision (AMP) — only effective on CUDA
+        # Mixed precision (AMP), only effective on CUDA
         if use_amp is None:
-            self.use_amp = self.device == "cuda"
+            self.use_amp = self.device.startswith("cuda")
         else:
-            self.use_amp = use_amp and self.device == "cuda"
+            self.use_amp = use_amp and self.device.startswith("cuda")
 
         self.grad_scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
 
-        # Optimizer
+        # Optimizer (built BEFORE wrapping in DDP so param groups see raw modules)
         self.optimizer = self.model.configure_optimizers(config)
+
+        # DDP wrap. Each rank now sees a self.model that does the all-reduce
+        # transparently in backward(). Other code paths that touch
+        # self.model.* still work because DDP forwards attribute access.
+        if self.is_distributed:
+            from torch.nn.parallel import DistributedDataParallel as DDP
+            ddp_kwargs = {}
+            if torch.cuda.is_available():
+                ddp_kwargs["device_ids"] = [self.local_rank]
+                ddp_kwargs["output_device"] = self.local_rank
+            self.model = DDP(self.model, **ddp_kwargs)
 
         # Create directories
         self.checkpoint_dir = Path(config.checkpoint_dir)
@@ -188,13 +223,23 @@ class GhostTrainer:
         state dict, and config. Also saves as "best_model.pt" if the current
         validation loss is the best seen so far.
 
+        Under distributed training, only rank 0 writes; the saved state_dict
+        unwraps DDP so checkpoints remain compatible with single-GPU loading.
+
         Args:
             val_loss: Current validation loss for comparison.
         """
+        # Only rank 0 writes checkpoints in DDP runs
+        if getattr(self, "is_distributed", False) and not self.is_main_process:
+            return
+
+        # Unwrap DDP to keep checkpoints loadable on a single GPU
+        raw_model = self.model.module if hasattr(self.model, "module") else self.model
+
         checkpoint = {
             "step": self.step,
             "val_loss": val_loss,
-            "model_state_dict": self.model.state_dict(),
+            "model_state_dict": raw_model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "grad_scaler_state_dict": self.grad_scaler.state_dict(),
             "config": asdict(self.config),
@@ -222,7 +267,9 @@ class GhostTrainer:
         """
         checkpoint = torch.load(path, map_location=self.device, weights_only=False)
 
-        self.model.load_state_dict(checkpoint["model_state_dict"])
+        # Load into the raw model (works for DDP-wrapped or single-GPU)
+        raw_model = self.model.module if hasattr(self.model, "module") else self.model
+        raw_model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         if "grad_scaler_state_dict" in checkpoint:
             self.grad_scaler.load_state_dict(checkpoint["grad_scaler_state_dict"])

@@ -112,6 +112,14 @@ def parse_args():
         help="Override config warmup_steps. Useful for short smoke runs where "
         "the default 2000-step warmup would dominate the run.",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for torch/numpy/python rngs. Two runs with the same "
+        "seed and same data should produce identical loss curves; use this "
+        "to validate that a contributor's PR doesn't change training behavior.",
+    )
 
     return parser.parse_args()
 
@@ -126,8 +134,22 @@ def main():
     """
     args = parse_args()
 
+    # Seed all the rngs we touch directly. The trainer / dataset / dataloader
+    # may have their own seeded shuffles; we set the global torch seed up
+    # front so two runs with the same seed produce identical init + loss
+    # curves on the same data.
+    import random
+    import numpy as np
+    import torch
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+
     # Load preset config
     config = GhostLMConfig.from_preset(args.preset)
+    config.seed = args.seed
 
     # Apply CLI overrides
     if args.max_steps is not None:
