@@ -1,8 +1,10 @@
-![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-v0.5.0%20chat--tuned-green.svg)
+![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-v0.6.0%20debiased-green.svg)
 
 # GhostLM
 
 > An open-source cybersecurity-focused language model built entirely from scratch in PyTorch.
+
+> **2026-05-04 update.** The v0.5.0 release reported chat-v3 at 36.9% on CTIBench MCQ. After running multi-permutation debiased eval (`scripts/eval_debiased.py`), that number was a positional-bias artifact: CTIBench gold-letter distribution is 15/32/37/15 (A/B/C/D), and the model collapsed to 98.6% C-emission during SFT, so single-order scoring rewarded bias not capability. Real per-permutation accuracy under text scoring is **~30%** across every chat-tune in this repo. Full investigation in [`docs/ctibench_bias_finding.md`](docs/ctibench_bias_finding.md). The chat-tune section below has been updated with both the single-order number (preserved for historical comparison) and the debiased real-capability number.
 
 GhostLM is a decoder-only transformer language model trained on CVE vulnerability descriptions, CTF writeups, and cybersecurity research. Built from scratch — no pretrained weights, no wrappers, every component written by hand.
 
@@ -58,9 +60,11 @@ GhostLM is a multi-year scale ladder. Each rung validates the recipe before clim
 | Variant | Layers | Dim | Params | Hardware target | Status |
 |---|---|---|---|---|---|
 | ghost-tiny | 2 | 256 | 14.7M | CPU | Historical — Phase 3.5 canonical on the PMI suite, superseded by ghost-small |
-| ghost-small | 6 | 512 | ~45M | M4 GPU/MPS | **Canonical (v0.4.0)** — Phase 4 base; chat-tuned v3 at 36.9% on CTIBench MCQ (v0.5.0) |
-| ghost-small-v0.5 | 6 | 512 | ~36M | M4 GPU/MPS | Pretraining in progress — RoPE / SwiGLU / RMSNorm + 32K BPE on ~55M-token corpus |
-| ghost-base | 12 | 768 | ~350M | Rented GPU (A/H100) | Planned |
+| ghost-small | 6 | 512 | ~45M | M4 GPU/MPS | **Canonical** — Phase 4 base; chat-tuned at 30.5% real (per-perm avg) / 36.9% single-order biased on CTIBench MCQ |
+| ghost-small-v0.5 | 6 | 512 | ~36M | M4 GPU/MPS | Trained — RoPE / SwiGLU / RMSNorm + custom 32K BPE. Chat-tunes land at 29-30% real, on par with v0.4 base under debiased eval. |
+| ghost-small-v0.6 | 6 | 512 | ~45M | M4 GPU/MPS | Trained — v0.5 architecture (RoPE + SwiGLU + RMSNorm) with GPT-2 50K BPE on the expanded corpus. Chat at 31.2% real. The BPE swap experiment. |
+| ghost-small-v0.7 | 6 | 768 | ~81M | M4 GPU/MPS | Trained — wider variant of v0.6 (d_model 768, d_ff 3072). Chat at 32.2% real (single best on debiased eval). Param-count ablation. |
+| ghost-base | 12 | 768 | ~350M | Rented GPU (A/H100) | Planned. Per the literature (SmolLM2, Phi-3.5-mini), factual recall on cybersec MCQ should start emerging meaningfully here. |
 | ghost-1B | 24 | 1024 | ~1B | Rented or owned GPU | Long-term goal |
 
 ghost-tiny is the iteration vehicle and educational artifact. It is not — and at this scale will not become — a useful cyber-task model. The scale ladder above is the path to "useful." See [ROADMAP.md](ROADMAP.md) for phased milestones, corpus targets per rung, and honest compute estimates.
@@ -162,18 +166,33 @@ For where the corpus is heading — Phase 3.6 volume targets (CTFtime expansion,
 
 The Phase 4 ghost-small checkpoint at `checkpoints/phase4_ghost_small/best_model.pt` is the current canonical model for any density / completion / generation work — it dominates Phase 3.5 by 59–78% on per-source perplexity across every source. The Phase 3.5 ghost-tiny checkpoint at `checkpoints/phase3.5_balanced/best_model.pt` remains on disk as the historical canonical and is still the higher number on the existing **PMI** multiple-choice suite (a calibration artifact at small corpus size; see [CHANGELOG.md](CHANGELOG.md) v0.4.0 for the PMI vs logp scoring analysis). Both are kept; pick by use case.
 
-### Chat tuning — v0.5 (current canonical chat model)
+### Chat tuning — debiased real capability (v0.6.0)
 
-A supervised fine-tune on top of Phase 4 ghost-small turns the base completion model into a conversational cybersecurity assistant. The canonical chat model is **`checkpoints/phase5_chat_v3/best_model.pt`** — same 45M params as Phase 4, an additional ~1,800 step SFT run with three new role tokens (`<|ghost_user|>`, `<|ghost_assistant|>`, `<|ghost_end|>`) and 1,802 templated MCQ examples mixed into the chat training data.
+A supervised fine-tune on top of the base ghost-small turns the completion model into a conversational cybersecurity assistant. The canonical chat model is **`checkpoints/phase5_chat_v3/best_model.pt`** (45M params, ~1,800 step SFT with three role tokens and 1,802 templated MCQ examples).
 
-| Checkpoint | CTIBench MCQ (n=2500) | Δ vs pretrain |
-|---|---:|---:|
-| `phase4_ghost_small` (pretrain only) | 17.8% (446) | — |
-| `phase5_chat_v2` (free-form SFT) | 19.0% (475) | +1.2 pp |
-| `phase5_chat_v2 + RAG(top4)` | 19.0% (476) | +1.2 pp |
-| **`phase5_chat_v3` (MCQ-tuned)** | **36.9% (922)** | **+19.1 pp** |
+The chat-tunes are evaluated on CTIBench MCQ (2500 4-choice questions) under three different scoring methodologies:
 
-Random baseline on 4-way MCQ is 25%. v3 is **1.48× random** — well above chance, well below frontier LLMs (85–95%). The next bump is a from-scratch retrain on a larger corpus (Phase 4.5, ~50M tokens) with the v0.5 architecture switches (RoPE + SwiGLU + RMSNorm) flipped on; that wiring is committed but gated on the corpus landing first. Full recipe in [`docs/chat_tuning.md`](docs/chat_tuning.md), benchmark in [`RESULTS.md`](RESULTS.md), CHANGELOG entry in v0.5.0.
+- **Single-order accuracy** — the original eval, scores log-prob of each letter token at one fixed option ordering. Reports the headline number you saw in v0.5.0. **Bias-exploitable: gold-letter dist is 15/32/37/15, so a model that emits "C" on every question scores 37.1%.**
+- **Letter per-perm avg** — `scripts/eval_debiased.py` runs N=4 option-letter permutations per record and reports the mean accuracy. A pure single-letter emitter collapses to 25% (random).
+- **Text per-perm avg** — `scripts/eval_text_scoring.py` skips the letter token entirely; scores log P(option_text | prompt) per option, picks the highest, again under N permutations. The cleanest read of real capability.
+
+| Checkpoint | Single-order | Letter per-perm avg | Text per-perm avg | Latched letter |
+|---|---:|---:|---:|---|
+| `phase4_ghost_small` (pretrain only) | 17.8% | — | — | — |
+| `phase5_chat_v2` (free-form SFT) | 19.0% | — | — | — |
+| `phase5_chat_v2 + RAG(top4)` | 19.0% | — | — | — |
+| **`phase5_chat_v3` (canonical)** | **36.9%** | 30.3% | **30.5%** | C (98.6%) |
+| `phase5_chat_v3_repro2` (recipe match) | 31.2% | 26.0% | 31.7% | B/C dual |
+| `phase8_chat_v05_v5` (v0.5 base hybrid) | 34.8% | 29.3% | 29.7% | C (79.6%) |
+| `phase10_chat_v06` (v0.6 BPE-swap) | 29.8% | 23.4% | 31.2% | B (86.2%) |
+| `phase13_chat_text` (text-loss SFT) | 19.6% | — | 30.1% | mixed |
+| `phase15_chat_v07` (81M wide) | 25.9% | — | **32.2%** | mixed |
+
+Random baseline on 4-way MCQ is 25%. The single-order column is preserved for historical comparison with the v0.5.0 release notes; the right number to read is **text per-perm avg**, where every chat-tune in this repo clusters at **29-32%** — well above chance, but ~5-7 points of real signal, not the 12+ that single-order suggested. Full investigation in [`docs/ctibench_bias_finding.md`](docs/ctibench_bias_finding.md). Recipe in [`docs/chat_tuning.md`](docs/chat_tuning.md), raw bench data in [`RESULTS.md`](RESULTS.md), per-checkpoint debiased JSONs in `logs/debiased/` and `logs/text_scoring/`.
+
+The 30% real ceiling is consistent across every architecture (v0.4 base, v0.5 base, v0.6 base, v0.7 wide), every BPE (GPT-2 50K, custom 32K), and every SFT objective (letter-loss, text-loss). Live testing confirms the model is a "cybersec parrot": it has learned vocabulary patterns and CTF-writeup style, but lacks factual grounding (gets EternalBlue's CVE wrong, conflates MITRE technique IDs). The bottleneck is data density at 60M tokens of CTF-writeup-heavy corpus, not architecture or recipe — five independent AI sources converged on this analysis.
+
+The next swing is **v0.8**, which mixes Qwen-14B-distilled fact-dense Q&A pairs with the open PRIMUS cybersec corpus (Trend Micro, EMNLP 2025, 2.57B + 190B tokens). Realistic target: 35-40% real on CTIBench. Pipeline at `scripts/build_fact_qa_data.py`.
 
 ### Cross-phase eval — fair comparison (fixed test set)
 
