@@ -6,42 +6,40 @@ This roadmap is honest about what each rung needs (compute, corpus, time) and wh
 
 ---
 
-## Where we are: v0.5.0 — chat-v3 canonical chat model (36.9% on CTIBench MCQ)
+## Where we are: v0.8 + v0.9 in progress, the 30% real-capability ceiling on debiased CTIBench
 
-**Current canonical model for chat / instruction following:** `checkpoints/phase5_chat_v3/best_model.pt` — Phase 4 ghost-small base + supervised fine-tune on a chat-format dataset that mixes templated cybersec instructions with 1,802 MCQ-format examples (2× oversampled). Lifts CTIBench MCQ accuracy from 17.8% (pretrain) → 19.0% (chat-v2 free-form) → **36.9% (chat-v3 MCQ-tuned)**, +19.1 pp / +447 questions correct over the pretrain baseline. Random baseline on 4-way MCQ is 25%; v3 is **1.48× random**.
+The v0.5.0 release reported chat-v3 at 36.9% on CTIBench MCQ. As of v0.6.0 we know that number was a positional-bias artifact: CTIBench's gold-letter distribution is 15/32/37/15 (A/B/C/D), the chat-v3 model collapsed to 98.6% C-emission during MCQ-format SFT, and a model that always emits "C" scores 37.1% on the v0.5.0 single-order metric. Real per-permutation accuracy under text scoring is **~30% across every chat-tune in the repo**. Full investigation in `docs/ctibench_bias_finding.md`.
 
-**Current canonical base model for density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` — ghost-small (~45M params) trained for 30k steps on the 12.56M-token Phase 3.6 corpus. Final val_loss 2.3535, a 1.20-nat (~3.3× perplexity) drop relative to Phase 3.5 ghost-tiny. Per-source perplexity dominates Phase 3.5 by 59–78% across every existing source and the new Exploit-DB source. The capacity-reallocation hypothesis is confirmed: 14.7M params couldn't hold seven sources at once; 45M params hold all seven without the tradeoff.
+Since then, every architecture and recipe move has landed inside a 29-32% band on debiased text-scoring:
 
-**v0.5 architecture switches (RoPE / SwiGLU / RMSNorm) are wired and gated on corpus expansion.** A `ghost-small-v0.5` preset in `GhostLMConfig.from_preset` flips all three on, and a forward+loss pass is verified end-to-end (45.0M params, matched parameter budget vs v0.4's 45.2M). The retrain that uses these switches doesn't ship until the v0.4.2 corpus expansion lands — there's no point retraining on the same 12.56M tokens when the architecture can absorb meaningfully more.
+| Variant | Pretrain | Recipe | Debiased text-scoring |
+|---|---|---|---:|
+| ghost-small (v0.4 base) chat-v3 | 12.56M tokens, learned PE / GELU / LayerNorm | MCQ-tuned, 1.8K steps | 30.5% |
+| ghost-small-v0.5 chat-v5 | v0.4.2 expanded, custom 32K BPE | hybrid raw×5 + CoT×2 | 29.7% |
+| ghost-small-v0.5 chat-text | v0.4.2 expanded, text-loss SFT | answer-text gold | 30.1% |
+| ghost-small-v0.6 chat | v0.5 arch + GPT-2 50K BPE | canonical chat-v3 recipe | 31.2% |
+| ghost-small-v0.7 chat | 81M wide (d_model 768), v0.5 arch | canonical chat-v3 recipe | **32.2%** |
+| ghost-small-v0.8 chat | v0.7 arch + 11K Qwen-14B fact-QA in pretrain | canonical chat-v3 recipe | 31.2% |
 
-| Item | v0.3.5 ghost-tiny (historical canonical) | **v0.4.0 ghost-small (current canonical)** |
-|---|---|---|
-| Variant | ghost-tiny | **ghost-small** |
-| Params | 14.7M | **~45M** |
-| Training tokens | ~8.8M (NVD 65%, balanced) | **~12.56M** (NVD 46%, +Exploit-DB 30%) |
-| Steps | 30,000 | **30,000** |
-| Final val_loss | 3.5518 | **2.3535** (−1.20 nats vs P3.5) |
-| Per-source PPL (overall) | 66.05 | **11.12** (−83%) |
-| Security task eval, PMI | **39/125 (31.2%)** | 29/125 (23.2%) |
-| Security task eval, logp | 22/125 (17.6%) | **24/125 (19.2%)** |
-| Hardware | Mac M4 (CPU), ~3h13m | Mac M4 (MPS), ~15h |
+Three architectural axes ablated to within the 29-32% band: BPE size (32K vs 50K), positional encoding + FFN + normalization (learned PE + GELU + LayerNorm vs RoPE + SwiGLU + RMSNorm), and parameter count (45M vs 81M, 1.8×). A fourth axis (SFT objective: letter-loss vs text-loss) sits inside the same band. A fifth (corpus density via 11K Qwen-14B-distilled fact-QA records) added zero pp to the bench.
 
-**Why ghost-small is canonical despite the PMI dip:** for any density / generation use (the actual product) the model is unambiguously better — overall val PPL dropped by 5.9× (66.05 → 11.12), and **every single source improved 59–78% relative to the Phase 3.5 canonical**. The PMI scoring quirk that flatters Phase 3.5 vanishes under conservative logp scoring, where Phase 4 wins. See `CHANGELOG.md` v0.4.0 for the methodology analysis.
+The diagnosis (five independent AI sources converged): the model has internalized the *register* of cyber writing but lacks the factual density to do structured recall. EternalBlue gets a wrong CVE; MITRE technique IDs get conflated; CVE-to-CWE mappings hallucinate.
 
-**The trajectory of training-recipe wins:**
-- Phase 2→3 (3× training volume, fixed model+corpus mix): +1.6 pp on the suite
-- Phase 3→3.5 (corpus rebalance, fixed model+steps): +11.2 pp
-- Phase 3.5→3.6 (corpus volume, fixed model+steps): **−14.4 pp** (capacity ceiling)
-- Phase 3.6→4 (model capacity, fixed corpus+steps): per-source PPL **−75% across the board**
+**The remaining swing is corpus density at the v0.7 architecture.** v0.9 (in progress) attacks this directly with a 273M-token corpus (4× v0.6/v0.7), built by mixing in Trend Micro's PRIMUS dataset (~85K Seed + ~300K FineWeb records, EMNLP 2025), MITRE CWE (969 weakness records with consequences and mitigations), the OWASP family (cheatsheets 110, WSTG 133, ASVS 80, Top 10 18), 48 IETF security RFCs, and the v0.8 fact-QA. If the ceiling holds at this scale too, the diagnosis is firm at "81M params is below the threshold for emergent factual recall, regardless of corpus quality", and the next move is the ghost-base (~350M) rung.
 
-**Capability characterization (v0.4.0):** ghost-small produces sharper register-matched prose than ghost-tiny — the same kinds of completions but with substantially fewer artifacts and broken token streams. Hallucinations are still rampant; form is right, facts are not. See MODEL_CARD's Sample Generations.
+**Canonical models on disk:**
+- **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
+- **Chat (debiased CTIBench winner):** `checkpoints/phase15_chat_v07/best_model.pt` (v0.7 chat, 32.2% per-perm avg).
+- **Chat (single-order CTIBench winner, biased):** `checkpoints/phase5_chat_v3/best_model.pt` (v0.5.0 canonical, 36.9% single-order / 30.5% debiased).
 
-**Checkpoints on disk (in order of release):**
-- Phase 1 / 2 archived: `checkpoints/best_model_phase{1,2}.pt`
-- Phase 3: `checkpoints/phase3_refresh/best_model.pt`
-- Phase 3.5 (historical canonical, better PMI scorer): `checkpoints/phase3.5_balanced/best_model.pt`
-- Phase 3.6 (preserved learning artifact, capacity-ceiling diagnosis): `checkpoints/phase3.6_exploitdb/best_model.pt`
-- **Phase 4 (current canonical):** `checkpoints/phase4_ghost_small/best_model.pt`
+**Historical / preserved:**
+- Phase 1 / 2: `checkpoints/best_model_phase{1,2}.pt`
+- Phase 3 / 3.5 / 3.6: `checkpoints/phase{3_refresh,3.5_balanced,3.6_exploitdb}/best_model.pt`
+- v0.5 base + chat: `checkpoints/phase{6_v05_pretrain,7_chat_v05_long,8_chat_v05_v5}/best_model.pt`
+- v0.6 base + chat: `checkpoints/phase{9_v06_pretrain,10_chat_v06}/best_model.pt`
+- v0.7 base + chat: `checkpoints/phase{14_v07_pretrain_v3,15_chat_v07}/best_model.pt`
+- v0.8 base + chat: `checkpoints/phase{16_v08_pretrain,17_chat_v08}/best_model.pt`
+- v0.9 base (training): `checkpoints/phase18_v09_pretrain/`
 
 ---
 

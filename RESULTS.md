@@ -2,6 +2,10 @@
 
 Each row is one (checkpoint × benchmark) score. Updated by `scripts/run_bench.py`.
 
+The first table preserves the **single-order** numbers (one fixed option ordering, log-prob of each letter token). These are the numbers in v0.5.0's release notes. As of v0.6.0 we know they're inflated by CTIBench's 15/32/37/15 gold-letter distribution combined with chat-v3's 98.6% C-emission, so a model that always emits "C" scores 37.1% on this metric. The single-order numbers stay here for historical comparison; the **debiased text-scoring** table below is the right read of real capability. See `docs/ctibench_bias_finding.md`.
+
+## Single-order (biased)
+
 | Checkpoint | Benchmark | n | Correct | Accuracy | Date |
 |---|---|---:|---:|---:|---|
 | ghost-small-v0.5 chat-v2 | ctibench-mcq | 2500 | 475 | 0.190 | 2026-05-01 |
@@ -22,3 +26,18 @@ Each row is one (checkpoint × benchmark) score. Updated by `scripts/run_bench.p
 | ghost-small-v0.4 chat-v3-repro2 (canonical recipe: lr 3e-5, 1800 steps, batch 8 × accum 4, ctx 1024) | ctibench-mcq | 2500 | 780 | 0.312 | 2026-05-03 |
 | ghost-small-v0.6 chat (v0.6 base: v0.5 arch + GPT-2 BPE + expanded corpus, canonical chat-v3 recipe) | ctibench-mcq | 2500 | 745 | 0.298 | 2026-05-03 |
 | ghost-small-v0.6 chat-hybrid (v0.6 base + chat-v5 hybrid recipe: raw×5 + CoT×2 + small-talk×8) | ctibench-mcq | 2500 | 374 | 0.150 | 2026-05-03 |
+| ghost-small-v0.7 chat (81M wide, step 600 best, OOM-killed before completion) | ctibench-mcq | 2500 | 648 | 0.259 | 2026-05-04 |
+
+## Debiased text-scoring (real capability)
+
+`scripts/eval_text_scoring.py` skips the letter token entirely, scores log P(option_text | prompt) per option under N option-letter permutations, and reports the mean accuracy. A pure single-letter emitter collapses to 25% (random) on this metric. n=500 (CTIBench-MCQ subset, two permutations: A,B,C,D and C,B,D,A).
+
+| Checkpoint | Per-perm accs | Per-perm avg | Date |
+|---|---|---:|---|
+| ghost-small-v0.4 chat-v3 (canonical) | 0.302 / 0.308 | **0.305** | 2026-05-04 |
+| ghost-small-v0.4 chat-v3-repro2 | 0.314 / 0.320 | **0.317** | 2026-05-04 |
+| ghost-small-v0.5 chat-v5 best | 0.292 / 0.302 | **0.297** | 2026-05-04 |
+| ghost-small-v0.5 chat-text (text-loss SFT) | 0.296 / 0.306 | **0.301** | 2026-05-04 |
+| ghost-small-v0.6 chat (canonical recipe) | 0.306 / 0.318 | **0.312** | 2026-05-04 |
+| ghost-small-v0.7 chat (81M wide, step 600 best) | 0.312 / 0.332 | **0.322** | 2026-05-04 |
+| ghost-small-v0.8 chat (81M wide + fact-dense pretrain) | 0.310 / 0.314 | **0.312** | 2026-05-05 |

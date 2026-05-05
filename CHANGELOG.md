@@ -514,6 +514,208 @@ Added to `Makefile` so the Phase 3.6 numbers can be reproduced: `make eval-secur
 
 ---
 
+## [0.8.0] — 2026-05-05 — Fact-dense pretrain via Qwen-14B distillation; ceiling holds
+
+The fact-density attempt at the 30% CTIBench ceiling. v0.7 had ruled out
+"the model is too small": 81M params at v0.7 wide hit 32.2% on debiased
+text-scoring, identical to every smaller variant. The remaining
+hypothesis was data density: a corpus dominated by CTF writeups doesn't
+contain the structured fact lookups CTIBench tests. v0.8 attacks that
+directly.
+
+### What landed
+
+- **`scripts/build_fact_qa_data.py`** — overnight pipeline that pulls
+  MITRE ATT&CK / CISA KEV / CWE / NVD descriptions and prompts a local
+  Qwen-14B (via Ollama `/api/generate`) to extract concrete factual Q&A
+  pairs (e.g. `Q: What CWE category is CVE-2021-44228? A: CWE-502`).
+  Resume-safe (id-keyed), 14h on M4. Produced 11,234 records in
+  `data/raw/fact_qa.jsonl`.
+- **Phase 16 pretrain (`phase16_v08_pretrain`)** — same v0.7 architecture
+  (81M wide, RoPE + SwiGLU + RMSNorm), pretrained from scratch on the
+  v0.7 corpus + the new fact-QA records. 15K steps, ~6h on M4.
+- **Phase 17 chat (`phase17_chat_v08`)** — canonical chat-v3 recipe SFT
+  on the v0.8 base. Best checkpoint at step 1800, val_loss 2.60.
+
+### Result: 31.2% per-perm avg on debiased text-scoring
+
+`logs/text_scoring/chat-v08.json`: 31.0% / 31.4% on the two
+permutations, 31.2% averaged. **0 pp improvement over v0.7.** Adding
+~11K Qwen-distilled Q&A pairs to a 60M-token CTF-writeup-heavy corpus
+moved the bench by less than the noise floor.
+
+The ceiling holds. Five independent attempts now sit between 29-32% on
+debiased CTIBench: v0.4 base (30.5%), v0.5 base (29.7%), v0.5 chat-text
+text-loss (30.1%), v0.6 BPE-swap (31.2%), v0.7 wide (32.2%),
+**v0.8 fact-dense (31.2%)**. The diagnosis is firm: the model is
+interpolating between memorized writeup patterns, not doing structured
+factual recall. Distilled Q&A doesn't fix the underlying corpus
+density problem because 11K records in a ~60M-token corpus is a 0.2%
+share, not enough to shift the model's prior toward fact lookup.
+
+### What v0.9 will test (in progress)
+
+Drop the distillation crutch, expand the corpus 4× by mixing in real
+open-license cybersec text: Trend Micro's PRIMUS dataset (EMNLP 2025,
+~85K Seed + ~300K FineWeb records), MITRE CWE (969), OWASP cheatsheets
+(110), OWASP WSTG (133), OWASP ASVS (80), OWASP Top 10 (18), 48 IETF
+security RFCs, plus the v0.8 fact-QA. New corpus is 273M train tokens
+(4× v0.6/v0.7). If the ceiling still holds, the diagnosis is firm at
+"81M params is below the threshold for emergent factual recall, and
+the next move is the ghost-base (~350M) rung."
+
+### Files touched
+
+- `scripts/build_fact_qa_data.py` (new)
+- `scripts/collect_primus.py`, `scripts/collect_cwe.py`,
+  `scripts/collect_owasp_*.py`, `scripts/collect_rfcs.py`,
+  `scripts/collect_wikipedia_cyber.py` (new corpus collectors)
+- `checkpoints/phase16_v08_pretrain/`, `checkpoints/phase17_chat_v08/`
+  (training artifacts; intermediate step ckpts cleaned, final + best
+  retained)
+- `logs/text_scoring/chat-v08.json` (debiased eval result)
+
+---
+
+## [0.7.0] — 2026-05-04 — 81M wide variant; param-count ablation against the ceiling
+
+The capacity ablation. v0.4 / v0.5 / v0.6 all sat at 29-32% on debiased
+CTIBench despite different architectures, BPEs, and corpora. v0.7 keeps
+v0.6's recipe and corpus but widens the model to 81M params (6L × 768d,
+d_ff 3072, 12 heads). If the ceiling is a parameter-count limit at 45M,
+nearly doubling capacity should move the bench.
+
+### What landed
+
+- **`scripts/train_v07.py`** — wider variant launcher. Same v0.5
+  architecture (RoPE + SwiGLU + RMSNorm) and GPT-2 50K BPE as v0.6, but
+  `d_model=768`, `d_ff=3072`, `n_layers=6`, `n_heads=12` → 81.1M params.
+  Resume-safe via `--resume <ckpt>`.
+- **Phase 14 pretrain (`phase14_v07_pretrain_v3`)** — from-scratch on
+  the v0.6 expanded corpus, 15K steps, ~7h on M4. Two earlier attempts
+  (v0.7_pretrain, v0.7_pretrain_v2) crashed mid-run from MPS contention
+  with concurrent fact-QA generation; v3 is the clean run.
+- **Phase 15 chat (`phase15_chat_v07`)** — canonical chat-v3 SFT recipe.
+  OOM-killed mid-training at step 700; step 600 checkpoint loaded as
+  best_model.pt.
+
+### Result: 32.2% per-perm avg, +1 pp over v0.6
+
+`logs/text_scoring/chat-v07.json`: 31.2% / 33.2% on the two
+permutations, 32.2% averaged. The single best debiased CTIBench score
+in the project, but inside the existing 29-32% noise band, not a real
+break of the ceiling.
+
+The ablation confirms what the bias finding implied: param-count alone
+isn't the bottleneck at this rung. From v0.4 (45M) to v0.7 (81M, 1.8×
+params) the bench moved 1.7 pp. Live testing on v0.7 still shows the
+same factual gaps (wrong CVE bindings, conflated MITRE technique IDs)
+as v0.4. The model is a smarter cybersec parrot, not a cybersec
+expert.
+
+### What v0.8 will test (next)
+
+Targeted fact-density injection via a Qwen-14B-distilled Q&A pipeline,
+keeping the v0.7 81M architecture fixed. If facts injected as direct
+Q&A pairs move the bench, the bottleneck is data type (we need
+fact-lookup format, not just writeup register). If they don't, the
+bottleneck is data volume.
+
+### Files touched
+
+- `scripts/train_v07.py` (new)
+- `checkpoints/phase14_v07_pretrain_v3/`, `checkpoints/phase15_chat_v07/`
+- `logs/text_scoring/chat-v07.json`
+
+---
+
+## [0.6.0] — 2026-05-03 — CTIBench bias artifact discovered; debiased eval ships
+
+The methodology release. Live testing of the v0.5.0 canonical chat-v3
+exposed that the model "knows" CTIBench answers as a position bias
+rather than as content reasoning: it emits "C" on 98.6% of questions,
+and CTIBench's gold-letter distribution is 15/32/37/15 (A/B/C/D), so a
+model that always emits "C" scores 37.1% on the v0.5.0 single-order
+metric. That's what 36.9% chat-v3 was actually doing.
+
+### Bias-finding investigation
+
+`docs/ctibench_bias_finding.md` documents the full diagnosis: per-letter
+emission distribution per checkpoint, gold-letter distribution check
+on CTIBench, and what numerical headlines this overturns. The bias
+artifact is intrinsic to the v0.5.0 eval, not specific to chat-v3.
+
+### Two debiased eval scripts
+
+- **`scripts/eval_debiased.py`** — multi-permutation letter scoring.
+  Scores log-prob of each option letter under N option-letter
+  orderings (default A,B,C,D + C,B,D,A) and reports the mean per-perm
+  accuracy plus per-letter prediction distributions.
+- **`scripts/eval_text_scoring.py`** — skips the letter token entirely.
+  Scores log P(option_text | prompt) per option, length-normalized,
+  under the same multi-permutation scheme. The cleanest read of real
+  capability: a single-letter emitter collapses to 25% (random).
+
+Both write JSON outputs to `logs/debiased/` and `logs/text_scoring/`.
+
+### Re-scored every checkpoint in the project
+
+| Checkpoint | Single-order (biased) | Text per-perm avg (real) | Latched letter |
+|---|---:|---:|---|
+| `phase5_chat_v3` (v0.5.0 canonical) | 36.9% | **30.5%** | C (98.6%) |
+| `phase5_chat_v3_repro2` | 31.2% | 31.7% | B/C dual |
+| `phase8_chat_v05_v5` (v0.5 base) | 34.8% | 29.7% | C (79.6%) |
+| `phase10_chat_v06` (v0.6 BPE-swap) | 29.8% | 31.2% | B (86.2%) |
+| `phase13_chat_text` (text-loss SFT) | 19.6% | 30.1% | mixed |
+
+Every chat-tune sits in a 29-32% per-perm-avg band. ~5-7 points of
+real signal above 25% random, not the 12+ that single-order suggested.
+
+### v0.6 base + chat: BPE-swap ablation
+
+The v0.5.0 canonical was on the v0.4 base (custom 32K BPE). v0.6 is the
+v0.5 architecture (RoPE + SwiGLU + RMSNorm) plus the GPT-2 50K BPE,
+trained from scratch on the v0.4.2-expanded corpus.
+
+- **Phase 9 pretrain (`phase9_v06_pretrain`)** — 15K steps from-scratch
+  on the v0.4.2 corpus (~60M tokens including +MITRE-full and +CISA-KEV).
+- **Phase 10 chat (`phase10_chat_v06`)** — canonical chat-v3 recipe SFT.
+  31.2% per-perm avg, on par with the band.
+
+The BPE swap doesn't move the ceiling. Combined with the v0.4-vs-v0.5
+arch comparison from v0.5.0, three architectural axes (BPE size,
+positional encoding, FFN, normalization) have all been ablated to
+within the 29-32% band.
+
+### Live testing reveals the "cybersec parrot" diagnosis
+
+Free-form generation on v0.5.0 chat-v3, v0.5 chat, v0.6 chat all
+exhibit the same pattern: register-correct prose, factually wrong
+content. EternalBlue gets a wrong CVE; MITRE technique IDs get
+conflated; CVE-to-CWE mappings hallucinate. The model has internalized
+the *shape* of CTI writing, not the *facts*.
+
+Five independent AI sources (ChatGPT, Gemini, separate Claude
+sessions, local Qwen reasoning chain, internal benchmarks against
+SmolLM2) converged on the same diagnosis: at 60M tokens of
+CTF-writeup-heavy text, 45-81M params has enough capacity to model
+the language but not enough density to hold the facts.
+
+### Files touched
+
+- `scripts/eval_debiased.py`, `scripts/eval_text_scoring.py` (new)
+- `docs/ctibench_bias_finding.md` (new)
+- `README.md` — debiased numbers added to chat-tuning section, single-
+  order numbers preserved, em-dash separators stripped (70→0)
+- `RESULTS.md` — debiased text-scoring table added below single-order
+- `checkpoints/phase9_v06_pretrain/`, `checkpoints/phase10_chat_v06/`,
+  `checkpoints/phase11_chat_v06_hybrid/`, `checkpoints/phase13_chat_text/`
+  (training artifacts)
+- `logs/debiased/*.json`, `logs/text_scoring/*.json` (per-checkpoint
+  debiased outputs preserved)
+
+---
+
 ## [0.5.0] — 2026-05-01 — Chat tuning, MCQ, RAG, and v0.5 architecture wiring
 
 The first chat-tunable, benchmark-scoreable rung of the project. Phase 4
@@ -773,27 +975,30 @@ The Unreleased section below tracks both.
 
 ## [Unreleased] — Upcoming
 
-v0.5 ships chat-tune + benchmark + arch-switch wiring. The **next**
-release tightens the loop on the bottleneck v0.5 surfaced — the
-corpus is too small for the architecture we're holding ready.
+v0.6 / v0.7 / v0.8 confirmed the 30% real-capability ceiling on
+debiased CTIBench: BPE swap, param-count doubling, and Qwen-distilled
+fact injection each moved the bench by less than the 29-32% noise
+band. The remaining axis at the ghost-small rung is corpus density,
+which is what v0.9 attacks.
 
-- **v0.4.2 — corpus expansion (Phase 4.5 corpus).** The bottleneck.
-  Targeting ~50M tokens via: (1) arXiv full-text PDFs at scale (the
-  v0.3.6 collector exists but hasn't been run), (2) CTFtime beyond
-  the curated 28-event seed via the discovery script, (3) the
-  security-research-blogs collector (not yet built). This is the
-  gate on the v0.5 retrain — all three architecture switches are
-  wired and waiting for a corpus that justifies the compute.
-- **v0.5.1 — `ghost-small-v0.5` from-scratch retrain.** RoPE +
-  SwiGLU + RMSNorm on the Phase 4.5 corpus. Same param budget
-  (~45M), better architecture, ~4× more data. Expected to close
-  meaningfully more of the CTIBench gap to frontier LLMs than chat
-  tuning alone could on the small corpus.
-- **v0.5.2 — RAFT-style retrieval-aware tuning.** RAG at v0.5
-  showed the 45M model can't use retrieved context. Re-trying
-  with retrieval-aware fine-tuning (RAFT) on a meaningfully larger
-  base model is the second path to the next CTIBench bump.
-
-ghost-base (~350M params) remains the next architectural rung but is
-gated on external GPU + the v0.4.2 corpus expansion + a retrained
-v0.5 base model demonstrating the recipe still scales.
+- **v0.9.0 — corpus-density attempt.** In progress. From-scratch
+  pretrain of the v0.7 81M-wide architecture on a corpus rebuilt to
+  273M train tokens (4× v0.6/v0.7) by mixing in the open-license
+  PRIMUS dataset (Trend Micro AI Lab, EMNLP 2025: ~85K Seed +
+  ~300K FineWeb records), MITRE CWE (969 weakness records with
+  consequences and mitigations), OWASP (cheatsheets 110, WSTG 133,
+  ASVS 80, Top 10 18), 48 IETF security RFCs (TLS, OAuth, JWT,
+  DNSSEC, X.509, IPsec, SSH, ChaCha20, DKIM, etc.), plus the v0.8
+  fact-QA. Ten new collectors landed: `scripts/collect_primus.py`,
+  `scripts/collect_cwe.py`, `scripts/collect_owasp_*.py`,
+  `scripts/collect_rfcs.py`, `scripts/collect_wikipedia_cyber.py`.
+  If the ceiling holds at this scale, the diagnosis is firm: 81M
+  params is below the threshold for emergent factual recall and
+  the next move is the ghost-base (~350M) rung.
+- **Context-extension fine-tune.** v0.6+ trained at ctx 512 to fit
+  the M4 wall-clock budget. A separate ctx-1024 extension fine-tune
+  is needed before the model is genuinely useful on long-form CTI
+  inputs.
+- **ghost-base (~350M).** The next architectural rung. Gated on
+  external GPU compute + a v0.9 result that demonstrates the
+  bottleneck is param count, not corpus / recipe.

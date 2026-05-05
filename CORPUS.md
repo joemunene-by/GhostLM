@@ -6,9 +6,61 @@ This document is the working record of what's currently in the corpus, what's kn
 
 ---
 
-## Current corpus (Phase 3.5 endpoint, NVD-subsampled rebalance)
+## Current corpus (v0.9 expansion, 273M train tokens)
 
-After the diversity collectors landed and the NVD-subsample knob shipped (2026-04-26):
+The corpus has grown ~30× since the v0.5.0 release. Driven by the diagnosis that 60M tokens of CTF-writeup-heavy text is below the threshold for emergent factual recall on cybersec MCQ benchmarks, v0.9 mixes in open-license cybersec text from PRIMUS, MITRE CWE, OWASP, IETF RFCs, and a Qwen-14B-distilled fact-QA pipeline.
+
+| Source | Records | Type | License | Notes |
+|---|---:|---|---|---|
+| Primus-FineWeb (Trend Micro AI Lab) | ~300K | Real | ODC-BY | TinyBERT-filtered cybersec subset of CommonCrawl FineWeb (EMNLP 2025) |
+| Primus-Seed (Trend Micro AI Lab) | ~85K | Real | MIT-style | Hand-curated cybersec text (security company sites, wikis, MITRE) |
+| NVD CVE Database | 71,828 (capped) | Real | US gov, public domain | Capped via `--max-cve-tokens 6000000` |
+| Exploit-DB | 5,000 | Real | GPL-2.0 | PHP webapps + Linux locals + Python PoCs, 2019-2025 |
+| Synthetic CTF | 3,000 | Synthetic | Self-generated (Ollama) | Phase 2 placeholder |
+| arXiv cs.CR Abstracts | 2,000 | Real | arXiv terms | |
+| Fact-QA (Qwen-14B distilled) | 11,234 | Real (distilled) | MIT (model output) | Q&A pairs from MITRE / CWE / NVD via Qwen-14B Ollama, v0.8 pipeline |
+| MITRE CWE | 969 | Real | MITRE free redistribution | Title + description + extended desc + consequences + mitigations |
+| MITRE ATT&CK | 691 | Real | Apache 2.0 | Enterprise techniques |
+| CAPEC | 609 | Real | Apache 2.0 | Attack patterns |
+| CTFtime Writeups | 467 | Real | User-submitted | Inline body only, per-record attribution |
+| OWASP WSTG | 133 | Real | CC BY-SA 4.0 | Web Security Testing Guide markdown |
+| OWASP Cheat Sheets | 110 | Real | CC BY-SA 4.0 | Per-topic security guidance |
+| OWASP ASVS | 80 | Real | CC BY-SA 4.0 | Application Security Verification Standard 5.0, grouped by section |
+| IETF Security RFCs | 48 | Real | IETF (free redistribution) | Curated security RFCs (TLS 1.3, OAuth, JWT, DNSSEC, X.509, IPsec, SSH, ChaCha20, DKIM, etc.) |
+| OWASP Top 10 (2021) | 18 | Real | CC BY-SA 4.0 | One record per category + ancillary docs |
+| **Total (post-dedup)** | **train 669,085 / val 35,189** | | | **~273M train tokens / ~14.5M val tokens** |
+
+**Rebuild commands:**
+```bash
+python3 scripts/rebuild_corpus.py
+python3 scripts/build_chat_dataset.py
+```
+
+The v0.9 corpus is what `checkpoints/phase18_v09_pretrain` is training on. v0.6 / v0.7 / v0.8 trained on smaller subsets of the same source list (everything above except PRIMUS-FineWeb, the OWASP family, and the RFCs).
+
+NVD CVE distribution (full file): 2025: 43,381 · 2024: 38,840 · 2023: 25,198 · 2022: 24,279 · 2021: 22,729. By decade: 1990s: 857 · 2000s: 40,156 · 2010s: 102,581 · 2020s: 189,946. The subsample preserves this year skew because hash-based selection is uniform across the input.
+
+### Collectors
+
+Each new source has a dedicated CLI under `scripts/`. They emit standard `{"id", "source", "text"}` JSONL into `data/raw/`, are resume-safe where the upstream supports it, and are polite about request rate.
+
+| Source | Collector | Notes |
+|---|---|---|
+| Primus-Seed / Primus-FineWeb | `scripts/collect_primus.py` | Streams from HuggingFace, gated (forms required) |
+| Fact-QA | `scripts/build_fact_qa_data.py` | Local Qwen-14B via Ollama `/api/generate`, ~14h on M4 |
+| MITRE CWE | `scripts/collect_cwe.py` | Parses the official XML zip dump |
+| OWASP Cheat Sheets | `scripts/collect_owasp_cheatsheets.py` | Walks the CheatSheetSeries repo |
+| OWASP WSTG | `scripts/collect_owasp_wstg.py` | Walks the wstg/document/ subtree |
+| OWASP ASVS | `scripts/collect_owasp_asvs.py` | Pulls the project's signed flat.json release |
+| OWASP Top 10 | `scripts/collect_owasp_top10.py` | Per-file via raw.githubusercontent.com (avoids flaky git-clone) |
+| IETF RFCs | `scripts/collect_rfcs.py` | Curated list of ~50 security RFCs from rfc-editor.org |
+| Wikipedia cybersec | `scripts/collect_wikipedia_cyber.py` | BFS Wikipedia category tree, polite 0.6s delay |
+
+---
+
+## Historical: v0.5.0 corpus (Phase 3.5 endpoint, NVD-subsampled rebalance)
+
+What `checkpoints/phase4_ghost_small/` and the v0.5.0 chat checkpoints were trained on. Preserved here for archaeology and so the v0.4.0/v0.5.0 numbers in CHANGELOG.md remain reproducible.
 
 | Source | Records on disk | After rebuild | Tokens (post-subsample) | Share | Type |
 |---|---|---|---|---|---|
@@ -20,13 +72,7 @@ After the diversity collectors landed and the NVD-subsample knob shipped (2026-0
 | CAPEC | 609 | 609 | ~0.07M | **0.9%** | Real (Apache 2.0) |
 | **Total (post-dedup)** | **340,313** | **74,635** | **~8.79M** | | train: 70,965 / val: 3,670 |
 
-**Rebuild command:** `python3 scripts/rebuild_corpus.py --max-cve-tokens 6000000`
-
-Without the cap, NVD's 27.4M tokens would dominate at ~90% share, drowning every other source. Subsampling is deterministic by content hash so the same input + same target always produces the same prefix — train/val splits stay reproducible across rebuilds. CTF synthetic dropped 4 records to dedup; CTFtime dropped 6 records to intra-source dedup. NVD's 7.9% intra-source duplicates are pre-empted by the subsample (the prefix size is set independently of the duplicate count).
-
-**Status:** corpus rebalanced and ready. **No model has been trained on this corpus yet** — the v0.3.0 ghost-tiny checkpoint was trained on the small v0.3.0 baseline below; the v0.3.3 refresh was trained on the pre-rebalance Phase 3 corpus (NVD ~90% share). The next training run (ghost-tiny refresh on this Phase 3.5 corpus) will be the first to actually benefit from a balanced source distribution.
-
-NVD CVE distribution (full file): 2025: 43,381 · 2024: 38,840 · 2023: 25,198 · 2022: 24,279 · 2021: 22,729. By decade: 1990s: 857 · 2000s: 40,156 · 2010s: 102,581 · 2020s: 189,946. The subsample preserves this year skew because hash-based selection is uniform across the input — i.e. the kept ~72K records still skew recent.
+This was the structural rebalance corpus: NVD share dropped from 90% (Phase 3) to 65% (Phase 3.5) via deterministic content-hash subsample. Adding Exploit-DB at Phase 3.6 brought the corpus to ~12.56M tokens, which is what `checkpoints/phase4_ghost_small` and every v0.4-base chat-tune trained on.
 
 ---
 

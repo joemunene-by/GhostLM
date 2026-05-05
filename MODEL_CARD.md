@@ -28,13 +28,13 @@ model-index:
 
 | Field | Value |
 |---|---|
-| **Model Names** | `ghostlm/ghost-small` (~45M params, current canonical). `ghostlm/ghost-tiny` (14.7M, historical canonical and better PMI-suite scorer). Future: `ghost-base`, `ghost-1B` |
-| **Architecture** | Decoder-only transformer |
+| **Model Names** | `ghostlm/ghost-small-v0.7` (81M wide, top of the debiased CTIBench ceiling at 32.2% per-perm avg). `ghostlm/ghost-small` (~45M, v0.4.0 canonical for density / generation, val PPL 11.12). `ghostlm/ghost-tiny` (14.7M, historical PMI-suite scorer). In progress: `ghost-small-v0.9` on the 273M-token expansion corpus. Planned: `ghost-base`, `ghost-1B`. |
+| **Architecture** | Decoder-only transformer (RoPE + SwiGLU + RMSNorm from v0.5 onward; learned PE + GELU + LayerNorm for v0.4 and earlier) |
 | **Author** | [Joe Munene](https://github.com/joemunene-by) |
 | **License** | MIT |
 | **Language** | English |
 | **Framework** | PyTorch (built from scratch, no pretrained weights) |
-| **Version** | 0.4.0 (Phase 4 ghost-small — 30K steps on the 12.56M-token Phase 3.6 corpus, val_loss 2.3535, overall val PPL 11.12 — capacity-reallocation hypothesis confirmed) |
+| **Version** | 0.8.0 (v0.7 81M architecture pretrained on a fact-dense corpus including Qwen-14B-distilled Q&A; chat-tune at 31.2% per-perm avg on debiased CTIBench, no improvement over v0.7's 32.2%; fact-density alone doesn't break the 30% ceiling) |
 
 ## Model Description
 
@@ -44,14 +44,19 @@ The model is trained on CVE vulnerability descriptions from the National Vulnera
 
 ## Model Variants
 
-| Variant | Layers | d_model | Heads | d_ff | Context | Params | Status |
+| Variant | Layers | d_model | Heads | d_ff | Ctx | Params | Status |
 |---|---|---|---|---|---|---|---|
-| `ghostlm/ghost-tiny` | 2 | 256 | 4 | 1024 | 1024 | 14.7M | Phase 3.5 (historical canonical). 30K steps on ~8.8M tokens, overall PPL 66, PMI suite 31.2% |
-| `ghostlm/ghost-small` | 6 | 512 | 8 | 2048 | 1024 | ~45M | **Phase 4 complete (current canonical). 30K steps on ~12.56M tokens, overall PPL 11.12 (−83%), val_loss 2.3535** |
-| `ghostlm/ghost-base` | 12 | 768 | 12 | 3072 | 1024 | ~350M | Planned (rented GPU) |
+| `ghostlm/ghost-tiny` | 2 | 256 | 4 | 1024 | 1024 | 14.7M | Phase 3.5 (historical PMI canonical). 30K steps on ~8.8M tokens, overall PPL 66 |
+| `ghostlm/ghost-small` (v0.4) | 6 | 512 | 8 | 2048 | 1024 | ~45M | Phase 4 base. 30K steps on ~12.56M tokens, val_loss 2.3535, overall val PPL 11.12 (−83%). Chat-v3 at **30.5%** debiased CTIBench |
+| `ghost-small-v0.5` | 6 | 512 | 8 | 2048 | 512 | ~36M | RoPE + SwiGLU + RMSNorm + custom 32K BPE retrain. Chat at 29.7% debiased CTIBench |
+| `ghost-small-v0.6` | 6 | 512 | 8 | 2048 | 512 | ~45M | v0.5 architecture + GPT-2 50K BPE on the v0.4.2 expanded corpus. Chat at 31.2% debiased (BPE-swap ablation) |
+| `ghost-small-v0.7` | 6 | 768 | 12 | 3072 | 512 | ~81M | Wider variant of v0.6. Chat at **32.2%** debiased: single best in repo, but inside the noise band |
+| `ghost-small-v0.8` | 6 | 768 | 12 | 3072 | 512 | ~81M | v0.7 arch + Qwen-14B-distilled fact-QA in pretrain. Chat at 31.2% (fact-density alone doesn't lift) |
+| `ghost-small-v0.9` | 6 | 768 | 12 | 3072 | 512 | ~81M | **Training.** v0.7 arch on 273M-token corpus (PRIMUS + CWE + OWASP + RFCs + fact-QA). 4× tokens vs prior v0.x runs |
+| `ghostlm/ghost-base` | 12 | 768 | 12 | 3072 | 1024 | ~350M | Planned (rented GPU). The next architectural rung if v0.9 confirms the ceiling is param-bound |
 | `ghostlm/ghost-1B` | 24 | 1024 | 16 | 4096 | 1024 | ~1B | Long-term goal |
 
-ghost-tiny is the iteration vehicle. The scale ladder above is the path to a genuinely useful from-scratch cyber LM. See [ROADMAP.md](ROADMAP.md) for phased milestones, compute requirements, and corpus targets.
+ghost-tiny is the iteration vehicle. The v0.4 / v0.5 / v0.6 / v0.7 / v0.8 sequence is the same parameter rung (45-81M) under different recipes; the bench is consistent across all of them at 29-32% per-perm avg on debiased CTIBench, which is the diagnosis (param-count is the bottleneck at this rung). See [ROADMAP.md](ROADMAP.md) for phased milestones and [`docs/ctibench_bias_finding.md`](docs/ctibench_bias_finding.md) for the eval-methodology investigation.
 
 ## Architecture
 
