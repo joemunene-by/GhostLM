@@ -981,20 +981,25 @@ fact injection each moved the bench by less than the 29-32% noise
 band. The remaining axis at the ghost-small rung is corpus density,
 which is what v0.9 attacks.
 
-- **v0.9.0 — corpus-density attempt.** In progress. From-scratch
-  pretrain of the v0.7 81M-wide architecture on a corpus rebuilt to
-  273M train tokens (4× v0.6/v0.7) by mixing in the open-license
-  PRIMUS dataset (Trend Micro AI Lab, EMNLP 2025: ~85K Seed +
-  ~300K FineWeb records), MITRE CWE (969 weakness records with
-  consequences and mitigations), OWASP (cheatsheets 110, WSTG 133,
-  ASVS 80, Top 10 18), 48 IETF security RFCs (TLS, OAuth, JWT,
-  DNSSEC, X.509, IPsec, SSH, ChaCha20, DKIM, etc.), plus the v0.8
-  fact-QA. Ten new collectors landed: `scripts/collect_primus.py`,
-  `scripts/collect_cwe.py`, `scripts/collect_owasp_*.py`,
-  `scripts/collect_rfcs.py`, `scripts/collect_wikipedia_cyber.py`.
-  If the ceiling holds at this scale, the diagnosis is firm: 81M
-  params is below the threshold for emergent factual recall and
-  the next move is the ghost-base (~350M) rung.
+- **v0.9.0 — corpus-density attempt.** Pretrain done at 15K steps,
+  final val_loss 3.638 (`checkpoints/phase18_v09_pretrain/best_model.pt`).
+  From-scratch pretrain of the v0.7 81M-wide architecture on a corpus
+  rebuilt to 273M train tokens (4× v0.6/v0.7) by mixing in the
+  open-license PRIMUS dataset (Trend Micro AI Lab, EMNLP 2025:
+  ~85K Seed + ~300K FineWeb records), MITRE CWE (969 weakness
+  records with consequences and mitigations), OWASP (cheatsheets
+  110, WSTG 133, ASVS 80, Top 10 18), 48 IETF security RFCs (TLS,
+  OAuth, JWT, DNSSEC, X.509, IPsec, SSH, ChaCha20, DKIM, etc.),
+  plus the v0.8 fact-QA. Ten new collectors shipped:
+  `scripts/collect_primus.py`, `scripts/collect_cwe.py`,
+  `scripts/collect_owasp_*.py`, `scripts/collect_rfcs.py`,
+  `scripts/collect_wikipedia_cyber.py`. Pretrain val_loss isn't
+  cross-comparable to v0.7 / v0.8 (different val distribution, much
+  more diverse). The bench truth is the chat-tune + debiased
+  CTIBench, pending. If the ceiling holds at this scale too, the
+  diagnosis is firm: 81M params is below the threshold for
+  emergent factual recall and the next move is the ghost-base
+  (~350M) rung.
 - **Context-extension fine-tune.** v0.6+ trained at ctx 512 to fit
   the M4 wall-clock budget. A separate ctx-1024 extension fine-tune
   is needed before the model is genuinely useful on long-form CTI

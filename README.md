@@ -1,4 +1,4 @@
-![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-v0.8%20%7C%20v0.9%20training-green.svg)
+![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-v0.9%20pretrain%20done-green.svg)
 
 # GhostLM
 
@@ -65,7 +65,7 @@ GhostLM is a multi-year scale ladder. Each rung validates the recipe before clim
 | ghost-small-v0.6 | 6 | 512 | ~45M | M4 GPU/MPS | Trained, v0.5 architecture (RoPE + SwiGLU + RMSNorm) with GPT-2 50K BPE on the expanded corpus. Chat at 31.2% real. The BPE swap experiment. |
 | ghost-small-v0.7 | 6 | 768 | ~81M | M4 GPU/MPS | Trained, wider variant of v0.6 (d_model 768, d_ff 3072). Chat at 32.2% real (single best on debiased eval). Param-count ablation. |
 | ghost-small-v0.8 | 6 | 768 | ~81M | M4 GPU/MPS | Trained, v0.7 architecture pretrained on a fact-dense corpus (Qwen-14B-distilled Q&A, 11K records). Chat at 31.2% real, no lift over v0.7; distilled facts alone don't break the ceiling. |
-| ghost-small-v0.9 | 6 | 768 | ~81M | M4 GPU/MPS | **Training**, 273M-token corpus (PRIMUS-Seed/FineWeb + CWE + OWASP + RFCs + fact-QA). The corpus-density swing: 4× tokens vs prior v0.x runs. |
+| ghost-small-v0.9 | 6 | 768 | ~81M | M4 GPU/MPS | **Pretrain done** (val_loss 3.638 at 15K steps), 273M-token corpus (PRIMUS-Seed/FineWeb + CWE + OWASP + RFCs + fact-QA). Chat-tune + debiased bench pending. |
 | ghost-base | 12 | 768 | ~350M | Rented GPU (A/H100) | Planned. Per the literature (SmolLM2, Phi-3.5-mini), factual recall on cybersec MCQ should start emerging meaningfully here. |
 | ghost-1B | 24 | 1024 | ~1B | Rented or owned GPU | Long-term goal |
 
