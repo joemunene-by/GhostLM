@@ -158,13 +158,21 @@ def evaluate_one_perm(
     score_mode: str,
     perm: List[str],
     progress_label: str,
-) -> Tuple[int, int, Counter]:
-    """Score every record under one permutation, return (correct, total, pred_dist)."""
+) -> Tuple[int, int, Counter, List[int]]:
+    """Score every record under one permutation.
+
+    Returns (correct, total, pred_dist, per_question_correct) where the
+    last item is a list with 1 if the model got record i right, 0 if
+    wrong, -1 if the record was skipped (no gold answer). Same length
+    as the input dataset.
+    """
     correct = 0
     total = 0
     pred_dist: Counter = Counter()
+    per_q: List[int] = []
     for i, rec in enumerate(dataset):
         if not rec["answer"] or rec["answer"] not in CHOICES:
+            per_q.append(-1)
             continue
         permuted_rec, new_gold = permute_record(rec, perm)
         prompt_ids = format_prompt(permuted_rec, tokenizer, chat_format=chat_format)
@@ -181,14 +189,16 @@ def evaluate_one_perm(
             )
         pred = max(scores.items(), key=lambda kv: kv[1])[0]
         pred_dist[pred] += 1
-        if pred == new_gold:
+        is_correct = 1 if pred == new_gold else 0
+        per_q.append(is_correct)
+        if is_correct:
             correct += 1
         total += 1
 
         if (i + 1) % 200 == 0:
             print(f"  [{progress_label}] {i + 1}/{len(dataset)} "
                   f"acc={correct / total:.3f}")
-    return correct, total, pred_dist
+    return correct, total, pred_dist, per_q
 
 
 def main() -> None:
@@ -231,24 +241,24 @@ def main() -> None:
             perms.append(cand)
             seen.add(tuple(cand))
 
-    per_perm_results: List[Tuple[int, int, Counter]] = []
+    per_perm_results: List[Tuple[int, int, Counter, List[int]]] = []
     for j, perm in enumerate(perms):
         print(f"=== perm {j} {''.join(perm)} ===")
-        correct, total, pred_dist = evaluate_one_perm(
+        correct, total, pred_dist, per_q = evaluate_one_perm(
             model, tokenizer, ds,
             chat_format=chat_format, device=args.device,
             score_mode=args.score_mode, perm=perm,
             progress_label=f"{args.label} perm{j}",
         )
-        per_perm_results.append((correct, total, pred_dist))
+        per_perm_results.append((correct, total, pred_dist, per_q))
 
     print()
     print(f"=== {args.label} text-scoring results ===")
     counted = per_perm_results[0][1]
-    for j, (correct, total, pred_dist) in enumerate(per_perm_results):
+    for j, (correct, total, pred_dist, _) in enumerate(per_perm_results):
         print(f"  perm {j} {''.join(perms[j])}: {correct}/{total} = {correct / total:.3f}  "
               f"pred_dist={dict(pred_dist)}")
-    avg = sum(c for c, _, _ in per_perm_results) / (len(perms) * counted)
+    avg = sum(c for c, _, _, _ in per_perm_results) / (len(perms) * counted)
     print(f"  per-perm avg: {avg:.3f}  (random baseline = 0.250)")
 
     if args.out_json:
@@ -259,9 +269,10 @@ def main() -> None:
             "checkpoint": args.checkpoint,
             "score_mode": args.score_mode,
             "n_records": counted,
-            "per_perm_acc": [c / t for c, t, _ in per_perm_results],
+            "per_perm_acc": [c / t for c, t, _, _ in per_perm_results],
             "per_perm_avg": avg,
-            "per_perm_pred_dist": [dict(pd) for _, _, pd in per_perm_results],
+            "per_perm_pred_dist": [dict(pd) for _, _, pd, _ in per_perm_results],
+            "per_perm_per_question": [pq for _, _, _, pq in per_perm_results],
             "permutations": [list(p) for p in perms],
         }, indent=2))
         print(f"  saved: {out_path}")

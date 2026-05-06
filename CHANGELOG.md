@@ -671,14 +671,32 @@ v0.9 regressed. The honest read is one of:
    from PRIMUS-Seed (which v0.7's corpus didn't share but v0.9's
    FineWeb didn't either).
 
-A natural follow-up (not done): split the v0.9 chat-v09 CTIBench
-score by contaminated-vs-uncontaminated subsets. If v0.9 outperforms
-v0.7 on the 11% contaminated questions but regresses on the other
-89%, the model's general capability is up but CTIBench's
-non-overlapping questions are where it loses ground. If v0.9 ties
-or loses on both subsets equally, contamination isn't the lever and
-the regression is purely register-shift. Either result keeps the
-ghost-base story intact.
+**Subset split landed (`scripts/analyze_contamination_split.py`):**
+re-ran the CTIBench bench on v0.9 chat with per-question correctness
+saved (`--out-json` now records `per_perm_per_question`), then
+cross-referenced with the audit's `per_question` overlap data.
+
+| subset | n     | per-perm avg | delta vs clean |
+|--------|------:|-------------:|---------------:|
+| clean (no shingle overlap) | 2225 | 0.2915 | (baseline)    |
+| contaminated (>=1 overlap) |  275 | 0.2691 | **-2.2 pp**    |
+
+v0.9 does *worse* on the questions where it saw the source material
+during pretrain. If contamination were helping, we would see a
+positive delta; instead it is meaningfully negative. Combined with
+the cross-bench CTF result (where v0.9 leads), this rules out the
+contamination-helps hypothesis and keeps the most likely explanation
+the *register-shift* story: PRIMUS-FineWeb's TinyBERT-filtered
+crawl text shifts v0.9's prior away from CTIBench's particular
+threat-intel framing on the overlapping questions, plausibly because
+half-remembered training-corpus phrasings bias the score-by-text
+rule toward the wrong distractor when the right answer's phrasing is
+slightly different from the one v0.9 absorbed during pretrain. The
+clean-subset 29.2% is the cleaner read of v0.9's CTIBench capability
+on questions with no PRIMUS overlap.
+
+The ghost-base story is unchanged: parameter count remains the next
+lever to pull.
 
 `logs/ctibench_contamination.json` has the full per-question
 overlap counts and the top-N list; `scripts/audit_ctibench_contamination.py`

@@ -169,6 +169,11 @@ def main() -> None:
         "avg_overlap_pct_per_question": avg_overlap,
         "include_options": args.include_options,
         "top_contaminated": top,
+        "per_question": [
+            {"idx": r["idx"], "overlap_shingles": r["overlap_shingles"],
+             "total_shingles": r["total_shingles"]}
+            for r in results
+        ],
     }
     out_path.write_text(json.dumps(summary, indent=2))
 
