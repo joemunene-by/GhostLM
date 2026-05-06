@@ -26,6 +26,7 @@ is available.
 """
 
 import argparse
+import gc
 import os
 import sys
 from dataclasses import fields
@@ -151,9 +152,14 @@ def _generate(
         return "Please enter a prompt."
 
     try:
+        # Defensive: keep the model in eval mode every call. Cheap and
+        # idempotent. Guards against any prior state mutation in the
+        # process (e.g. a buggy plugin flipping training mode).
+        model.eval()
+
         ids = tokenizer.encode(prompt)
         # Trim to context window from the left so long prompts don't crash
-        # the model — same logic the eval scorer uses.
+        # the model. Same logic the eval scorer uses.
         max_input = max(1, model.config.context_length - int(max_tokens))
         if len(ids) > max_input:
             ids = ids[-max_input:]
@@ -170,7 +176,21 @@ def _generate(
         text = tokenizer.decode(out[0].tolist())
         if text.startswith(prompt):
             text = text[len(prompt):]
-        return text.strip() or "(empty generation — try lowering temperature or shortening the prompt)"
+        result = text.strip() or "(empty generation, try lowering temperature or shortening the prompt)"
+
+        # Free intermediate tensors before returning. Without this, on
+        # HF Spaces (CPU runtime, ~16GB RAM) the activation memory from
+        # consecutive generations accumulates and the worker OOMs after
+        # 2-3 turns. The user-visible bug is "model errors after 2
+        # generations and needs page reload"; this block fixes it.
+        del out, x
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+        elif torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
+
+        return result
     except Exception as e:  # noqa: BLE001 - surface any model error to the UI
         return f"Error: {e}"
 
@@ -484,6 +504,12 @@ def main():
         compare = load_checkpoint(args.compare_checkpoint)
 
     demo = build_ui(primary, compare)
+    # Serialize generation: HF Spaces' free CPU runtime can't handle
+    # multiple concurrent inference calls without OOM-ing the worker.
+    # `default_concurrency_limit=1` queues clicks instead of running
+    # them in parallel; `max_size=20` bounds the queue so a hung worker
+    # doesn't pile up forever.
+    demo.queue(default_concurrency_limit=1, max_size=20)
     # theme is a launch() arg in Gradio 6.0+. The Base theme keeps the UI
     # neutral so it inherits the Space's colorFrom/colorTo accents from
     # the README frontmatter rather than fighting them.
