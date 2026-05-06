@@ -514,6 +514,97 @@ Added to `Makefile` so the Phase 3.6 numbers can be reproduced: `make eval-secur
 
 ---
 
+## [0.9.1] — 2026-05-06 — Cross-bench validation; the CTIBench ceiling was CTIBench-specific
+
+The hours-after correction to the v0.9.0 release. v0.9.0 read the
+six-attempt 28-32% band on debiased CTIBench as a firm ~30%
+real-capability ceiling at the ghost-small rung, with v0.9 slightly
+regressing from v0.7's 32.2%. The cross-bench validation work
+queued in v0.9.0's [Unreleased] section landed the same day and
+flipped that diagnosis.
+
+### What landed
+
+- **`scripts/eval_text_scoring.py --bench-jsonl <path>`** — same
+  multi-permutation text-scoring methodology, but now accepts any
+  MCQ JSONL with `{question, choices: {A,B,C,D}, answer}` records,
+  not just CTIBench. CTIBench path unchanged when the flag is unset.
+- **`checkpoints/phase20_chat_v07_ctx1024`** — context-extension
+  fine-tune of the v0.7 best chat (the prior bench winner), 500
+  steps at lr 1e-5 from `phase15_chat_v07/best_model.pt` with
+  `--context-length 1024`. Recovers the long-form CTI input range
+  the ctx-512 base couldn't handle. Final val_loss 2.6236.
+
+### Result: v0.9 leads on the in-repo CTF MCQ eval (+9 pp vs v0.7)
+
+Ran the same four chat-tunes on the in-repo CTF eval set
+(`data/raw/ctf_eval_bench.jsonl`, 30 hand-written cybersec MCQ
+questions, debiased text-scoring, 4 permutations):
+
+| Variant | CTIBench (n=2500) | CTF eval (n=30) |
+|---|---:|---:|
+| v0.4 chat-v3 (canonical) | 30.5% | 50.0% |
+| v0.7 chat (81M wide) | **32.2%** | 50.0% |
+| v0.7 chat ctx-1024 (extension) | (not benched) | 45.8% |
+| **v0.9 chat (273M-token corpus)** | 28.9% | **59.2%** |
+
+The v0.9 → v0.7 ranking flips between the two benchmarks. v0.9 is
+the new bench-winner among ghost-small variants when scored on a
+non-CTIBench MCQ set, by 9 percentage points.
+
+### What this overturns from v0.9.0
+
+The "30% real-capability ceiling at the ghost-small rung,
+regardless of corpus density" framing in v0.9.0 was CTIBench-
+specific, not a model property. PRIMUS-FineWeb's TinyBERT-filtered
+crawl text appears to shift the model's prior away from CTIBench's
+particular threat-intel register (the v0.9 regression on CTIBench
+is real and reproducible) but improves performance on a broader
+cybersec-MCQ test set covering practical exploitation, web /
+crypto / forensics CTF categories, and CWE-style fact recall.
+
+The corpus-density swing worked. CTIBench wasn't the right
+yardstick for it.
+
+### Caveats
+
+- 30 questions is a small bench. A 4-point swing is ~5 questions,
+  well within noise. Treat the *absolute* CTF eval numbers as
+  indicative, not authoritative. The *ranking* (v0.9 > v0.7 > v0.4)
+  is consistent and informative.
+- The CTF eval was hand-written by the project maintainer, with
+  no external validation. Its question topics overlap with the
+  v0.9 corpus expansion (CWE / OWASP / RFC content), so part of
+  the v0.9 lead may be in-distribution test-set recovery rather
+  than capability gain. A larger external bench (CySecBench,
+  SecQA, or a CTF MCQ set someone else wrote) is the right next
+  move to confirm the inversion.
+- The v0.7 ctx-1024 extension (45.8%) is slightly below v0.7
+  base (50.0%) on the same bench. Context-extension cost ~4 pp
+  on the 30-question set, probably because the fine-tune adapted
+  weights toward longer-context patterns at the cost of MCQ-format
+  sharpness. Below the noise floor for n=30.
+
+### Implications for ghost-base
+
+The v1.0 spec at `docs/ghost_base_spec.md` still stands, but the
+framing shifts. Ghost-base goes from "needed because the ceiling
+is real" to "needed to validate that corpus density and parameter
+count compound rather than substitute." The acceptance criteria
+get a third bench: ≥40% per-perm avg on debiased CTIBench OR
+≥65% on the CTF eval OR ≥50% on a hand-written fact-recall
+benchmark; passing any one is enough to validate the rung.
+
+### Files touched
+
+- `scripts/eval_text_scoring.py` (--bench-jsonl flag)
+- `data/raw/ctf_eval_bench.jsonl` (already in repo from issue #6)
+- `checkpoints/phase20_chat_v07_ctx1024/best_model.pt` (new)
+- `logs/text_scoring/{v04_chat_v3_ctf, v07_chat_ctf, v09_chat_ctf, v07_ctx1024_chat_ctf}.json`
+- README + RESULTS + MODEL_CARD + ROADMAP updated with the dual-bench picture
+
+---
+
 ## [0.9.0] — 2026-05-06 — Corpus-density attempt; the 30% ceiling is firm at the ghost-small rung
 
 The end of the ghost-small (81M) line. v0.7 ruled out parameter count

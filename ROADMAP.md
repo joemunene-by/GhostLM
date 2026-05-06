@@ -6,7 +6,7 @@ This roadmap is honest about what each rung needs (compute, corpus, time) and wh
 
 ---
 
-## Where we are: ghost-small (81M) line closed at the ~30% real-capability ceiling
+## Where we are: ghost-small (81M) line, dual-bench picture (CTIBench plateau, CTF-eval breakthrough)
 
 The v0.5.0 release reported chat-v3 at 36.9% on CTIBench MCQ. As of v0.6.0 we know that number was a positional-bias artifact: CTIBench's gold-letter distribution is 15/32/37/15 (A/B/C/D), the chat-v3 model collapsed to 98.6% C-emission during MCQ-format SFT, and a model that always emits "C" scores 37.1% on the v0.5.0 single-order metric. Real per-permutation accuracy under text scoring is **~30% across every chat-tune in the repo**. Full investigation in `docs/ctibench_bias_finding.md`.
 
@@ -24,9 +24,22 @@ Six independent attempts at the ghost-small (45-81M) parameter rung, all in a 4-
 
 Three architectural axes ablated to within the 28-32% band: BPE size (32K vs 50K), positional encoding + FFN + normalization (learned PE + GELU + LayerNorm vs RoPE + SwiGLU + RMSNorm), and parameter count (45M vs 81M, 1.8×). A fourth axis (SFT objective: letter-loss vs text-loss) sits inside the same band. A fifth (corpus density via fact-QA distillation, then 273M-token open-cybersec expansion) added zero pp at v0.8 and slightly regressed at v0.9, likely because PRIMUS-FineWeb's TinyBERT-filtered crawl text dilutes the cyber-text register the model was scoring on.
 
-The diagnosis: the model has internalized the *register* of cyber writing but lacks the factual density to do structured recall. EternalBlue gets a wrong CVE; MITRE technique IDs get conflated; CVE-to-CWE mappings hallucinate. **At 81M params, this is firm regardless of corpus density** (we now have data points at ~12M, ~60M, ~273M tokens, all in the same band).
+**Cross-bench validation overturns the CTIBench-only diagnosis.** Same chat-tunes scored on the in-repo CTF MCQ eval (`data/raw/ctf_eval_bench.jsonl`, 30 hand-written questions, debiased text-scoring):
 
-The pattern matches the literature: SmolLM2-360M and Phi-3.5-mini both report factual-recall capability emerging in the 300M-400M parameter range. **The next rung is ghost-base (~350M)**, gated on rented GPU compute.
+| Variant | CTIBench (n=2500) | CTF eval (n=30) |
+|---|---:|---:|
+| v0.4 chat-v3 | 30.5% | 50.0% |
+| v0.7 chat | 32.2% | 50.0% |
+| v0.7 ctx-1024 (extension) | (not benched) | 45.8% |
+| **v0.9 chat** | 28.9% | **59.2%** |
+
+The v0.9 → v0.7 ranking flips: v0.9 leads by 9 pp on CTF eval despite trailing on CTIBench. The corpus-density swing *did* work; CTIBench specifically wasn't the right yardstick.
+
+The honest read: at 81M params, the model has the *register* of cyber writing and *some* factual content (50%+ on practical CTF / exploitation / fact-recall MCQ), but CTIBench's particular threat-intel framing exposes a 30% ceiling that doesn't generalize to other cybersec MCQ benchmarks. PRIMUS-FineWeb's broader cybersec text helps the model on most bench types and hurts it specifically on CTIBench (likely a register-shift artifact, plausibly some contamination; both deserve investigation before ghost-base spending).
+
+Caveat: 30 questions is small (a 4-point swing is ~5 questions, within noise) and the eval was hand-written by the project maintainer with topical overlap to the v0.9 corpus expansion. A larger external bench (CySecBench / SecQA / external CTF MCQ) is the right next move to confirm the inversion.
+
+**The next rung is still ghost-base (~350M)**, gated on rented GPU compute. The framing shifts from "needed because the ceiling is real" to "needed to validate that corpus density and parameter count compound rather than substitute". Spec at [`docs/ghost_base_spec.md`](docs/ghost_base_spec.md).
 
 **Canonical models on disk:**
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.

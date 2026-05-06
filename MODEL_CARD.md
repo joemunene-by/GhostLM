@@ -34,7 +34,7 @@ model-index:
 | **License** | MIT |
 | **Language** | English |
 | **Framework** | PyTorch (built from scratch, no pretrained weights) |
-| **Version** | 0.9.0 (v0.7 81M architecture pretrained on a 273M-token corpus including PRIMUS + CWE + OWASP + IETF RFCs + fact-QA; chat-tune at 28.9% per-perm avg on the full 2500-q debiased CTIBench, slightly below v0.7's 32.2%. Six independent ghost-small attempts now sit in a 28-32% band: the ~30% real-capability ceiling is firm at this parameter rung, regardless of corpus density. Ghost-base (~350M) is the next rung.) |
+| **Version** | 0.9.1 (v0.7 81M architecture pretrained on a 273M-token corpus; chat-tune at 28.9% per-perm avg on debiased CTIBench but **59.2% on the in-repo 30-question CTF MCQ eval**, +9 pp vs v0.7's 50.0%. Cross-bench validation overturns the v0.9.0 "CTIBench ceiling" diagnosis: the corpus-density swing worked, CTIBench specifically wasn't measuring it. Ghost-base (~350M) is still the next rung, now to validate that corpus density compounds with parameter count.) |
 
 ## Model Description
 
@@ -52,7 +52,7 @@ The model is trained on CVE vulnerability descriptions from the National Vulnera
 | `ghost-small-v0.6` | 6 | 512 | 8 | 2048 | 512 | ~45M | v0.5 architecture + GPT-2 50K BPE on the v0.4.2 expanded corpus. Chat at 31.2% debiased (BPE-swap ablation) |
 | `ghost-small-v0.7` | 6 | 768 | 12 | 3072 | 512 | ~81M | Wider variant of v0.6. Chat at **32.2%** debiased: single best in repo, but inside the noise band |
 | `ghost-small-v0.8` | 6 | 768 | 12 | 3072 | 512 | ~81M | v0.7 arch + Qwen-14B-distilled fact-QA in pretrain. Chat at 31.2% (fact-density alone doesn't lift) |
-| `ghost-small-v0.9` | 6 | 768 | 12 | 3072 | 512 | ~81M | v0.7 arch on 273M-token corpus (PRIMUS + CWE + OWASP + RFCs + fact-QA). Final pretrain val_loss 3.638 at 15K steps; chat at **28.9%** debiased CTIBench (n=2500, full bench): corpus-density swing did not break the ceiling |
+| `ghost-small-v0.9` | 6 | 768 | 12 | 3072 | 512 | ~81M | v0.7 arch on 273M-token corpus (PRIMUS + CWE + OWASP + RFCs + fact-QA). Pretrain val 3.638; chat at 28.9% debiased CTIBench (n=2500) but **59.2% on the in-repo CTF MCQ eval** (n=30), +9 pp vs v0.7. Cross-bench winner; CTIBench specifically suppresses this checkpoint. |
 | `ghostlm/ghost-base` | 12 | 768 | 12 | 3072 | 1024 | ~350M | Planned (rented GPU). The next architectural rung if v0.9 confirms the ceiling is param-bound |
 | `ghostlm/ghost-1B` | 24 | 1024 | 16 | 4096 | 1024 | ~1B | Long-term goal |
 

@@ -42,3 +42,14 @@ The first table preserves the **single-order** numbers (one fixed option orderin
 | ghost-small-v0.7 chat (81M wide, step 600 best) | 0.312 / 0.332 | **0.322** | 2026-05-04 |
 | ghost-small-v0.8 chat (81M wide + fact-dense pretrain) | 0.310 / 0.314 | **0.312** | 2026-05-05 |
 | ghost-small-v0.9 chat (81M wide, 273M-token corpus, n=2500 full bench) | 0.287 / 0.291 | **0.289** | 2026-05-06 |
+
+## Cross-bench: in-repo CTF eval (debiased text-scoring, n=30, 4 perms)
+
+A hand-written 30-question CTF / cybersec MCQ set at `data/raw/ctf_eval_bench.jsonl` (issue #6). Same scoring methodology as the CTIBench rows above (multi-permutation text-scoring). 30 questions is small, so a 4-point swing is ~5 questions and well within noise; treat the absolute numbers as indicative, not authoritative. The ranking, however, is informative: v0.9 leads where CTIBench had it last.
+
+| Checkpoint | Per-perm accs | Per-perm avg | Date |
+|---|---|---:|---|
+| ghost-small-v0.4 chat-v3 (canonical) | 0.500 / 0.433 / 0.533 / 0.533 | **0.500** | 2026-05-06 |
+| ghost-small-v0.7 chat (81M wide, ctx 512) | 0.500 / 0.500 / 0.500 / 0.500 | **0.500** | 2026-05-06 |
+| ghost-small-v0.7 chat-ctx1024 (extension fine-tune) | 0.467 / 0.467 / 0.467 / 0.433 | **0.458** | 2026-05-06 |
+| **ghost-small-v0.9 chat (273M-token corpus)** | 0.567 / 0.633 / 0.567 / 0.600 | **0.592** | 2026-05-06 |
