@@ -51,8 +51,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-tokens", type=int, default=180)
     p.add_argument("--temperature", type=float, default=0.7)
     p.add_argument("--top-k", type=int, default=40)
-    p.add_argument("--top-p", type=float, default=0.9)
-    p.add_argument("--repetition-penalty", type=float, default=1.25)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--out-json", default=None)
     return p.parse_args()
@@ -87,8 +85,7 @@ def load_model(path: str, device: str) -> tuple[GhostLM, GhostLMConfig]:
 def chat_completion(model: GhostLM, tokenizer: GhostTokenizer,
                     prompt: str, *, device: str,
                     max_tokens: int, temperature: float,
-                    top_k: int, top_p: float,
-                    repetition_penalty: float) -> str:
+                    top_k: int) -> str:
     """One-shot chat completion for `prompt`."""
     ids = tokenizer.format_chat_prompt([{"role": "user", "content": prompt}])
     x = torch.tensor(ids, dtype=torch.long, device=device).unsqueeze(0)
@@ -98,13 +95,10 @@ def chat_completion(model: GhostLM, tokenizer: GhostTokenizer,
             max_new_tokens=max_tokens,
             temperature=temperature,
             top_k=top_k if top_k > 0 else None,
-            top_p=top_p,
-            repetition_penalty=repetition_penalty,
         )
     new_ids = out_ids[0, len(ids):].tolist()
     text = tokenizer.decode(new_ids)
     # Trim at the end-of-turn marker if present
-    end_token = tokenizer.encode_special("<|ghost_end|>") if hasattr(tokenizer, "encode_special") else None
     return text.split("<|ghost_end|>")[0].strip()
 
 
@@ -143,8 +137,6 @@ def main() -> None:
                 max_tokens=args.max_tokens,
                 temperature=args.temperature,
                 top_k=args.top_k,
-                top_p=args.top_p,
-                repetition_penalty=args.repetition_penalty,
             )
             print(f"--- {label} ({path}) ---")
             print(completion)
@@ -164,8 +156,6 @@ def main() -> None:
             "sampling": {
                 "temperature": args.temperature,
                 "top_k": args.top_k,
-                "top_p": args.top_p,
-                "repetition_penalty": args.repetition_penalty,
                 "max_tokens": args.max_tokens,
                 "seed": args.seed,
             },

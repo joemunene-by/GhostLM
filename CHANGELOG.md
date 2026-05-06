@@ -603,6 +603,40 @@ benchmark; passing any one is enough to validate the rung.
 - `logs/text_scoring/{v04_chat_v3_ctf, v07_chat_ctf, v09_chat_ctf, v07_ctx1024_chat_ctf}.json`
 - README + RESULTS + MODEL_CARD + ROADMAP updated with the dual-bench picture
 
+### Qualitative comparison (follow-up investigation)
+
+`scripts/compare_chat_completions.py` runs a fixed set of five
+fact-recall prompts (CVE for EternalBlue, CWE for SQLi, MITRE
+technique for LSASS dumping, ChaCha20 vs AES-GCM, SameSite=Strict
+vs CSRF) through v0.4 / v0.7 / v0.9 chat with the same chat-format
+wrapper. Full transcripts and honest interpretation in
+[`docs/v0.9_qualitative_compare.md`](docs/v0.9_qualitative_compare.md).
+
+The two-line read:
+
+1. **v0.9 IS qualitatively the most-fact-aware chat-tune in the
+   ghost-small line.** On near-greedy decode it lands on the right
+   magic numbers ("CAPEC-89 — SQL injection", wrong framework but
+   89 is exactly the correct CWE number for SQLi) and the right
+   format ("T1559.001 — credential extraction. Tactic: ..." with
+   sub-technique notation and citation structure) where v0.4 and
+   v0.7 drift into CTF-writeup tangents without surfacing
+   identifiers at all.
+2. **None of the three reliably answers a fact-recall question.**
+   The 50%+ on the in-repo CTF MCQ bench is real signal from
+   text-scoring's preference for option-strings that match topic +
+   register, not from the model knowing the answer in any
+   actionable sense. v0.9 also shows new repetition pathology
+   ("Online Online Online…", "SSL-enabled SSL-enabled…" loops)
+   under near-greedy decode that v0.4 and v0.7 don't, plausibly
+   from PRIMUS-FineWeb's web-crawl repetition density.
+
+The cross-bench finding stands but is more nuanced than "v0.9 is
+smarter." Implications for ghost-base spec: the acceptance gate
+needs to measure factual binding directly (free-form fact-recall
+with rubric grading), not just MCQ accuracy; PRIMUS-FineWeb shards
+should be filtered for repetition before the v1.0 pretrain.
+
 ### Contamination audit (follow-up investigation)
 
 `scripts/audit_ctibench_contamination.py` — 8-word-shingle overlap
