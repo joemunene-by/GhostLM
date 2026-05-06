@@ -44,24 +44,57 @@ Desktop session for it to pick up the new server.
 
 ## Tools
 
-The server exposes three:
+The server exposes six tools, split between **model-backed** (subject to
+hallucination at 81M scale, prefer for prose-style questions) and
+**deterministic / fact-grounded** (no model invocation, prefer for factual
+lookups).
 
-### `ghostlm_query(question)`
+### Model-backed
+
+#### `ghostlm_query(question)`
 
 Free-form security Q&A. Use for general explanations, walkthroughs, "how
 does X work" questions, comparisons.
 
-### `ghostlm_explain_cve(cve_id)`
+#### `ghostlm_explain_cve(cve_id)`
 
 CVE-specific explainer. Pass an ID like `CVE-2021-44228`; returns the
 affected product, vulnerability class, impact, and (where the model has
-them) mitigations.
+them) mitigations. For canonical CVE data, use `ghostlm_search_cve_nvd`
+instead and treat this as the editorial-summary alternative.
 
-### `ghostlm_map_to_attack(description)`
+#### `ghostlm_map_to_attack(description)`
 
 Take a free-text description of an observed attack or capability and return
 the most likely MITRE ATT&CK technique IDs, names, and a short justification.
 Useful for incident-response triage and CTI-workflow integration.
+
+#### `ghostlm_rag_query(question, top_k=4)`
+
+Retrieval-augmented version of `ghostlm_query`. Embeds the question with
+BGE-small, retrieves the top-K most-similar passages from the GhostLM corpus
+index (~83K cybersec chunks), and conditions generation on those passages.
+Substantially reduces hallucination on factual questions vs the bare
+`ghostlm_query` tool. Falls back to bare query if the index is unavailable
+(offline, Hub down, etc).
+
+### Deterministic / fact-grounded
+
+#### `ghostlm_search_cve_nvd(cve_id)`
+
+Live lookup against NIST's National Vulnerability Database REST API.
+Returns the canonical description, CVSS v3 + v2 base scores, CWE
+references, and publication dates. The model is not invoked. Use this
+whenever you need authoritative CVE data; reach for `ghostlm_explain_cve`
+only when you want a model-style summary.
+
+#### `ghostlm_lookup_mitre_technique(technique_id)`
+
+Local-corpus lookup of a MITRE ATT&CK technique by ID (e.g. `T1059`,
+`T1059.001`, `TA0001`). Reads from the bundled `data/raw/mitre_attack.jsonl`
+and `mitre_full.jsonl` shards; returns the canonical technique text exactly
+as it appears in the GhostLM corpus. Deterministic; the model is not
+invoked.
 
 ## Caveats
 

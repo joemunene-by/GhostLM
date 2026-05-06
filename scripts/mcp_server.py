@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GhostLM MCP server — exposes the cybersecurity model as a Claude tool.
+"""GhostLM MCP server, exposing the cybersecurity model as a Claude tool.
 
 Speaks the Model Context Protocol over stdio. Claude Desktop / Claude Code
 users register the server with::
@@ -7,11 +7,19 @@ users register the server with::
     claude mcp add ghostlm -- python3 /path/to/GhostLM/scripts/mcp_server.py \\
         --checkpoint /path/to/checkpoints/phase5_chat/best_model.pt
 
-After that, three tools become available inside any Claude conversation:
+After that, six tools become available inside any Claude conversation:
 
-- ``ghostlm_query(question)``      — free-form security Q&A.
-- ``ghostlm_explain_cve(cve_id)``  — explain a specific CVE.
-- ``ghostlm_map_to_attack(text)``  — map a description to MITRE ATT&CK techniques.
+Model-backed (chat-tuned GhostLM, subject to hallucination at 81M scale):
+
+- ``ghostlm_query(question)``      free-form security Q&A.
+- ``ghostlm_explain_cve(cve_id)``  explain a specific CVE.
+- ``ghostlm_map_to_attack(text)``  map a description to MITRE ATT&CK techniques.
+- ``ghostlm_rag_query(question)``  retrieval-augmented chat (top-K passages from the corpus).
+
+Deterministic / fact-grounded (no model invocation, prefer these for factual lookups):
+
+- ``ghostlm_search_cve_nvd(cve_id)``       canonical CVE data via NVD REST API.
+- ``ghostlm_lookup_mitre_technique(tid)``  exact technique text from the local MITRE shard.
 
 Requires Python ≥ 3.10 and ``pip install mcp`` (the official Anthropic SDK).
 The model itself runs on whatever device PyTorch picks (MPS on Apple Silicon,
@@ -46,7 +54,7 @@ except ImportError as e:  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
-# Model state — loaded once at startup, shared across all tool calls.
+# Model state. Loaded once at startup, shared across all tool calls.
 # ---------------------------------------------------------------------------
 
 
@@ -128,7 +136,7 @@ def runtime() -> GhostLMRuntime:
     """
     if _runtime is None:
         raise RuntimeError(
-            "GhostLM runtime not initialized — start the server via main()"
+            "GhostLM runtime not initialized; start the server via main()"
         )
     return _runtime
 
@@ -138,12 +146,12 @@ def ghostlm_query(question: str) -> str:
     """Ask GhostLM a free-form cybersecurity question.
 
     Args:
-        question: A natural-language security question — vulnerability classes,
-            CTF approaches, defensive controls, attack technique walkthroughs.
+        question: A natural-language security question (vulnerability classes,
+            CTF approaches, defensive controls, attack technique walkthroughs).
 
     Returns:
-        The model's answer. Note: GhostLM is a small (45M-param) specialist
-        model trained on cybersecurity text — verify any specific facts (CVE
+        The model's answer. Note: GhostLM is a small (81M-param) specialist
+        model trained on cybersecurity text; verify any specific facts (CVE
         numbers, exact CVSS scores, dates) against authoritative sources.
     """
     return runtime().chat(question)
@@ -171,8 +179,8 @@ def ghostlm_map_to_attack(description: str) -> str:
 
     Args:
         description: A free-text description of an observed attack, intrusion,
-            or capability — for example incident-report excerpts, CTI fragments,
-            or hypothetical attacker workflows.
+            or capability (incident-report excerpts, CTI fragments, hypothetical
+            attacker workflows).
 
     Returns:
         A short list of likely MITRE ATT&CK technique IDs and names with brief
@@ -184,6 +192,225 @@ def ghostlm_map_to_attack(description: str) -> str:
         "and a one-line justification per match). If you're not confident, "
         "say so.\n\n"
         f"Description:\n{description}"
+    )
+    return runtime().chat(prompt, max_tokens=400)
+
+
+# ---------------------------------------------------------------------------
+# Deterministic-lookup tools (no model invocation)
+#
+# The chat-based tools above route through the GhostLM model, which
+# means hallucination on factual lookups is possible at the 81M scale.
+# These three tools give Claude fact-grounded sources to consult before
+# (or instead of) the chat tools: live NVD for canonical CVE data,
+# the local MITRE corpus shard for technique definitions, and a
+# retrieval-augmented query path that grounds chat answers in the
+# corpus rather than the model's compressed memory of it.
+# ---------------------------------------------------------------------------
+
+
+_MITRE_INDEX: dict[str, str] | None = None
+
+
+def _load_mitre_index() -> dict[str, str]:
+    """Lazy-load mitre_attack.jsonl into a dict keyed by technique ID
+    (uppercased). Cached after first call. Returns {} if the corpus
+    shard isn't present (e.g. the user installed the MCP server alone
+    without cloning data/)."""
+    global _MITRE_INDEX
+    if _MITRE_INDEX is not None:
+        return _MITRE_INDEX
+    import json as _json
+    repo_root = Path(__file__).resolve().parent.parent
+    candidates = [
+        repo_root / "data" / "raw" / "mitre_attack.jsonl",
+        repo_root / "data" / "raw" / "mitre_full.jsonl",
+    ]
+    out: dict[str, str] = {}
+    for path in candidates:
+        if not path.exists():
+            continue
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                tid = (rec.get("technique_id") or rec.get("attack_id")
+                       or rec.get("id") or rec.get("ref") or "").strip().upper()
+                txt = rec.get("text") or rec.get("description") or rec.get("content") or ""
+                if tid and txt and tid not in out:
+                    out[tid] = str(txt)
+    _MITRE_INDEX = out
+    print(f"[ghostlm-mcp] mitre index: {len(out)} techniques loaded", file=sys.stderr)
+    return out
+
+
+_RAG_STATE: dict | None = None
+
+
+def _load_rag_state() -> dict:
+    """Lazy-load the RAG index + BGE embedder. Cached. Returns {} on
+    any failure (caller treats RAG as optional and falls back to
+    bare chat). The same Models repo (Ghostgim/GhostLM-v0.9-experimental)
+    used by the Space hosts the index files."""
+    global _RAG_STATE
+    if _RAG_STATE is not None:
+        return _RAG_STATE
+    try:
+        import json as _json
+        import numpy as np
+        from huggingface_hub import hf_hub_download
+        repo = "Ghostgim/GhostLM-v0.9-experimental"
+        index_path = hf_hub_download(repo_id=repo, filename="rag/index.npy", repo_type="model")
+        chunks_path = hf_hub_download(repo_id=repo, filename="rag/chunks.jsonl", repo_type="model")
+        idx = np.load(index_path)
+        if idx.dtype != np.float32:
+            idx = idx.astype(np.float32)
+        chunks = []
+        with open(chunks_path) as f:
+            for line in f:
+                chunks.append(_json.loads(line))
+        from transformers import AutoModel, AutoTokenizer
+        e_tok = AutoTokenizer.from_pretrained("BAAI/bge-small-en-v1.5")
+        e_model = AutoModel.from_pretrained("BAAI/bge-small-en-v1.5").eval()
+        _RAG_STATE = {"index": idx, "chunks": chunks,
+                      "embed_tok": e_tok, "embed_model": e_model}
+        print(f"[ghostlm-mcp] rag: {len(chunks)} chunks loaded", file=sys.stderr)
+    except Exception as e:  # noqa: BLE001 - RAG is optional
+        print(f"[ghostlm-mcp] rag disabled: {type(e).__name__}: {e}", file=sys.stderr)
+        _RAG_STATE = {}
+    return _RAG_STATE
+
+
+@mcp.tool()
+def ghostlm_search_cve_nvd(cve_id: str) -> str:
+    """Look up canonical CVE data via the NVD REST API. Authoritative
+    and not subject to model hallucination; use this for any factual
+    CVE question before falling back to ghostlm_query.
+
+    Args:
+        cve_id: CVE identifier (e.g. CVE-2021-44228).
+
+    Returns:
+        Description, CVSS v3 + v2 scores, CWE references, and
+        publication dates pulled live from NIST's National Vulnerability
+        Database. The text is the canonical NVD content; the model is
+        not invoked.
+    """
+    import json as _json
+    import urllib.request
+    cid = cve_id.strip().upper()
+    url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId={cid}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "ghostlm-mcp/0.9.2"})
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            data = _json.loads(resp.read())
+    except Exception as e:  # noqa: BLE001 - NVD downtime / rate limit is normal
+        return f"NVD lookup failed: {type(e).__name__}: {e}"
+    items = (data or {}).get("vulnerabilities", [])
+    if not items:
+        return f"No NVD record for {cid}."
+    cve = items[0].get("cve", {})
+    desc = next(
+        (d.get("value") for d in cve.get("descriptions", []) if d.get("lang") == "en"),
+        "(no English description)",
+    )
+    metrics = cve.get("metrics", {}) or {}
+    v3 = next(iter(metrics.get("cvssMetricV31", []) or metrics.get("cvssMetricV30", []) or []), None)
+    v2 = next(iter(metrics.get("cvssMetricV2", []) or []), None)
+    s3 = (v3 or {}).get("cvssData", {}).get("baseScore") if v3 else None
+    s2 = (v2 or {}).get("cvssData", {}).get("baseScore") if v2 else None
+    cwes: list[str] = []
+    for w in cve.get("weaknesses", []) or []:
+        for d in (w.get("description") or []):
+            if d.get("lang") == "en":
+                val = d.get("value")
+                if val and val not in cwes:
+                    cwes.append(val)
+    lines = [
+        f"{cid}",
+        f"Description: {desc}",
+        f"CVSS v3: {s3 if s3 is not None else '(unscored)'}",
+        f"CVSS v2: {s2 if s2 is not None else '(unscored)'}",
+        f"CWEs: {', '.join(cwes) if cwes else '(none listed)'}",
+        f"Published: {cve.get('published', '?')}",
+        f"Modified:  {cve.get('lastModified', '?')}",
+    ]
+    return "\n".join(lines)
+
+
+@mcp.tool()
+def ghostlm_lookup_mitre_technique(technique_id: str) -> str:
+    """Look up a MITRE ATT&CK technique from the local corpus mirror.
+
+    Args:
+        technique_id: MITRE technique ID (e.g. T1059, T1059.001, TA0001).
+
+    Returns:
+        The technique's description as captured in GhostLM's corpus.
+        Deterministic lookup against the bundled mitre_attack /
+        mitre_full shards; the model is not invoked. Use this when
+        you want canonical text rather than the model's compressed
+        memory of it.
+    """
+    tid = technique_id.strip().upper()
+    idx = _load_mitre_index()
+    if not idx:
+        return ("MITRE index not available "
+                "(data/raw/mitre_attack.jsonl + mitre_full.jsonl missing).")
+    if tid in idx:
+        return f"{tid}\n\n{idx[tid]}"
+    return f"No MITRE record for {tid} in the local corpus."
+
+
+@mcp.tool()
+def ghostlm_rag_query(question: str, top_k: int = 4) -> str:
+    """Ask GhostLM with retrieval augmentation.
+
+    Args:
+        question: A natural-language security question.
+        top_k: How many corpus passages to inject as context (default 4).
+
+    Returns:
+        The model's answer, conditioned on the top-K most-similar
+        passages retrieved from the GhostLM corpus index (BGE-small
+        embeddings, ~83K cybersec chunks). Substantially reduces the
+        hallucination floor of bare ghostlm_query. Falls back to bare
+        chat if the RAG index isn't available (e.g. offline, or the
+        Models repo download failed).
+    """
+    rag = _load_rag_state()
+    if not rag:
+        return runtime().chat(question)
+    import numpy as np
+    import torch.nn.functional as F
+    text = "Represent this sentence for searching relevant passages: " + question
+    enc = rag["embed_tok"](
+        text, padding=True, truncation=True, max_length=512, return_tensors="pt",
+    )
+    with torch.no_grad():
+        out = rag["embed_model"](**enc)
+    emb = out.last_hidden_state[:, 0]
+    emb = F.normalize(emb, p=2, dim=-1)
+    q_vec = emb.cpu().to(torch.float32).numpy().reshape(-1)
+    scores = rag["index"] @ q_vec
+    idxs = np.argsort(-scores)[: max(1, top_k)]
+    refs: list[str] = []
+    for i, j in enumerate(idxs):
+        ch = rag["chunks"][int(j)]
+        snippet = (ch.get("text") or "")[:400]
+        if len(ch.get("text") or "") > 400:
+            snippet = snippet.rsplit(" ", 1)[0] + "..."
+        refs.append(f"[{i+1}] ({ch.get('source', '?')} {ch.get('ref', '')}) {snippet}")
+    prompt = (
+        "Reference passages from the cybersecurity corpus:\n\n"
+        + "\n\n".join(refs)
+        + "\n\nUse the reference passages above to answer the question. If the "
+        "passages don't contain the answer, say so rather than guessing.\n\n"
+        f"Question: {question}"
     )
     return runtime().chat(prompt, max_tokens=400)
 
