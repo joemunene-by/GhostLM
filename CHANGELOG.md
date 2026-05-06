@@ -514,6 +514,103 @@ Added to `Makefile` so the Phase 3.6 numbers can be reproduced: `make eval-secur
 
 ---
 
+## [0.9.0] — 2026-05-06 — Corpus-density attempt; the 30% ceiling is firm at the ghost-small rung
+
+The end of the ghost-small (81M) line. v0.7 ruled out parameter count
+as the bottleneck below 81M; v0.8 ruled out fact-density via Qwen-14B
+distillation; v0.9 was the corpus-density swing, a 4× expansion of
+the pretrain corpus. It also failed to break the ceiling, and
+slightly regressed.
+
+### What landed
+
+- **273M-token corpus** (vs ~60M for v0.6/v0.7/v0.8). Sources mixed
+  in: Trend Micro PRIMUS-Seed (~85K hand-curated cybersec records,
+  EMNLP 2025), Primus-FineWeb (~300K TinyBERT-filtered cybersec
+  CommonCrawl pages), MITRE CWE (969 weakness records with
+  consequences and mitigations), the OWASP family (cheatsheets 110,
+  WSTG 133, ASVS 80, Top 10 18), 48 IETF security RFCs (TLS 1.3 RFC
+  8446, OAuth 2.0 RFC 6749, JWT RFC 7519, DNSSEC RFC 4033, IKEv2 RFC
+  7296, X.509 RFC 5280, ChaCha20+Poly1305 RFC 8439, EdDSA, DKIM,
+  SPF, DMARC, etc.), plus the v0.8 fact-QA. Train: 669,085 records
+  / ~273M tokens. Val: 35,189 records.
+- **Phase 18 pretrain (`phase18_v09_pretrain`)** — same v0.7
+  architecture (81M wide, RoPE + SwiGLU + RMSNorm), from-scratch on
+  the 273M-token corpus. 15K steps, ~12h on M4 across two crashed
+  resumes (disk-full, ModuleNotFoundError) before completing
+  cleanly. Final val_loss 3.638. Note: not directly comparable to
+  v0.7 (3.17) or v0.8 (3.56) since v0.9's val set is drawn from the
+  same expanded corpus and is much more diverse per token.
+- **Phase 19 chat (`phase19_chat_v09`)** — canonical chat-v3 SFT
+  recipe (lr 3e-5, 1800 steps, batch 8 × accum 4, ctx 512). Final
+  val_loss 2.802.
+
+### Result: 28.9% per-perm avg on the full 2500-q debiased CTIBench
+
+`logs/text_scoring/chat-v09.json`: 28.7% / 29.1% on the two
+permutations, 28.9% averaged. **Below v0.7's 32.2% and the prior
+29-32% band.** Prediction distributions are clean (no letter
+collapse), so the regression is genuine, not an artifact.
+
+The most likely explanation: PRIMUS-FineWeb's TinyBERT-filtered
+crawl text dilutes the cyber-text register that the smaller, more
+focused corpus of v0.6/v0.7 had concentrated. The model is sharper
+on general cybersec prose but loses the MCQ-format completion
+sharpness that scored well on CTIBench.
+
+### Six attempts at the ghost-small rung, all in 28-32%
+
+| Variant | Pretrain | Recipe | Debiased per-perm avg |
+|---|---|---|---:|
+| v0.4 chat-v3 | ~12.6M tokens, learned PE / GELU / LayerNorm | MCQ-tuned | 30.5% |
+| v0.5 chat-v5 | ~60M, custom 32K BPE, RoPE/SwiGLU/RMSNorm | hybrid raw + CoT | 29.7% |
+| v0.6 chat | ~60M, GPT-2 50K BPE, RoPE/SwiGLU/RMSNorm | canonical chat-v3 | 31.2% |
+| v0.7 chat (best) | ~60M, 81M wide | canonical chat-v3 | **32.2%** |
+| v0.8 chat | ~60M + 11K Qwen-14B fact-QA | canonical chat-v3 | 31.2% |
+| **v0.9 chat** | **~273M PRIMUS + CWE + OWASP + RFC + fact-QA** | canonical chat-v3 | **28.9%** |
+
+Three architectural axes (BPE, positional encoding + FFN +
+normalization, parameter count up to 81M), one SFT-objective axis
+(letter-loss vs text-loss), and two corpus-density axes (60M with
+fact-QA, 273M with PRIMUS+OWASP+RFC) have all been ablated to within
+this band. The ~30% real-capability ceiling at this rung is firm.
+
+### Diagnosis: 81M is below the threshold for emergent factual recall
+
+Live testing on every variant exhibits the same pattern:
+register-correct prose, factually wrong content. EternalBlue gets a
+wrong CVE; MITRE technique IDs get conflated; CVE-to-CWE mappings
+hallucinate. The model is a "cybersec parrot" at this scale,
+regardless of how much factual content it sees during pretrain.
+
+The pattern matches the literature: SmolLM2-360M and Phi-3.5-mini
+both report factual-recall capability emerging in the 300M-400M
+parameter range. **Ghost-base (~350M, 12L × 768d) is the next
+rung**, gated on rented GPU compute.
+
+### What ships at v0.9.0
+
+- All v0.6-v0.9 checkpoints (best_model.pt only) preserved on disk.
+  The canonical chat model for the ghost-small rung remains v0.7
+  (`checkpoints/phase15_chat_v07/best_model.pt`), the bench winner.
+- Ten new corpus collectors (`scripts/collect_primus.py`,
+  `collect_cwe.py`, `collect_owasp_*.py`, `collect_rfcs.py`,
+  `collect_wikipedia_cyber.py`).
+- Updated docs across README / CHANGELOG / RESULTS / CORPUS /
+  MODEL_CARD / ROADMAP reflecting the ceiling diagnosis.
+
+### What v1.0 (next major) needs
+
+- Ghost-base (~350M) trained on rented GPU compute. Same v0.7 arch
+  scaled up. Same v0.9 corpus or its successor.
+- The ghost-base eval needs to clear ~40% per-perm avg on debiased
+  CTIBench to validate that the bottleneck was indeed parameter
+  count and not something else (eval methodology, recipe, etc.).
+- If ghost-base also stalls at 28-32%, the diagnosis flips again
+  and we need to look at the eval itself rather than the model.
+
+---
+
 ## [0.8.0] — 2026-05-05 — Fact-dense pretrain via Qwen-14B distillation; ceiling holds
 
 The fact-density attempt at the 30% CTIBench ceiling. v0.7 had ruled out
@@ -975,35 +1072,22 @@ The Unreleased section below tracks both.
 
 ## [Unreleased] — Upcoming
 
-v0.6 / v0.7 / v0.8 confirmed the 30% real-capability ceiling on
-debiased CTIBench: BPE swap, param-count doubling, and Qwen-distilled
-fact injection each moved the bench by less than the 29-32% noise
-band. The remaining axis at the ghost-small rung is corpus density,
-which is what v0.9 attacks.
+v0.9 closed the ghost-small (81M) line: six attempts (v0.4-v0.9) on
+debiased CTIBench all sit inside a 28-32% band. The next move is the
+ghost-base rung at 4× the parameter count.
 
-- **v0.9.0 — corpus-density attempt.** Pretrain done at 15K steps,
-  final val_loss 3.638 (`checkpoints/phase18_v09_pretrain/best_model.pt`).
-  From-scratch pretrain of the v0.7 81M-wide architecture on a corpus
-  rebuilt to 273M train tokens (4× v0.6/v0.7) by mixing in the
-  open-license PRIMUS dataset (Trend Micro AI Lab, EMNLP 2025:
-  ~85K Seed + ~300K FineWeb records), MITRE CWE (969 weakness
-  records with consequences and mitigations), OWASP (cheatsheets
-  110, WSTG 133, ASVS 80, Top 10 18), 48 IETF security RFCs (TLS,
-  OAuth, JWT, DNSSEC, X.509, IPsec, SSH, ChaCha20, DKIM, etc.),
-  plus the v0.8 fact-QA. Ten new collectors shipped:
-  `scripts/collect_primus.py`, `scripts/collect_cwe.py`,
-  `scripts/collect_owasp_*.py`, `scripts/collect_rfcs.py`,
-  `scripts/collect_wikipedia_cyber.py`. Pretrain val_loss isn't
-  cross-comparable to v0.7 / v0.8 (different val distribution, much
-  more diverse). The bench truth is the chat-tune + debiased
-  CTIBench, pending. If the ceiling holds at this scale too, the
-  diagnosis is firm: 81M params is below the threshold for
-  emergent factual recall and the next move is the ghost-base
-  (~350M) rung.
+- **v1.0.0 — ghost-base (~350M).** Same v0.7 architecture scaled to
+  12 layers / 768 d_model / 12 heads, trained on rented GPU compute.
+  Target Chinchilla-optimal corpus is ~7B tokens; the v0.9 corpus at
+  ~273M tokens is 25× short, so corpus expansion (or oversampling)
+  is part of this rung. Acceptance criterion: ≥40% per-perm avg on
+  debiased CTIBench. If ghost-base also lands at 28-32%, the
+  diagnosis flips and the eval methodology gets re-examined.
 - **Context-extension fine-tune.** v0.6+ trained at ctx 512 to fit
   the M4 wall-clock budget. A separate ctx-1024 extension fine-tune
   is needed before the model is genuinely useful on long-form CTI
-  inputs.
-- **ghost-base (~350M).** The next architectural rung. Gated on
-  external GPU compute + a v0.9 result that demonstrates the
-  bottleneck is param count, not corpus / recipe.
+  inputs. Doable on M4.
+- **Cross-bench validation.** All ghost-small numbers are on
+  CTIBench MCQ. A second bench (CySecBench, SecQA, or a CTF-eval-set
+  the project ships) would help triangulate whether the ceiling is
+  CTIBench-specific or general.

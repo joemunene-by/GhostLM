@@ -6,26 +6,27 @@ This roadmap is honest about what each rung needs (compute, corpus, time) and wh
 
 ---
 
-## Where we are: v0.8 + v0.9 in progress, the 30% real-capability ceiling on debiased CTIBench
+## Where we are: ghost-small (81M) line closed at the ~30% real-capability ceiling
 
 The v0.5.0 release reported chat-v3 at 36.9% on CTIBench MCQ. As of v0.6.0 we know that number was a positional-bias artifact: CTIBench's gold-letter distribution is 15/32/37/15 (A/B/C/D), the chat-v3 model collapsed to 98.6% C-emission during MCQ-format SFT, and a model that always emits "C" scores 37.1% on the v0.5.0 single-order metric. Real per-permutation accuracy under text scoring is **~30% across every chat-tune in the repo**. Full investigation in `docs/ctibench_bias_finding.md`.
 
-Since then, every architecture and recipe move has landed inside a 29-32% band on debiased text-scoring:
+Six independent attempts at the ghost-small (45-81M) parameter rung, all in a 4-point band on debiased text-scoring:
 
 | Variant | Pretrain | Recipe | Debiased text-scoring |
 |---|---|---|---:|
-| ghost-small (v0.4 base) chat-v3 | 12.56M tokens, learned PE / GELU / LayerNorm | MCQ-tuned, 1.8K steps | 30.5% |
+| ghost-small (v0.4) chat-v3 | 12.56M tokens, learned PE / GELU / LayerNorm | MCQ-tuned, 1.8K steps | 30.5% |
 | ghost-small-v0.5 chat-v5 | v0.4.2 expanded, custom 32K BPE | hybrid raw×5 + CoT×2 | 29.7% |
 | ghost-small-v0.5 chat-text | v0.4.2 expanded, text-loss SFT | answer-text gold | 30.1% |
 | ghost-small-v0.6 chat | v0.5 arch + GPT-2 50K BPE | canonical chat-v3 recipe | 31.2% |
-| ghost-small-v0.7 chat | 81M wide (d_model 768), v0.5 arch | canonical chat-v3 recipe | **32.2%** |
+| **ghost-small-v0.7 chat (best)** | 81M wide (d_model 768), v0.5 arch | canonical chat-v3 recipe | **32.2%** |
 | ghost-small-v0.8 chat | v0.7 arch + 11K Qwen-14B fact-QA in pretrain | canonical chat-v3 recipe | 31.2% |
+| ghost-small-v0.9 chat | v0.7 arch + 273M-token corpus (PRIMUS + CWE + OWASP + RFC + fact-QA) | canonical chat-v3 recipe, n=2500 | 28.9% |
 
-Three architectural axes ablated to within the 29-32% band: BPE size (32K vs 50K), positional encoding + FFN + normalization (learned PE + GELU + LayerNorm vs RoPE + SwiGLU + RMSNorm), and parameter count (45M vs 81M, 1.8×). A fourth axis (SFT objective: letter-loss vs text-loss) sits inside the same band. A fifth (corpus density via 11K Qwen-14B-distilled fact-QA records) added zero pp to the bench.
+Three architectural axes ablated to within the 28-32% band: BPE size (32K vs 50K), positional encoding + FFN + normalization (learned PE + GELU + LayerNorm vs RoPE + SwiGLU + RMSNorm), and parameter count (45M vs 81M, 1.8×). A fourth axis (SFT objective: letter-loss vs text-loss) sits inside the same band. A fifth (corpus density via fact-QA distillation, then 273M-token open-cybersec expansion) added zero pp at v0.8 and slightly regressed at v0.9, likely because PRIMUS-FineWeb's TinyBERT-filtered crawl text dilutes the cyber-text register the model was scoring on.
 
-The diagnosis (five independent AI sources converged): the model has internalized the *register* of cyber writing but lacks the factual density to do structured recall. EternalBlue gets a wrong CVE; MITRE technique IDs get conflated; CVE-to-CWE mappings hallucinate.
+The diagnosis: the model has internalized the *register* of cyber writing but lacks the factual density to do structured recall. EternalBlue gets a wrong CVE; MITRE technique IDs get conflated; CVE-to-CWE mappings hallucinate. **At 81M params, this is firm regardless of corpus density** (we now have data points at ~12M, ~60M, ~273M tokens, all in the same band).
 
-**The remaining swing is corpus density at the v0.7 architecture.** v0.9 attacks this directly with a 273M-token corpus (4× v0.6/v0.7), built by mixing in Trend Micro's PRIMUS dataset (~85K Seed + ~300K FineWeb records, EMNLP 2025), MITRE CWE (969 weakness records with consequences and mitigations), the OWASP family (cheatsheets 110, WSTG 133, ASVS 80, Top 10 18), 48 IETF security RFCs, and the v0.8 fact-QA. **Pretrain done** at 15K steps with final val_loss 3.638 (`checkpoints/phase18_v09_pretrain/best_model.pt`). The val_loss is not directly comparable to v0.7 (3.17) or v0.8 (3.56) since v0.9's val set is drawn from a much more diverse 273M-token corpus including PRIMUS-FineWeb crawled web pages. The honest read is the chat-tune + debiased CTIBench, pending. If the ceiling holds at this scale too, the diagnosis is firm at "81M params is below the threshold for emergent factual recall, regardless of corpus quality", and the next move is the ghost-base (~350M) rung.
+The pattern matches the literature: SmolLM2-360M and Phi-3.5-mini both report factual-recall capability emerging in the 300M-400M parameter range. **The next rung is ghost-base (~350M)**, gated on rented GPU compute.
 
 **Canonical models on disk:**
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.

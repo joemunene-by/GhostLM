@@ -41,3 +41,4 @@ The first table preserves the **single-order** numbers (one fixed option orderin
 | ghost-small-v0.6 chat (canonical recipe) | 0.306 / 0.318 | **0.312** | 2026-05-04 |
 | ghost-small-v0.7 chat (81M wide, step 600 best) | 0.312 / 0.332 | **0.322** | 2026-05-04 |
 | ghost-small-v0.8 chat (81M wide + fact-dense pretrain) | 0.310 / 0.314 | **0.312** | 2026-05-05 |
+| ghost-small-v0.9 chat (81M wide, 273M-token corpus, n=2500 full bench) | 0.287 / 0.291 | **0.289** | 2026-05-06 |
