@@ -33,7 +33,7 @@ suspect.
 | Layers | 30 | 5× v0.7's depth. Depth contributes more to factual recall than width per the SmolLM2 / Phi-3 ablations. |
 | d_model | 960 | 1.25× v0.7's 768. |
 | n_heads | 15 | head_dim 64 (= 960 / 15), unchanged from v0.7's head budget. |
-| d_ff | 2560 | ~2.67× d_model, SwiGLU full width. |
+| d_ff | 3200 | ~3.33× d_model. SwiGLU full width, sized to hit ~360M total. |
 | Vocab | 50,264 | GPT-2 50K BPE + 7 special tokens (unchanged from v0.6+). |
 | Context | 1024 train, 2048 inference | Same RoPE-extension path the v0.7 ctx-1024 fine-tune validated. |
 | Norm | RMSNorm | Unchanged. |

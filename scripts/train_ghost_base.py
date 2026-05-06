@@ -13,7 +13,8 @@ Architecture (ghost-base, matches SmolLM2-360M):
   layers   30   (5x v0.7's 6; deeper helps factual binding)
   d_model  960  (1.25x v0.7's 768; head_dim 64 with 15 heads)
   n_heads  15   (head_dim 64, head budget 64 unchanged)
-  d_ff     2560 (~2.67x d_model; SwiGLU full width)
+  d_ff     3200 (~3.33x d_model; SwiGLU full width, sized to hit
+                  exactly ~360M params matching SmolLM2-360M)
   vocab    50,264  (GPT-2 50K BPE + 7 special tokens, unchanged)
   context  1024 train, 2048 inference (RoPE base 10000)
   norm     RMSNorm (unchanged)
@@ -97,7 +98,7 @@ def main() -> None:
     config.n_layers = 30
     config.d_model = 960
     config.n_heads = 15
-    config.d_ff = 2560
+    config.d_ff = 3200
     config.vocab_size = tokenizer.vocab_size
     config.context_length = args.context_length
     config.batch_size = args.batch_size
