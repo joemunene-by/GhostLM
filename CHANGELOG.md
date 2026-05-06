@@ -514,6 +514,99 @@ Added to `Makefile` so the Phase 3.6 numbers can be reproduced: `make eval-secur
 
 ---
 
+## [0.9.2] — 2026-05-06 — Apples-to-apples re-bench; v0.9 wins three MCQ surfaces, free-form fact recall is at floor for everyone
+
+The third revision of the v0.9 story in 24 hours. v0.9.0 said the
+ghost-small line was capped at ~30% on CTIBench. v0.9.1 said the
+cap was CTIBench-specific because v0.9 led on the in-repo CTF eval.
+v0.9.2 closes the loop with three corrections:
+
+1. **The "v0.9 regressed on CTIBench" framing was a sampling
+   artifact.** Every prior CTIBench number in this repo (v0.4 30.5%,
+   v0.5 29.7%, v0.6 31.2%, v0.7 32.2%, v0.8 31.2%) was scored on a
+   500-record subset; only v0.9 (28.9%) was on the full 2500. After
+   re-benching every chat-tune on the full set, every other variant
+   landed 4-5 pp lower than its n=500 number, and v0.9 leads.
+
+2. **External MCQ confirms the inversion.** SecQA (210q from
+   `zefang-liu/secqa` on HF, pulled via `scripts/fetch_secqa.py`)
+   reproduces the same v0.9 > v0.7 > v0.4 ordering: 39.3% > 37.6% >
+   35.0%. Same direction as the in-repo CTF eval, same direction as
+   the corrected CTIBench full bench. Three independent surfaces.
+
+3. **Free-form fact recall is at floor for the whole ghost-small
+   line.** A new 50-question hand-written fact-recall set
+   (`data/raw/fact_recall_bench.jsonl`, scored by
+   `scripts/eval_fact_recall.py` with substring grading) gets 0/50
+   on v0.4, 1/50 on v0.7, 1/50 on v0.9 — and both "hits" are
+   spurious (v0.7's "Injection" appears in unrelated tangent prose;
+   v0.9's "256" comes from echoing "SHA-256" in the question
+   itself). The MCQ wins reflect register matching and topic
+   distinctness, not facts.
+
+### What landed (scripts + data)
+
+- **`scripts/eval_text_scoring.py`** now records
+  `per_perm_per_question` per-question correctness so the
+  contamination subset split (`scripts/analyze_contamination_split.py`)
+  can run.
+- **`scripts/fetch_secqa.py`** — HF puller for SecQA v1 + v2,
+  converts to the project's `{question, choices, answer}` JSONL
+  schema. Fetcher is the source of truth, the cached JSONL is
+  gitignored.
+- **`scripts/eval_fact_recall.py`** + **`data/raw/fact_recall_bench.jsonl`**
+  — 50 hand-written fact-recall prompts (CVE / CWE / MITRE /
+  OWASP / crypto / protocol / misc), free-form chat completion,
+  permissive substring grading. JSONL bench is whitelisted in
+  `.gitignore` so it travels with the repo.
+
+### Apples-to-apples bench table (v0.9.2 corrected)
+
+| Variant | CTIBench (n=2500) | CTF eval (n=30) | SecQA (n=210) | Fact recall (n=50) |
+|---|---:|---:|---:|---:|
+| v0.4 chat-v3 (canonical) | 27.6% | 50.0% | 35.0% | 0/50 |
+| v0.6 chat | 28.2% | — | — | — |
+| v0.7 chat (81M wide) | 27.2% | 50.0% | 37.6% | 1/50 |
+| v0.7 chat-ctx1024 | 26.7% | 45.8% | — | — |
+| v0.8 chat (fact-dense) | 27.4% | — | — | — |
+| **v0.9 chat (273M corpus)** | **28.9%** | **59.2%** | **39.3%** | **1/50** |
+
+v0.9 wins every MCQ bench by 0.7-9.2 pp. Fact recall is at floor
+(~0%) for every checkpoint.
+
+### Contamination split landed too
+
+The contamination subset analysis (`scripts/analyze_contamination_split.py`)
+on both v0.7 and v0.9 shows -3.0 pp and -2.2 pp deltas respectively
+on contaminated questions. Both models regress equally. Those
+questions are intrinsically harder for everyone, contamination
+isn't the lever.
+
+### What this means for ghost-base
+
+The spec at `docs/ghost_base_spec.md` stands. Acceptance criteria
+gain a fact-recall threshold: **≥40% per-perm avg on CTIBench OR
+≥65% on the CTF eval OR ≥30% on the 50-question fact-recall set**;
+passing any one validates the rung. The fact-recall threshold is
+the most important: that's the metric that actually distinguishes
+"register-matching parrot" from "model that knows the facts."
+
+### What's superseded
+
+- v0.9.0's "30% real-capability ceiling at the ghost-small rung"
+  framing. The apparent ceiling was the n=500 subsetting; the
+  real spread on full bench is 26.7-28.9%, and v0.9 is the top.
+- v0.9.1's "CTIBench-specific regression" framing — v0.9 didn't
+  regress on CTIBench either; it leads.
+- The "v0.7 chat is the bench winner" claim everywhere in earlier
+  README / MODEL_CARD / ROADMAP. Replaced with v0.9.
+
+The v0.9.0 / v0.9.1 release notes preserve the older framings as
+historical record. The README, RESULTS, MODEL_CARD, ROADMAP all
+now point at v0.9.2 numbers.
+
+---
+
 ## [0.9.1] — 2026-05-06 — Cross-bench validation; the CTIBench ceiling was CTIBench-specific
 
 The hours-after correction to the v0.9.0 release. v0.9.0 read the

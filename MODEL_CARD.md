@@ -34,7 +34,7 @@ model-index:
 | **License** | MIT |
 | **Language** | English |
 | **Framework** | PyTorch (built from scratch, no pretrained weights) |
-| **Version** | 0.9.1 (v0.7 81M architecture pretrained on a 273M-token corpus; chat-tune at 28.9% per-perm avg on debiased CTIBench but **59.2% on the in-repo 30-question CTF MCQ eval**, +9 pp vs v0.7's 50.0%. Cross-bench validation overturns the v0.9.0 "CTIBench ceiling" diagnosis: the corpus-density swing worked, CTIBench specifically wasn't measuring it. Ghost-base (~350M) is still the next rung, now to validate that corpus density compounds with parameter count.) |
+| **Version** | 0.9.2 (v0.9 chat wins every MCQ bench in apples-to-apples scoring: CTIBench full 28.9% (vs v0.7 27.2%, v0.4 27.6%), in-repo CTF eval 59.2% (+9 pp vs v0.7), SecQA 39.3% (+1.7 pp vs v0.7). Free-form fact recall at floor across the whole ghost-small line (0-2% on 50 hand-written prompts), so the MCQ wins measure register matching, not facts. Ghost-base (~360M) is the next rung; gains expected to compound corpus + parameter count.) |
 
 ## Model Description
 
@@ -52,7 +52,7 @@ The model is trained on CVE vulnerability descriptions from the National Vulnera
 | `ghost-small-v0.6` | 6 | 512 | 8 | 2048 | 512 | ~45M | v0.5 architecture + GPT-2 50K BPE on the v0.4.2 expanded corpus. Chat at 31.2% debiased (BPE-swap ablation) |
 | `ghost-small-v0.7` | 6 | 768 | 12 | 3072 | 512 | ~81M | Wider variant of v0.6. Chat at **32.2%** debiased: single best in repo, but inside the noise band |
 | `ghost-small-v0.8` | 6 | 768 | 12 | 3072 | 512 | ~81M | v0.7 arch + Qwen-14B-distilled fact-QA in pretrain. Chat at 31.2% (fact-density alone doesn't lift) |
-| `ghost-small-v0.9` | 6 | 768 | 12 | 3072 | 512 | ~81M | v0.7 arch on 273M-token corpus (PRIMUS + CWE + OWASP + RFCs + fact-QA). Pretrain val 3.638; chat at 28.9% debiased CTIBench (n=2500) but **59.2% on the in-repo CTF MCQ eval** (n=30), +9 pp vs v0.7. Cross-bench winner; CTIBench specifically suppresses this checkpoint. |
+| `ghost-small-v0.9` | 6 | 768 | 12 | 3072 | 512 | ~81M | v0.7 arch on 273M-token corpus (PRIMUS + CWE + OWASP + RFCs + fact-QA). Pretrain val 3.638. Chat is the canonical ghost-small bench winner: **28.9% on debiased CTIBench full (n=2500), 59.2% on in-repo CTF MCQ (n=30), 39.3% on SecQA (n=210, external)**. Free-form fact recall still at floor (1/50 on 50 hand-written prompts); MCQ wins measure register, not facts. |
 | `ghostlm/ghost-base` | 12 | 768 | 12 | 3072 | 1024 | ~350M | Planned (rented GPU). The next architectural rung if v0.9 confirms the ceiling is param-bound |
 | `ghostlm/ghost-1B` | 24 | 1024 | 16 | 4096 | 1024 | ~1B | Long-term goal |
 

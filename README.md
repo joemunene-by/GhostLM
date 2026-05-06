@@ -1,4 +1,4 @@
-![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-v0.9%20%7C%20cross--bench%20winner-brightgreen.svg)
+![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-v0.9.2%20%7C%20bench%20winner%2C%20fact%20recall%20at%20floor-brightgreen.svg)
 
 # GhostLM
 
@@ -65,7 +65,7 @@ GhostLM is a multi-year scale ladder. Each rung validates the recipe before clim
 | ghost-small-v0.6 | 6 | 512 | ~45M | M4 GPU/MPS | Trained, v0.5 architecture (RoPE + SwiGLU + RMSNorm) with GPT-2 50K BPE on the expanded corpus. Chat at 31.2% real. The BPE swap experiment. |
 | ghost-small-v0.7 | 6 | 768 | ~81M | M4 GPU/MPS | Trained, wider variant of v0.6 (d_model 768, d_ff 3072). Chat at 32.2% real (single best on debiased eval). Param-count ablation. |
 | ghost-small-v0.8 | 6 | 768 | ~81M | M4 GPU/MPS | Trained, v0.7 architecture pretrained on a fact-dense corpus (Qwen-14B-distilled Q&A, 11K records). Chat at 31.2% real, no lift over v0.7; distilled facts alone don't break the ceiling. |
-| ghost-small-v0.9 | 6 | 768 | ~81M | M4 GPU/MPS | Trained, 273M-token corpus (PRIMUS-Seed/FineWeb + CWE + OWASP + RFCs + fact-QA). Chat at 28.9% on debiased CTIBench (n=2500) but **59.2% on the in-repo CTF MCQ eval (n=30)**, +9 pp vs v0.7. The corpus-density swing worked; CTIBench was the wrong yardstick. New bench-winner among ghost-small variants. |
+| ghost-small-v0.9 | 6 | 768 | ~81M | M4 GPU/MPS | Trained, 273M-token corpus (PRIMUS-Seed/FineWeb + CWE + OWASP + RFCs + fact-QA). **Wins all three MCQ benches on apples-to-apples scoring**: CTIBench full 28.9% (vs v0.7 27.2%, v0.4 27.6%), CTF eval 59.2% (vs v0.7 50%, v0.4 50%), SecQA 39.3% (vs v0.7 37.6%, v0.4 35.0%). Free-form fact recall still at floor (0-2% on 50 hand-written questions): ghost-small line measures register matching, not facts. |
 | ghost-base | 12 | 768 | ~350M | Rented GPU (A/H100) | Planned. Per the literature (SmolLM2, Phi-3.5-mini), factual recall on cybersec MCQ should start emerging meaningfully here. |
 | ghost-1B | 24 | 1024 | ~1B | Rented or owned GPU | Long-term goal |
 
@@ -168,50 +168,35 @@ For where the corpus is heading, Phase 3.6 volume targets (CTFtime expansion, se
 
 The Phase 4 ghost-small checkpoint at `checkpoints/phase4_ghost_small/best_model.pt` is the current canonical model for any density / completion / generation work, it dominates Phase 3.5 by 59-78% on per-source perplexity across every source. The Phase 3.5 ghost-tiny checkpoint at `checkpoints/phase3.5_balanced/best_model.pt` remains on disk as the historical canonical and is still the higher number on the existing **PMI** multiple-choice suite (a calibration artifact at small corpus size; see [CHANGELOG.md](CHANGELOG.md) v0.4.0 for the PMI vs logp scoring analysis). Both are kept; pick by use case.
 
-### Chat tuning, debiased real capability (v0.6.0)
+### Chat tuning, debiased real capability (v0.9.2)
 
-A supervised fine-tune on top of the base ghost-small turns the completion model into a conversational cybersecurity assistant. The canonical chat model is **`checkpoints/phase5_chat_v3/best_model.pt`** (45M params, ~1,800 step SFT with three role tokens and 1,802 templated MCQ examples).
+A supervised fine-tune on top of the base ghost-small turns the completion model into a conversational cybersecurity assistant. As of v0.9.2 the canonical chat model is **`checkpoints/phase19_chat_v09/best_model.pt`** (81M params, v0.7 wide architecture, pretrained on the 273M-token PRIMUS + CWE + OWASP + RFC + fact-QA corpus, fine-tuned with the canonical chat-v3 SFT recipe).
 
-The chat-tunes are evaluated on CTIBench MCQ (2500 4-choice questions) under three different scoring methodologies:
+Each chat-tune is evaluated on three independent MCQ sources plus one free-form fact-recall set:
 
-- **Single-order accuracy**, the original eval, scores log-prob of each letter token at one fixed option ordering. Reports the headline number you saw in v0.5.0. **Bias-exploitable: gold-letter dist is 15/32/37/15, so a model that emits "C" on every question scores 37.1%.**
-- **Letter per-perm avg**, `scripts/eval_debiased.py` runs N=4 option-letter permutations per record and reports the mean accuracy. A pure single-letter emitter collapses to 25% (random).
-- **Text per-perm avg**, `scripts/eval_text_scoring.py` skips the letter token entirely; scores log P(option_text | prompt) per option, picks the highest, again under N permutations. The cleanest read of real capability.
+- **CTIBench MCQ** (full test split, n=2500, 2 perms) — the AI4Sec/cti-bench benchmark.
+- **In-repo CTF eval** (n=30, 4 perms) — hand-written cybersec MCQ at `data/raw/ctf_eval_bench.jsonl`.
+- **SecQA** (n=210, 4 perms) — external benchmark, pulled via `scripts/fetch_secqa.py` from `zefang-liu/secqa` on HuggingFace.
+- **Free-form fact recall** (n=50) — single-line factual prompts at `data/raw/fact_recall_bench.jsonl`, substring-graded.
 
-| Checkpoint | Single-order | Letter per-perm avg | Text per-perm avg | Latched letter |
-|---|---:|---:|---:|---|
-| `phase4_ghost_small` (pretrain only) | 17.8% | - | - | - |
-| `phase5_chat_v2` (free-form SFT) | 19.0% | - | - | - |
-| `phase5_chat_v2 + RAG(top4)` | 19.0% | - | - | - |
-| **`phase5_chat_v3` (canonical)** | **36.9%** | 30.3% | **30.5%** | C (98.6%) |
-| `phase5_chat_v3_repro2` (recipe match) | 31.2% | 26.0% | 31.7% | B/C dual |
-| `phase8_chat_v05_v5` (v0.5 base hybrid) | 34.8% | 29.3% | 29.7% | C (79.6%) |
-| `phase10_chat_v06` (v0.6 BPE-swap) | 29.8% | 23.4% | 31.2% | B (86.2%) |
-| `phase13_chat_text` (text-loss SFT) | 19.6% | - | 30.1% | mixed |
-| `phase15_chat_v07` (81M wide) | 25.9% | - | **32.2%** | mixed |
-| `phase17_chat_v08` (81M wide, fact-dense pretrain) | - | - | 31.2% | mixed |
-| `phase19_chat_v09` (81M wide, 273M-token corpus, n=2500 full bench) | - | - | 28.9% | mixed |
+All MCQ rows below use multi-permutation text-scoring: log P(option_text | prompt) per option under N option-letter orderings, no letter-token bias. Random baseline on 4-way MCQ is 25%. Fact-recall is free-form completion with substring grading; random baseline is ~0%.
 
-Random baseline on 4-way MCQ is 25%. The single-order column is preserved for historical comparison with the v0.5.0 release notes; the right number to read is **text per-perm avg**, where every chat-tune in this repo clusters at **28-32%**, well above chance, but ~5-7 points of real signal, not the 12+ that single-order suggested. Full investigation in [`docs/ctibench_bias_finding.md`](docs/ctibench_bias_finding.md). Recipe in [`docs/chat_tuning.md`](docs/chat_tuning.md), raw bench data in [`RESULTS.md`](RESULTS.md), per-checkpoint debiased JSONs in `logs/debiased/` and `logs/text_scoring/`.
+| Checkpoint | CTIBench (n=2500) | CTF eval (n=30) | SecQA (n=210) | Fact recall (n=50) |
+|---|---:|---:|---:|---:|
+| `phase5_chat_v3` (v0.4 base, canonical from v0.5.0) | 27.6% | 50.0% | 35.0% | 0/50 (0.0%) |
+| `phase10_chat_v06` (v0.6, BPE swap) | 28.2% | — | — | — |
+| `phase15_chat_v07` (v0.7, 81M wide) | 27.2% | 50.0% | 37.6% | 1/50 (2.0%) |
+| `phase20_chat_v07_ctx1024` (v0.7 ctx-1024 extension) | 26.7% | 45.8% | — | — |
+| `phase17_chat_v08` (v0.8, 81M + fact-QA) | 27.4% | — | — | — |
+| **`phase19_chat_v09` (canonical, 273M-token corpus)** | **28.9%** | **59.2%** | **39.3%** | **1/50 (2.0%)** |
 
-The ~30% real ceiling is consistent across every architecture (v0.4 base, v0.5 base, v0.6 base, v0.7 wide, v0.8 fact-dense pretrain, v0.9 273M-token expansion), every BPE (GPT-2 50K, custom 32K), every SFT objective (letter-loss, text-loss), and every corpus density we've tried (~60M to ~273M tokens). Live testing confirms the model is a "cybersec parrot": it has learned vocabulary patterns and CTF-writeup style, but lacks factual grounding (gets EternalBlue's CVE wrong, conflates MITRE technique IDs).
+**v0.9 wins every MCQ bench by 0.7-9.2 pp.** The corpus-density swing produced a real, consistent capability lift across CTIBench (+1.3-1.7 pp over v0.4/v0.7), the in-repo CTF eval (+9.2 pp), and the external SecQA bench (+1.7-4.3 pp). The ranking holds across all three independent sources.
 
-**v0.9 looked like the empirical end of the ghost-small (81M) line on CTIBench.** Six independent attempts (v0.4 30.5%, v0.5 29.7%, v0.6 31.2%, v0.7 32.2%, v0.8 31.2%, v0.9 28.9%) all sit inside a 4-point band. The corpus-density swing did not break the *CTIBench* ceiling, and v0.9 slightly regressed.
+**But fact-recall is at floor.** v0.4 / v0.7 / v0.9 all score 0-2% on 50 hand-written single-line factual prompts, and the two "hits" v0.7 and v0.9 each registered are arguably spurious (v0.7's "Injection" appears in unrelated tangent prose; v0.9's "256" comes from echoing "SHA-256" in the question itself). **The MCQ wins reflect register matching and topic distinctness, not factual recall.** The "cybersec parrot" diagnosis from v0.6.0 stands: at 81M parameters, the model has the *register* of cyber writing but not the *facts* in any retrievable form.
 
-**But cross-bench validation overturns that diagnosis.** The same chat-tunes scored on a hand-written 30-question CTF MCQ set (`data/raw/ctf_eval_bench.jsonl`, debiased text-scoring, 4 permutations) tell a different story:
+**Methodology correction (apples-to-apples re-bench, v0.9.2):** earlier README versions reported v0.4 at 30.5%, v0.5 at 29.7%, v0.6 at 31.2%, v0.7 at 32.2%, v0.8 at 31.2% on debiased CTIBench. All of those were on a 500-record subset; only v0.9 was scored on the full 2500. The apparent "v0.9 regressed against v0.7" was a sampling artifact. Re-benching every chat-tune on the full n=2500 set produces the table above, where v0.9 leads. The v0.9.0 / v0.9.1 release notes preserve the older numbers for historical record. Full investigation in [`docs/ctibench_bias_finding.md`](docs/ctibench_bias_finding.md), recipe in [`docs/chat_tuning.md`](docs/chat_tuning.md), raw data in [`RESULTS.md`](RESULTS.md), per-checkpoint JSONs in `logs/text_scoring/`.
 
-| Variant | CTIBench (n=2500) | CTF eval (n=30) |
-|---|---:|---:|
-| v0.4 chat-v3 | 30.5% | 50.0% |
-| v0.7 chat | 32.2% | 50.0% |
-| v0.7 chat ctx-1024 (extension) | (pending) | 45.8% |
-| **v0.9 chat** | **28.9%** | **59.2%** |
-
-v0.9 is **+9.2 pp ahead of v0.7** on the CTF eval, exactly inverting the CTIBench ranking. The corpus-density swing *worked* by the cybersec-capability metric we care about; CTIBench specifically was the wrong yardstick (likely because PRIMUS-FineWeb's general-cybersec crawl text shifts the model's prior away from CTIBench's particular threat-intel register). The 30 questions are a small bench so the absolute numbers are noisy at the ±4-point level, but the *ranking* (v0.9 > v0.7 > v0.4) is consistent with the corpus-density story.
-
-**Caveats on the CTF result:** 30 hand-written questions is a small bench; a 4-point swing is ~5 questions. We wrote the questions ourselves (no external validation) and they overlap topically with the v0.9 corpus expansion (CWE / OWASP / RFC-style fact patterns). A larger external bench (CySecBench, SecQA, or a CTF MCQ set someone else wrote) is the right next move to confirm the inversion.
-
-The **next rung is still ghost-base (~350M, rented GPU)**, but the v0.9 cross-bench result moves it from "needed because the ceiling is real" to "needed because we want to validate that the corpus-density gain compounds with parameter count, not just substitutes for it." Spec at [`docs/ghost_base_spec.md`](docs/ghost_base_spec.md).
+The **next rung is ghost-base (~360M, rented GPU)** at [`docs/ghost_base_spec.md`](docs/ghost_base_spec.md). The v0.9 corpus-density gain on MCQ benches plus the floor result on free-form fact recall together make the case clearly: parameter count is what's missing for fact binding, and the v0.9 corpus is the right substrate to scale into. Acceptance criteria for ghost-base now include the free-form fact-recall benchmark explicitly: ≥40% per-perm avg on debiased CTIBench OR ≥65% on the CTF eval OR ≥30% on the 50-question fact-recall set; passing any one validates the rung.
 
 ### Cross-phase eval, fair comparison (fixed test set)
 

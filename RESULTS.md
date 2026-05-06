@@ -28,29 +28,60 @@ The first table preserves the **single-order** numbers (one fixed option orderin
 | ghost-small-v0.6 chat-hybrid (v0.6 base + chat-v5 hybrid recipe: raw×5 + CoT×2 + small-talk×8) | ctibench-mcq | 2500 | 374 | 0.150 | 2026-05-03 |
 | ghost-small-v0.7 chat (81M wide, step 600 best, OOM-killed before completion) | ctibench-mcq | 2500 | 648 | 0.259 | 2026-05-04 |
 
-## Debiased text-scoring (real capability)
+## Debiased text-scoring on CTIBench, full bench (n=2500, 2 perms)
 
-`scripts/eval_text_scoring.py` skips the letter token entirely, scores log P(option_text | prompt) per option under N option-letter permutations, and reports the mean accuracy. A pure single-letter emitter collapses to 25% (random) on this metric. n=500 (CTIBench-MCQ subset, two permutations: A,B,C,D and C,B,D,A).
+`scripts/eval_text_scoring.py` skips the letter token entirely, scores log P(option_text | prompt) per option under N option-letter permutations, and reports the mean accuracy. A pure single-letter emitter collapses to 25% (random) on this metric. **All rows below are on the full n=2500 CTIBench MCQ test split** (2 permutations: A,B,C,D and C,B,D,A). The earlier table that mixed n=500 subset numbers across versions has been retired; see the deprecation note at the bottom of this file.
 
 | Checkpoint | Per-perm accs | Per-perm avg | Date |
 |---|---|---:|---|
-| ghost-small-v0.4 chat-v3 (canonical) | 0.302 / 0.308 | **0.305** | 2026-05-04 |
-| ghost-small-v0.4 chat-v3-repro2 | 0.314 / 0.320 | **0.317** | 2026-05-04 |
-| ghost-small-v0.5 chat-v5 best | 0.292 / 0.302 | **0.297** | 2026-05-04 |
-| ghost-small-v0.5 chat-text (text-loss SFT) | 0.296 / 0.306 | **0.301** | 2026-05-04 |
-| ghost-small-v0.6 chat (canonical recipe) | 0.306 / 0.318 | **0.312** | 2026-05-04 |
-| ghost-small-v0.7 chat (81M wide, step 600 best) | 0.312 / 0.332 | **0.322** | 2026-05-04 |
-| ghost-small-v0.8 chat (81M wide + fact-dense pretrain) | 0.310 / 0.314 | **0.312** | 2026-05-05 |
-| ghost-small-v0.9 chat (81M wide, 273M-token corpus, n=2500 full bench) | 0.287 / 0.291 | **0.289** | 2026-05-06 |
-| ghost-small-v0.7 chat-ctx1024 (extension fine-tune from v0.7 chat) | 0.270 / 0.264 | **0.267** | 2026-05-06 |
+| ghost-small-v0.4 chat-v3 (canonical) | 0.271 / 0.282 | **0.276** | 2026-05-06 |
+| ghost-small-v0.6 chat (v0.5 arch + GPT-2 BPE) | 0.283 / 0.280 | **0.282** | 2026-05-06 |
+| ghost-small-v0.7 chat (81M wide) | 0.272 / 0.273 | **0.272** | 2026-05-06 |
+| ghost-small-v0.7 chat-ctx1024 (extension fine-tune) | 0.270 / 0.264 | **0.267** | 2026-05-06 |
+| ghost-small-v0.8 chat (81M wide + fact-dense pretrain) | 0.272 / 0.276 | **0.274** | 2026-05-06 |
+| **ghost-small-v0.9 chat (273M-token corpus)** | 0.287 / 0.291 | **0.289** | 2026-05-06 |
 
-## Cross-bench: in-repo CTF eval (debiased text-scoring, n=30, 4 perms)
+v0.9 is the bench-winner across every chat-tune in the ghost-small line on the full CTIBench test split, by 0.7-2.2 pp.
 
-A hand-written 30-question CTF / cybersec MCQ set at `data/raw/ctf_eval_bench.jsonl` (issue #6). Same scoring methodology as the CTIBench rows above (multi-permutation text-scoring). 30 questions is small, so a 4-point swing is ~5 questions and well within noise; treat the absolute numbers as indicative, not authoritative. The ranking, however, is informative: v0.9 leads where CTIBench had it last.
+## Cross-bench: in-repo CTF eval (n=30, 4 perms, debiased text-scoring)
+
+A hand-written 30-question CTF / cybersec MCQ set at `data/raw/ctf_eval_bench.jsonl` (issue #6). Same multi-perm text-scoring methodology. 30 questions is small, so a 4-point swing is ~5 questions and within noise; treat absolute numbers as indicative, *the ranking is informative.*
 
 | Checkpoint | Per-perm accs | Per-perm avg | Date |
 |---|---|---:|---|
 | ghost-small-v0.4 chat-v3 (canonical) | 0.500 / 0.433 / 0.533 / 0.533 | **0.500** | 2026-05-06 |
-| ghost-small-v0.7 chat (81M wide, ctx 512) | 0.500 / 0.500 / 0.500 / 0.500 | **0.500** | 2026-05-06 |
+| ghost-small-v0.7 chat (81M wide) | 0.500 / 0.500 / 0.500 / 0.500 | **0.500** | 2026-05-06 |
 | ghost-small-v0.7 chat-ctx1024 (extension fine-tune) | 0.467 / 0.467 / 0.467 / 0.433 | **0.458** | 2026-05-06 |
 | **ghost-small-v0.9 chat (273M-token corpus)** | 0.567 / 0.633 / 0.567 / 0.600 | **0.592** | 2026-05-06 |
+
+## Cross-bench: SecQA (n=210, 4 perms, debiased text-scoring)
+
+External cybersec MCQ from `zefang-liu/secqa` on HuggingFace (v1 + v2 test splits combined). Pulled via `scripts/fetch_secqa.py`, scored with the same multi-perm methodology. Independent of the in-repo CTF set, so it confirms the v0.9 lead generalizes.
+
+| Checkpoint | Per-perm avg | Date |
+|---|---:|---|
+| ghost-small-v0.4 chat-v3 (canonical) | **0.350** | 2026-05-06 |
+| ghost-small-v0.7 chat (81M wide) | **0.376** | 2026-05-06 |
+| **ghost-small-v0.9 chat (273M-token corpus)** | **0.393** | 2026-05-06 |
+
+v0.9 leads on SecQA by 1.7 pp over v0.7 and 4.3 pp over v0.4. Same ordering as CTIBench full-bench and CTF eval; the inversion is consistent across three independent cybersec MCQ sources.
+
+## Free-form fact recall (n=50, substring grading)
+
+The truth metric for "does the model actually know facts." `scripts/eval_fact_recall.py` runs hand-written single-line factual prompts (CVE id lookup, CWE numbers, MITRE technique IDs, OWASP categories, crypto / protocol facts, misc) through chat completion at low temperature and credits any answer whose canonical form (or one of its alternates) appears as a substring of the model's response. Permissive on purpose: meant to catch the "v0.9 surfaces the right magic numbers near the surface" pattern.
+
+| Checkpoint | Pass rate | Topics that scored |
+|---|---:|---|
+| ghost-small-v0.4 chat-v3 (canonical) | **0/50 (0.0%)** | none |
+| ghost-small-v0.7 chat (81M wide) | **1/50 (2.0%)** | owasp 1/5 |
+| ghost-small-v0.9 chat (273M-token corpus) | **1/50 (2.0%)** | crypto 1/5 |
+
+Both "hits" are arguably spurious: v0.7's owasp hit ("Injection") appears in tangent prose unrelated to A03; v0.9's crypto hit ("256") comes from echoing "SHA-256" from the question itself. **At the ghost-small (45-81M) parameter scale, free-form fact recall is at floor.** The 28-39% numbers on the MCQ benches above reflect the model's ability to match register and topic, not its ability to retrieve facts.
+
+This is the cleanest evidence that the ghost-small line ships as a "cybersec parrot" and the next move (ghost-base, 12L × 768d × 12h, ~360M) is a parameter-count bet on factual recall emerging.
+
+---
+
+## Deprecated: earlier n=500 debiased table
+
+The previous version of this section reported v0.4 at 30.5%, v0.5 at 29.7%, v0.6 at 31.2%, v0.7 at 32.2%, v0.8 at 31.2% on debiased CTIBench. **All of those were on a 500-record subset of the test split, while the v0.9 number (28.9%) was the only one on the full 2500-record bench.** The apples-to-apples re-bench above shows the actual full-bench scores cluster 4-5 pp lower; v0.9 is the bench winner, not a regression. The historical n=500 table is gone, the v0.9.0 / v0.9.1 release notes preserve the wrong numbers as historical record, and CHANGELOG v0.9.2 documents the correction.

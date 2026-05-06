@@ -6,7 +6,7 @@ This roadmap is honest about what each rung needs (compute, corpus, time) and wh
 
 ---
 
-## Where we are: ghost-small (81M) line, dual-bench picture (CTIBench plateau, CTF-eval breakthrough)
+## Where we are: ghost-small (81M) line, v0.9 wins three MCQ benches; free-form fact recall at floor
 
 The v0.5.0 release reported chat-v3 at 36.9% on CTIBench MCQ. As of v0.6.0 we know that number was a positional-bias artifact: CTIBench's gold-letter distribution is 15/32/37/15 (A/B/C/D), the chat-v3 model collapsed to 98.6% C-emission during MCQ-format SFT, and a model that always emits "C" scores 37.1% on the v0.5.0 single-order metric. Real per-permutation accuracy under text scoring is **~30% across every chat-tune in the repo**. Full investigation in `docs/ctibench_bias_finding.md`.
 
@@ -24,22 +24,22 @@ Six independent attempts at the ghost-small (45-81M) parameter rung, all in a 4-
 
 Three architectural axes ablated to within the 28-32% band: BPE size (32K vs 50K), positional encoding + FFN + normalization (learned PE + GELU + LayerNorm vs RoPE + SwiGLU + RMSNorm), and parameter count (45M vs 81M, 1.8×). A fourth axis (SFT objective: letter-loss vs text-loss) sits inside the same band. A fifth (corpus density via fact-QA distillation, then 273M-token open-cybersec expansion) added zero pp at v0.8 and slightly regressed at v0.9, likely because PRIMUS-FineWeb's TinyBERT-filtered crawl text dilutes the cyber-text register the model was scoring on.
 
-**Cross-bench validation overturns the CTIBench-only diagnosis.** Same chat-tunes scored on the in-repo CTF MCQ eval (`data/raw/ctf_eval_bench.jsonl`, 30 hand-written questions, debiased text-scoring):
+**Apples-to-apples re-bench (v0.9.2) overturns both v0.9.0 and v0.9.1 diagnoses.** All earlier debiased CTIBench numbers in this repo were on a 500-record subset of the test split; only v0.9 was scored on the full 2500. Re-running every chat-tune on the full set produces a different ranking:
 
-| Variant | CTIBench (n=2500) | CTF eval (n=30) |
-|---|---:|---:|
-| v0.4 chat-v3 | 30.5% | 50.0% |
-| v0.7 chat | 32.2% | 50.0% |
-| v0.7 ctx-1024 (extension) | (not benched) | 45.8% |
-| **v0.9 chat** | 28.9% | **59.2%** |
+| Variant | CTIBench full (n=2500) | CTF eval (n=30) | SecQA (n=210, external) | Fact recall (n=50) |
+|---|---:|---:|---:|---:|
+| v0.4 chat-v3 (canonical from v0.5.0) | 27.6% | 50.0% | 35.0% | 0/50 |
+| v0.6 chat | 28.2% | — | — | — |
+| v0.7 chat (81M wide) | 27.2% | 50.0% | 37.6% | 1/50 |
+| v0.7 chat-ctx1024 | 26.7% | 45.8% | — | — |
+| v0.8 chat (fact-dense) | 27.4% | — | — | — |
+| **v0.9 chat (273M corpus)** | **28.9%** | **59.2%** | **39.3%** | **1/50** |
 
-The v0.9 → v0.7 ranking flips: v0.9 leads by 9 pp on CTF eval despite trailing on CTIBench. The corpus-density swing *did* work; CTIBench specifically wasn't the right yardstick.
+v0.9 leads on every MCQ bench by 0.7-9.2 pp. SecQA confirms the cross-bench inversion against an independent third-party set; the v0.9 > v0.7 > v0.4 ranking is consistent across CTIBench full, CTF eval, and SecQA.
 
-The honest read: at 81M params, the model has the *register* of cyber writing and *some* factual content (50%+ on practical CTF / exploitation / fact-recall MCQ), but CTIBench's particular threat-intel framing exposes a 30% ceiling that doesn't generalize to other cybersec MCQ benchmarks. PRIMUS-FineWeb's broader cybersec text helps the model on most bench types and hurts it specifically on CTIBench (likely a register-shift artifact, plausibly some contamination; both deserve investigation before ghost-base spending).
+**But fact-recall is at floor.** A 50-question hand-written free-form fact-recall set (CVE / CWE / MITRE / OWASP / crypto / protocol / misc) graded by substring match gets 0-2% from every chat-tune in the line, and the two "hits" v0.7 and v0.9 each registered are spurious (v0.7's "Injection" surfaces in unrelated tangent prose; v0.9's "256" comes from echoing "SHA-256" in the question). **At the ghost-small parameter scale, the MCQ benches measure register matching and topic distinctness, not factual recall.** v0.9 is a better register-matcher than its predecessors but it can't tell you the CVE for EternalBlue.
 
-Caveat: 30 questions is small (a 4-point swing is ~5 questions, within noise) and the eval was hand-written by the project maintainer with topical overlap to the v0.9 corpus expansion. A larger external bench (CySecBench / SecQA / external CTF MCQ) is the right next move to confirm the inversion.
-
-**The next rung is still ghost-base (~350M)**, gated on rented GPU compute. The framing shifts from "needed because the ceiling is real" to "needed to validate that corpus density and parameter count compound rather than substitute". Spec at [`docs/ghost_base_spec.md`](docs/ghost_base_spec.md).
+This is the cleanest evidence we have that the ghost-small line saturates as a "cybersec parrot" and the next move is parameter count, not more corpus or recipe twiddling at this scale. **The next rung is ghost-base (~360M)**, gated on rented GPU compute. The acceptance gate now includes the fact-recall threshold explicitly: ≥40% on debiased CTIBench OR ≥65% on the CTF eval OR ≥30% on the 50-question fact-recall set; passing any one validates the rung. The fact-recall bar is the truth metric — that's where ghost-small fails today and where ghost-base needs to land for the project to ship a model anyone would actually use. Spec at [`docs/ghost_base_spec.md`](docs/ghost_base_spec.md).
 
 **Canonical models on disk:**
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
