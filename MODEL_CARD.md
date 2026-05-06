@@ -34,7 +34,7 @@ model-index:
 | **License** | MIT |
 | **Language** | English |
 | **Framework** | PyTorch (built from scratch, no pretrained weights) |
-| **Version** | v0.9.2 + v1.0 corpus ready. v0.9 chat is the ghost-small bench winner (CTIBench full 28.9%, CTF eval 59.2%, SecQA 39.3%, fact recall 1/50). The 81M ghost-small line saturates as a register-matching parrot; free-form fact recall is at floor. The v1.0 corpus has been built (516,736 train / 27,049 val records, ~363M tokens, six domains: cybersec writeup / code / general language / math / authoritative reference / research-blog register) and the ghost-base launcher (`scripts/train_ghost_base.py`, 12L × 768d × 12h, ~360M params) is shipped. v1.0 training is gated on rented-GPU access. |
+| **Version** | v0.9.2 + v1.0 corpus ready. v0.9 chat is the ghost-small bench winner (CTIBench full 28.9%, CTF eval 59.2%, SecQA 39.3%, fact recall 1/50). The 81M ghost-small line saturates as a register-matching parrot; free-form fact recall is at floor. The v1.0 corpus has been built (516,736 train / 27,049 val records, ~363M tokens, six domains: cybersec writeup / code / general language / math / authoritative reference / research-blog register) and the ghost-base launcher (`scripts/train_ghost_base.py`, 30L × 960d × 15h × 2560 d_ff, SmolLM2-360M shape, ~360M params) is shipped. v1.0 training is gated on rented-GPU access. |
 
 ## Model Description
 
@@ -53,7 +53,7 @@ The model is trained on CVE vulnerability descriptions from the National Vulnera
 | `ghost-small-v0.7` | 6 | 768 | 12 | 3072 | 512 | ~81M | Wider variant of v0.6. Chat at **32.2%** debiased: single best in repo, but inside the noise band |
 | `ghost-small-v0.8` | 6 | 768 | 12 | 3072 | 512 | ~81M | v0.7 arch + Qwen-14B-distilled fact-QA in pretrain. Chat at 31.2% (fact-density alone doesn't lift) |
 | `ghost-small-v0.9` | 6 | 768 | 12 | 3072 | 512 | ~81M | v0.7 arch on 273M-token corpus (PRIMUS + CWE + OWASP + RFCs + fact-QA). Pretrain val 3.638. Chat is the canonical ghost-small bench winner: **28.9% on debiased CTIBench full (n=2500), 59.2% on in-repo CTF MCQ (n=30), 39.3% on SecQA (n=210, external)**. Free-form fact recall still at floor (1/50 on 50 hand-written prompts); MCQ wins measure register, not facts. |
-| `ghostlm/ghost-base` | 12 | 768 | 12 | 3072 | 1024 | ~350M | Planned (rented GPU). The next architectural rung if v0.9 confirms the ceiling is param-bound |
+| `ghostlm/ghost-base` | 30 | 960 | 15 | 2560 | 1024 | ~360M | Planned (rented GPU). SmolLM2-360M shape; the parameter rung where literature reports factual recall on cybersec MCQ starting to emerge |
 | `ghostlm/ghost-1B` | 24 | 1024 | 16 | 4096 | 1024 | ~1B | Long-term goal |
 
 ghost-tiny is the iteration vehicle. The v0.4 / v0.5 / v0.6 / v0.7 / v0.8 sequence is the same parameter rung (45-81M) under different recipes; the bench is consistent across all of them at 29-32% per-perm avg on debiased CTIBench, which is the diagnosis (param-count is the bottleneck at this rung). See [ROADMAP.md](ROADMAP.md) for phased milestones and [`docs/ctibench_bias_finding.md`](docs/ctibench_bias_finding.md) for the eval-methodology investigation.

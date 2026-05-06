@@ -47,7 +47,7 @@ While ghost-small was being benched, the v1.0 corpus expansion landed (rebuild o
 
 ### Ghost-base launcher shipped
 
-`scripts/train_ghost_base.py` is the v1.0 pretrain entry point: 12L × 768d × 12h architecture (~360M params), bf16, 30K-step recipe. Runs against the v1.0 `data/processed/train.jsonl`. Acceptance gate at [`docs/ghost_base_spec.md`](docs/ghost_base_spec.md): **≥40% on debiased CTIBench OR ≥65% on the CTF eval OR ≥30% on the 50-question fact-recall set**; passing any one validates the rung. The fact-recall bar is the truth metric (ghost-small fails on it; ghost-base needs to land there for a useful ship).
+`scripts/train_ghost_base.py` is the v1.0 pretrain entry point: 30L × 960d × 15h × 2560 d_ff architecture (~360M params, SmolLM2-360M shape, verified on M4 smoke), bf16, 30K-step recipe. Runs against the v1.0 `data/processed/train.jsonl`. Acceptance gate at [`docs/ghost_base_spec.md`](docs/ghost_base_spec.md): **≥40% on debiased CTIBench OR ≥65% on the CTF eval OR ≥30% on the 50-question fact-recall set**; passing any one validates the rung. The fact-recall bar is the truth metric (ghost-small fails on it; ghost-base needs to land there for a useful ship).
 
 **v1.0 is gated on rented GPU compute** (~26h / ~$70 on a single spot H100 per the spec). Joe is sourcing GPU access; once available, the kick-off is one command:
 

@@ -9,18 +9,23 @@ of corpus density. Ghost-base lifts the model to the parameter rung
 where SmolLM2-360M and Phi-3.5-mini report factual recall on cybersec
 MCQ starting to emerge.
 
-Architecture (ghost-base):
-  layers   12   (2x v0.7's 6)
-  d_model  768  (same as v0.7)
-  n_heads  12   (head_dim 64, same as v0.7)
-  d_ff     3072 (same as v0.7)
+Architecture (ghost-base, matches SmolLM2-360M):
+  layers   30   (5x v0.7's 6; deeper helps factual binding)
+  d_model  960  (1.25x v0.7's 768; head_dim 64 with 15 heads)
+  n_heads  15   (head_dim 64, head budget 64 unchanged)
+  d_ff     2560 (~2.67x d_model; SwiGLU full width)
   vocab    50,264  (GPT-2 50K BPE + 7 special tokens, unchanged)
   context  1024 train, 2048 inference (RoPE base 10000)
   norm     RMSNorm (unchanged)
   ffn      SwiGLU (unchanged)
   pos      RoPE (unchanged)
 
-Estimated params: ~360M.
+Estimated params: ~360M (matches SmolLM2-360M, the literature
+reference where factual recall on cybersec MCQ has been reported
+to start emerging). The earlier "12L x 768d -> ~360M" estimate in
+the spec was incorrect; an M4 smoke at 12L x 768d revealed the
+actual count was 124M, so this launcher is updated to the deeper
+SmolLM2-style shape that hits the target capacity.
 
 Recipe defaults assume an H100 (or comparable bf16 GPU) with at
 least 40GB. On M4 MPS this will OOM at the default batch size; for
@@ -87,12 +92,12 @@ def main() -> None:
     print(f"Tokenizer: {tokenizer}")
 
     # Start from the v0.5 architecture preset (RoPE + SwiGLU + RMSNorm),
-    # then deepen + widen to ghost-base shape.
+    # then deepen + widen to the SmolLM2-360M-style ghost-base shape.
     config = GhostLMConfig.from_preset("ghost-small-v0.5")
-    config.n_layers = 12
-    config.d_model = 768
-    config.n_heads = 12
-    config.d_ff = 3072
+    config.n_layers = 30
+    config.d_model = 960
+    config.n_heads = 15
+    config.d_ff = 2560
     config.vocab_size = tokenizer.vocab_size
     config.context_length = args.context_length
     config.batch_size = args.batch_size

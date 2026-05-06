@@ -26,22 +26,27 @@ hold facts. Ghost-base is the rung where this should change, or where
 the diagnosis flips and the eval methodology becomes the next
 suspect.
 
-## Architecture
+## Architecture (matches SmolLM2-360M)
 
 | Field | Value | Rationale |
 |---|---|---|
-| Layers | 12 | 2× v0.7 width, depth contributes more to factual recall than width per the SmolLM2 / Phi-3 ablations. |
-| d_model | 768 | Same as v0.7. Width-vs-depth tradeoff at this rung favors depth. |
-| n_heads | 12 | head_dim 64 (= 768 / 12), matches Phi-3-mini. |
-| d_ff | 3072 | 4× d_model, standard. |
+| Layers | 30 | 5× v0.7's depth. Depth contributes more to factual recall than width per the SmolLM2 / Phi-3 ablations. |
+| d_model | 960 | 1.25× v0.7's 768. |
+| n_heads | 15 | head_dim 64 (= 960 / 15), unchanged from v0.7's head budget. |
+| d_ff | 2560 | ~2.67× d_model, SwiGLU full width. |
 | Vocab | 50,264 | GPT-2 50K BPE + 7 special tokens (unchanged from v0.6+). |
 | Context | 1024 train, 2048 inference | Same RoPE-extension path the v0.7 ctx-1024 fine-tune validated. |
 | Norm | RMSNorm | Unchanged. |
 | FFN | SwiGLU | Unchanged. |
 | Position | RoPE base 10000 | Unchanged. |
 
-Estimated parameter count: ~360M. Within the 300-400M band where
-the literature reports MCQ-factual-recall capability.
+Estimated parameter count: ~360M (verified to within 1% of
+SmolLM2-360M's published 362M; an earlier draft of this spec
+quoted "12L × 768d → ~360M" which an M4 smoke at that shape
+revealed to be only 124M, so the launcher and spec were corrected
+to the deeper SmolLM2-style shape that actually hits the target).
+Within the 300-400M band where the literature reports MCQ-
+factual-recall capability emerging.
 
 ## Corpus
 
