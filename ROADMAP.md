@@ -6,7 +6,7 @@ This roadmap is honest about what each rung needs (compute, corpus, time) and wh
 
 ---
 
-## Where we are: ghost-small (81M) line, v0.9 wins three MCQ benches; free-form fact recall at floor
+## Where we are: ghost-small line saturated at register-matching; v1.0 corpus built, ghost-base pending GPU
 
 The v0.5.0 release reported chat-v3 at 36.9% on CTIBench MCQ. As of v0.6.0 we know that number was a positional-bias artifact: CTIBench's gold-letter distribution is 15/32/37/15 (A/B/C/D), the chat-v3 model collapsed to 98.6% C-emission during MCQ-format SFT, and a model that always emits "C" scores 37.1% on the v0.5.0 single-order metric. Real per-permutation accuracy under text scoring is **~30% across every chat-tune in the repo**. Full investigation in `docs/ctibench_bias_finding.md`.
 
@@ -39,12 +39,29 @@ v0.9 leads on every MCQ bench by 0.7-9.2 pp. SecQA confirms the cross-bench inve
 
 **But fact-recall is at floor.** A 50-question hand-written free-form fact-recall set (CVE / CWE / MITRE / OWASP / crypto / protocol / misc) graded by substring match gets 0-2% from every chat-tune in the line, and the two "hits" v0.7 and v0.9 each registered are spurious (v0.7's "Injection" surfaces in unrelated tangent prose; v0.9's "256" comes from echoing "SHA-256" in the question). **At the ghost-small parameter scale, the MCQ benches measure register matching and topic distinctness, not factual recall.** v0.9 is a better register-matcher than its predecessors but it can't tell you the CVE for EternalBlue.
 
-This is the cleanest evidence we have that the ghost-small line saturates as a "cybersec parrot" and the next move is parameter count, not more corpus or recipe twiddling at this scale. **The next rung is ghost-base (~360M)**, gated on rented GPU compute. The acceptance gate now includes the fact-recall threshold explicitly: ≥40% on debiased CTIBench OR ≥65% on the CTF eval OR ≥30% on the 50-question fact-recall set; passing any one validates the rung. The fact-recall bar is the truth metric — that's where ghost-small fails today and where ghost-base needs to land for the project to ship a model anyone would actually use. Spec at [`docs/ghost_base_spec.md`](docs/ghost_base_spec.md).
+This is the cleanest evidence we have that the ghost-small line saturates as a "cybersec parrot" and the next move is parameter count, not more corpus or recipe twiddling at this scale.
 
-**Canonical models on disk:**
+### v1.0 corpus is built
+
+While ghost-small was being benched, the v1.0 corpus expansion landed (rebuild on 2026-05-06): **516,736 train / 27,049 val records / ~363M tokens / six domains**. Cybersec writeup-style content (PRIMUS, NVD, MITRE family, OWASP, RFCs, CTFtime, CISA, fact-QA, full-text arXiv) at 73%, plus three new domains the ghost-small line never saw: FineWeb-Edu general language (13%), open-web-math reasoning (6%), and security tool source code from 30 curated repos (2.4%), plus 26 NIST SP 800 publications and 11 RSS security research blogs as authoritative reference and writeup register. Per-source breakdown in [`CORPUS.md`](CORPUS.md). Leakage check returns 0.
+
+### Ghost-base launcher shipped
+
+`scripts/train_ghost_base.py` is the v1.0 pretrain entry point: 12L × 768d × 12h architecture (~360M params), bf16, 30K-step recipe. Runs against the v1.0 `data/processed/train.jsonl`. Acceptance gate at [`docs/ghost_base_spec.md`](docs/ghost_base_spec.md): **≥40% on debiased CTIBench OR ≥65% on the CTF eval OR ≥30% on the 50-question fact-recall set**; passing any one validates the rung. The fact-recall bar is the truth metric (ghost-small fails on it; ghost-base needs to land there for a useful ship).
+
+**v1.0 is gated on rented GPU compute** (~26h / ~$70 on a single spot H100 per the spec). Joe is sourcing GPU access; once available, the kick-off is one command:
+
+```bash
+PYTHONPATH=. python3 scripts/train_ghost_base.py \
+  --batch-size 16 --grad-accum-steps 4 \
+  --max-steps 30000 --warmup-steps 2000 \
+  --learning-rate 2e-4 --dtype bfloat16
+```
+
+### Canonical models on disk
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
-- **Chat (debiased CTIBench winner):** `checkpoints/phase15_chat_v07/best_model.pt` (v0.7 chat, 32.2% per-perm avg).
-- **Chat (single-order CTIBench winner, biased):** `checkpoints/phase5_chat_v3/best_model.pt` (v0.5.0 canonical, 36.9% single-order / 30.5% debiased).
+- **Chat (best ghost-small):** `checkpoints/phase19_chat_v09/best_model.pt` (v0.9, wins all three MCQ benches on apples-to-apples scoring).
+- **Chat (single-order CTIBench winner, biased, historical):** `checkpoints/phase5_chat_v3/best_model.pt` (v0.5.0 canonical, 36.9% single-order, 27.6% debiased on full bench).
 
 **Historical / preserved:**
 - Phase 1 / 2: `checkpoints/best_model_phase{1,2}.pt`

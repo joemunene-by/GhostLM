@@ -1353,24 +1353,80 @@ The Unreleased section below tracks both.
 
 ---
 
-## [Unreleased] — Upcoming
+## [Unreleased] — v1.0 corpus built; ghost-base launcher shipped; awaiting GPU
 
-v0.9 closed the ghost-small (81M) line: six attempts (v0.4-v0.9) on
-debiased CTIBench all sit inside a 28-32% band. The next move is the
-ghost-base rung at 4× the parameter count.
+### v1.0 corpus expansion (2026-05-06)
 
-- **v1.0.0 — ghost-base (~350M).** Same v0.7 architecture scaled to
-  12 layers / 768 d_model / 12 heads, trained on rented GPU compute.
-  Target Chinchilla-optimal corpus is ~7B tokens; the v0.9 corpus at
-  ~273M tokens is 25× short, so corpus expansion (or oversampling)
-  is part of this rung. Acceptance criterion: ≥40% per-perm avg on
-  debiased CTIBench. If ghost-base also lands at 28-32%, the
-  diagnosis flips and the eval methodology gets re-examined.
-- **Context-extension fine-tune.** v0.6+ trained at ctx 512 to fit
-  the M4 wall-clock budget. A separate ctx-1024 extension fine-tune
-  is needed before the model is genuinely useful on long-form CTI
-  inputs. Doable on M4.
-- **Cross-bench validation.** All ghost-small numbers are on
-  CTIBench MCQ. A second bench (CySecBench, SecQA, or a CTF-eval-set
-  the project ships) would help triangulate whether the ceiling is
-  CTIBench-specific or general.
+Ghost-small saturated as a register-matching parrot at 81M params
+(0-2% on free-form fact recall across the whole line; v0.9.2
+postmortem). The v1.0 lever is parameter count plus corpus
+diversity, since the previous corpus was cybersec-writeup-only.
+Five new collectors landed on M4, all running in parallel, all
+auto-merged via the existing `scripts/rebuild_corpus.py --max-cve-tokens 6000000`:
+
+- `scripts/collect_security_code.py` + `data/security_code_repos.json`
+  — shallow-clones 30 curated cybersec tool repos (pwntools,
+  impacket, scapy, sqlmap, volatility3, capa, plaso, AFL++, nuclei,
+  trivy, prowler, paramiko, pyca/cryptography, etc.) and walks
+  source files matching .py / .c / .h / .cpp / .js / .ts / .go /
+  .rs / .sh, capped at 2000 files per repo. SPDX license per
+  record. **6,235 records / ~9M tokens** in the merged corpus.
+- `scripts/collect_fineweb_edu.py` — streams
+  `HuggingFaceFW/fineweb-edu` (ODC-BY, classifier-filtered
+  educational subset of CommonCrawl) at edu-score >= 3, target 50K
+  records. **47,510 records / ~46M tokens** of textbook-style
+  general-language web text.
+- `scripts/collect_nist_sp800.py` — pulls 26 curated NIST SP 800
+  publications (RMF, controls, identity, IDS, zero trust, secure
+  SDF, etc.) from nvlpubs.nist.gov, extracts text via pymupdf,
+  chunks at 12K chars. US gov public domain. **1,001 chunks /
+  ~2.6M tokens**.
+- `scripts/collect_security_blogs.py` — RSS/Atom puller for 11
+  curated security research blogs (Project Zero, PortSwigger,
+  Trail of Bits, Google Security, GitHub SecurityLab, NCC Group,
+  Doyensec, Krebs, DFIR Report, Ret2 Systems, MSRC). stdlib HTML
+  body extractor strips chrome. **199 records / ~0.6M tokens** in
+  the merged corpus.
+- `scripts/collect_math_reasoning.py` — streams
+  `open-web-math/open-web-math` (ODC-BY, math-filtered web subset)
+  for chain-of-thought capability. **18,991 records / ~21M
+  tokens**.
+
+Plus a Wikipedia cybersec resume run (existing collector), now
+**730 records / ~1M tokens** in the merged corpus.
+
+**Final v1.0 corpus: 516,736 train / 27,049 val / ~363M tokens
+across 26 sources spanning six domains** (cybersec writeup 73%,
+general language 13%, math/reasoning 6%, code 2.4%, plus the
+PRIMUS-FineWeb crawl mix at 27% baseline). 0 leakage between
+train and val. Per-source breakdown in `CORPUS.md`.
+
+### Ghost-base launcher shipped
+
+`scripts/train_ghost_base.py` — clones the train_v07.py pattern,
+deepens to 12 layers (keeps d_model 768, d_ff 3072, 12 heads).
+Estimated ~360M params, in the parameter range where SmolLM2-360M
+and Phi-3.5-mini report factual recall on cybersec MCQ starting to
+emerge. Recipe defaults assume H100 / bf16 territory: per-device
+batch 16, 30K steps with 2K warmup, lr 2e-4 cosine.
+
+Acceptance gate per `docs/ghost_base_spec.md`:
+
+> ≥40% per-perm avg on debiased CTIBench (n=2500), OR
+> ≥65% on the in-repo CTF eval (n=30), OR
+> ≥30% on the 50-question fact-recall set
+>
+> Passing any one validates the rung. Fact-recall is the truth
+> metric: that's where ghost-small fails today.
+
+### What's still pending
+
+- **Rented GPU access** for the ~26h ghost-base pretrain
+  (Chinchilla-suboptimal at ~363M tokens but covers the multi-domain
+  mix). One spot H100 at ~$2.50/h is ~$70 for a 3-epoch run.
+- **Chat-tune of ghost-base** on the canonical chat-v3 SFT recipe.
+  Cheap (~1h on M4) once the base lands.
+- **Bench ghost-base on all four eval surfaces** (CTIBench full, CTF
+  eval, SecQA, fact recall) and decide whether v1.0 ships.
+- **Context-extension fine-tune** to ctx-1024 for long-form CTI
+  inputs (carried over from prior [Unreleased]).

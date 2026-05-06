@@ -34,7 +34,7 @@ model-index:
 | **License** | MIT |
 | **Language** | English |
 | **Framework** | PyTorch (built from scratch, no pretrained weights) |
-| **Version** | 0.9.2 (v0.9 chat wins every MCQ bench in apples-to-apples scoring: CTIBench full 28.9% (vs v0.7 27.2%, v0.4 27.6%), in-repo CTF eval 59.2% (+9 pp vs v0.7), SecQA 39.3% (+1.7 pp vs v0.7). Free-form fact recall at floor across the whole ghost-small line (0-2% on 50 hand-written prompts), so the MCQ wins measure register matching, not facts. Ghost-base (~360M) is the next rung; gains expected to compound corpus + parameter count.) |
+| **Version** | v0.9.2 + v1.0 corpus ready. v0.9 chat is the ghost-small bench winner (CTIBench full 28.9%, CTF eval 59.2%, SecQA 39.3%, fact recall 1/50). The 81M ghost-small line saturates as a register-matching parrot; free-form fact recall is at floor. The v1.0 corpus has been built (516,736 train / 27,049 val records, ~363M tokens, six domains: cybersec writeup / code / general language / math / authoritative reference / research-blog register) and the ghost-base launcher (`scripts/train_ghost_base.py`, 12L × 768d × 12h, ~360M params) is shipped. v1.0 training is gated on rented-GPU access. |
 
 ## Model Description
 

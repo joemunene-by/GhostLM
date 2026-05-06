@@ -1,12 +1,12 @@
-![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-v0.9.2%20%7C%20bench%20winner%2C%20fact%20recall%20at%20floor-brightgreen.svg)
+![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-v1.0%20corpus%20ready%2C%20ghost--base%20pending%20GPU-blue.svg)
 
 # GhostLM
 
-> An open-source cybersecurity-focused language model built entirely from scratch in PyTorch.
+> An open-source language model built entirely from scratch in PyTorch. Purpose-built for cybersecurity, with code, general language, and math/reasoning folded into the v1.0 corpus.
 
-> **2026-05-04 update.** The v0.5.0 release reported chat-v3 at 36.9% on CTIBench MCQ. After running multi-permutation debiased eval (`scripts/eval_debiased.py`), that number was a positional-bias artifact: CTIBench gold-letter distribution is 15/32/37/15 (A/B/C/D), and the model collapsed to 98.6% C-emission during SFT, so single-order scoring rewarded bias not capability. Real per-permutation accuracy under text scoring is **~30%** across every chat-tune in this repo. Full investigation in [`docs/ctibench_bias_finding.md`](docs/ctibench_bias_finding.md). The chat-tune section below has been updated with both the single-order number (preserved for historical comparison) and the debiased real-capability number.
+> **2026-05-06 update.** The ghost-small (45-81M) line saturated at ~28% on debiased CTIBench and 0-2% on free-form fact recall: register-matching parrot, not a fact-knower. v0.9 chat is the bench winner across CTIBench full / in-repo CTF eval / external SecQA, but the truth metric (free-form fact recall) is at floor for the whole 81M parameter rung. The next move is parameter count, not corpus polish. **The v1.0 corpus is built**: 516,736 train / 27,049 val records / ~363M tokens spanning six domains (cybersec writeup, code, FineWeb-Edu general language, math/reasoning, NIST authoritative reference, security research blogs). Ghost-base (~360M params, 12L × 768d × 12h) is the v1.0 target. Launcher at [`scripts/train_ghost_base.py`](scripts/train_ghost_base.py), spec at [`docs/ghost_base_spec.md`](docs/ghost_base_spec.md), gated on rented GPU compute.
 
-GhostLM is a decoder-only transformer language model trained on CVE vulnerability descriptions, CTF writeups, and cybersecurity research. Built from scratch, no pretrained weights, no wrappers, every component written by hand.
+GhostLM is a decoder-only transformer language model. Pretrained from scratch on CVE descriptions, CTF writeups, MITRE/CWE/OWASP/RFC reference material, NIST SP 800 publications, security research blogs, security tool source code, FineWeb-Edu educational web text, and open-web-math reasoning. No pretrained weights, no wrappers, every component written by hand.
 
 ---
 
@@ -60,13 +60,13 @@ GhostLM is a multi-year scale ladder. Each rung validates the recipe before clim
 | Variant | Layers | Dim | Params | Hardware target | Status |
 |---|---|---|---|---|---|
 | ghost-tiny | 2 | 256 | 14.7M | CPU | Historical, Phase 3.5 canonical on the PMI suite, superseded by ghost-small |
-| ghost-small | 6 | 512 | ~45M | M4 GPU/MPS | **Canonical**, Phase 4 base; chat-tuned at 30.5% real (per-perm avg) / 36.9% single-order biased on CTIBench MCQ |
-| ghost-small-v0.5 | 6 | 512 | ~36M | M4 GPU/MPS | Trained, RoPE / SwiGLU / RMSNorm + custom 32K BPE. Chat-tunes land at 29-30% real, on par with v0.4 base under debiased eval. |
-| ghost-small-v0.6 | 6 | 512 | ~45M | M4 GPU/MPS | Trained, v0.5 architecture (RoPE + SwiGLU + RMSNorm) with GPT-2 50K BPE on the expanded corpus. Chat at 31.2% real. The BPE swap experiment. |
-| ghost-small-v0.7 | 6 | 768 | ~81M | M4 GPU/MPS | Trained, wider variant of v0.6 (d_model 768, d_ff 3072). Chat at 32.2% real (single best on debiased eval). Param-count ablation. |
-| ghost-small-v0.8 | 6 | 768 | ~81M | M4 GPU/MPS | Trained, v0.7 architecture pretrained on a fact-dense corpus (Qwen-14B-distilled Q&A, 11K records). Chat at 31.2% real, no lift over v0.7; distilled facts alone don't break the ceiling. |
-| ghost-small-v0.9 | 6 | 768 | ~81M | M4 GPU/MPS | Trained, 273M-token corpus (PRIMUS-Seed/FineWeb + CWE + OWASP + RFCs + fact-QA). **Wins all three MCQ benches on apples-to-apples scoring**: CTIBench full 28.9% (vs v0.7 27.2%, v0.4 27.6%), CTF eval 59.2% (vs v0.7 50%, v0.4 50%), SecQA 39.3% (vs v0.7 37.6%, v0.4 35.0%). Free-form fact recall still at floor (0-2% on 50 hand-written questions): ghost-small line measures register matching, not facts. |
-| ghost-base | 12 | 768 | ~350M | Rented GPU (A/H100) | Planned. Per the literature (SmolLM2, Phi-3.5-mini), factual recall on cybersec MCQ should start emerging meaningfully here. |
+| ghost-small (v0.4) | 6 | 512 | ~45M | M4 GPU/MPS | Phase 4 base, learned PE / GELU / LayerNorm. Chat at 27.6% on debiased CTIBench full bench (n=2500), 50.0% CTF eval, 35.0% SecQA, 0/50 free-form fact recall |
+| ghost-small-v0.5 | 6 | 512 | ~36M | M4 GPU/MPS | RoPE / SwiGLU / RMSNorm + custom 32K BPE. Chat clusters with the rest of the ghost-small line on debiased eval |
+| ghost-small-v0.6 | 6 | 512 | ~45M | M4 GPU/MPS | v0.5 arch + GPT-2 50K BPE on the v0.4.2 expanded corpus. Chat at 28.2% debiased CTIBench (BPE swap ablation) |
+| ghost-small-v0.7 | 6 | 768 | ~81M | M4 GPU/MPS | Wider variant of v0.6 (d_model 768, d_ff 3072). Chat at 27.2% / 50.0% / 37.6% / 1/50 across CTIBench full / CTF eval / SecQA / fact recall (param-count ablation; was the bench leader in n=500 sample) |
+| ghost-small-v0.8 | 6 | 768 | ~81M | M4 GPU/MPS | v0.7 arch + Qwen-14B-distilled fact-QA in pretrain. Chat at 27.4% debiased CTIBench full; distilled Q&A alone doesn't lift |
+| **ghost-small-v0.9** | 6 | 768 | ~81M | M4 GPU/MPS | **Bench winner of the ghost-small line**: 273M-token PRIMUS + CWE + OWASP + RFCs + fact-QA pretrain. Chat at **28.9% / 59.2% / 39.3% / 1/50** on CTIBench full / CTF eval / SecQA / fact recall. Wins every MCQ bench by 0.7-9.2 pp; free-form fact recall still at floor |
+| **ghost-base** | **12** | **768** | **~360M** | **Rented GPU (A/H100)** | **v1.0 target. Corpus ready (516,736 train / ~363M tokens, six domains). Launcher at `scripts/train_ghost_base.py`, spec at `docs/ghost_base_spec.md`. Acceptance gate: ≥40% CTIBench OR ≥65% CTF eval OR ≥30% on the 50-question fact-recall set. Pending GPU access.** |
 | ghost-1B | 24 | 1024 | ~1B | Rented or owned GPU | Long-term goal |
 
 ghost-tiny is the iteration vehicle and educational artifact. It is not, and at this scale will not become, a useful cyber-task model. The scale ladder above is the path to "useful." See [ROADMAP.md](ROADMAP.md) for phased milestones, corpus targets per rung, and honest compute estimates.
@@ -135,21 +135,21 @@ make plot
 
 ## Training Data
 
-The released v0.3.5 checkpoint was trained on the **rebalanced** Phase 3.5 corpus. NVD's full 333,540-record pull is on disk; its training contribution is capped at 6M tokens by deterministic content-hash subsample so the corpus isn't 90% CVE descriptions:
+The v1.0 corpus has 516,736 train records / 27,049 val / ~363M tokens, six domains:
 
-| Source | Records (raw → trained) | Trained tokens | Share | Type |
-|---|---|---|---|---|
-| NVD CVE Database | 333,540 → 71,828 | ~5.74M | **65.3%** | Real, capped via `--max-cve-tokens 6000000` |
-| Synthetic CTF Writeups | 3,000 | ~1.51M | 17.2% | Synthetic, placeholder until real CTFtime grows |
-| arXiv cs.CR Abstracts | 2,000 | ~0.74M | 8.4% | Real |
-| CTFtime real writeups | 473 → 467 | ~0.47M | 5.3% | Real, inline-only, attributed |
-| MITRE ATT&CK | 691 | ~0.26M | 2.9% | Real (Apache 2.0) |
-| CAPEC | 609 | ~0.07M | 0.9% | Real (Apache 2.0) |
-| **Total (post-dedup)** | **74,635** | **~8.79M** | | train: 70,965 / val: 3,670 |
+| Domain | Tokens (M) | Share | Sources |
+|---|---:|---:|---|
+| Cybersec writeup-style | ~265 | 73% | PRIMUS-Seed/FineWeb (Trend Micro, ODC-BY), NVD CVE (capped 6M tokens via deterministic-hash subsample), Exploit-DB (GPL-2.0), MITRE ATT&CK / CAPEC / CWE, OWASP family (cheatsheets / WSTG / ASVS / Top 10), CTFtime real writeups, arXiv cs.CR abstracts + full-text, fact-QA (Qwen-14B distilled), CISA KEV, IETF security RFCs |
+| General language | ~46 | 13% | `HuggingFaceFW/fineweb-edu` (ODC-BY, classifier-filtered educational web) |
+| Math / reasoning | ~21 | 6% | `open-web-math/open-web-math` (ODC-BY, math-filtered web) |
+| Code (cybersec tools) | ~9 | 2.4% | 30 curated security tool repos (pwntools, impacket, scapy, sqlmap, volatility3, capa, plaso, AFL++, nuclei, trivy, prowler, paramiko, pyca/cryptography, etc.) |
+| Authoritative reference | ~3 | 0.7% | 26 NIST SP 800 publications (RMF, controls, identity, IDS, zero trust, secure SDF, etc.); pymupdf-extracted, 12K-char chunks |
+| Research-blog register | ~0.6 | 0.2% | 11 RSS/Atom feeds (Project Zero, PortSwigger Research, Trail of Bits, Google Security, GitHub SecurityLab, NCC Group, Doyensec, Krebs, DFIR Report, Ret2 Systems, MSRC) |
+| **Total** | **~363** | **100%** | 26 distinct sources |
 
-Token share went from **NVD 87% in v0.3.3** → **NVD 65% in v0.3.5**. The pipeline produces a deterministic, leakage-proof split (content-hash bucketing, leakage check returns 0). The subsample is reproducible, `python3 scripts/rebuild_corpus.py --max-cve-tokens 6000000` always produces the same 71,828-record CVE prefix. `scripts/data_audit.py` runs the diagnostics and writes a 4-panel chart to `logs/data_audit.png`.
+The pipeline produces a deterministic, leakage-proof split (content-hash bucketing, leakage check returns 0). NVD subsample is reproducible: `python3 scripts/rebuild_corpus.py --max-cve-tokens 6000000` always produces the same 71,828-record CVE prefix from the 333,540-record raw dump. Each new collector is a standalone CLI under `scripts/` (`collect_security_code.py`, `collect_fineweb_edu.py`, `collect_nist_sp800.py`, `collect_security_blogs.py`, `collect_math_reasoning.py`, plus the existing collectors); rebuild auto-globs every `data/raw/*.jsonl`.
 
-For where the corpus is heading, Phase 3.6 volume targets (CTFtime expansion, security research blogs, full-text papers, Exploit-DB) and licensing notes, see [CORPUS.md](CORPUS.md).
+For per-source record counts, license posture, and reproducibility commands, see [`CORPUS.md`](CORPUS.md).
 
 ---
 
