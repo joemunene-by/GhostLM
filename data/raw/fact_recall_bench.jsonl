@@ -1,0 +1,50 @@
+{"id":"fr-001","topic":"cve","prompt":"What is the CVE identifier for the EternalBlue SMB vulnerability?","answer":"CVE-2017-0144","alternates":["CVE-2017-0144"]}
+{"id":"fr-002","topic":"cve","prompt":"What CVE was the Log4Shell vulnerability assigned?","answer":"CVE-2021-44228","alternates":["CVE-2021-44228"]}
+{"id":"fr-003","topic":"cve","prompt":"Heartbleed in OpenSSL has which CVE identifier?","answer":"CVE-2014-0160","alternates":["CVE-2014-0160"]}
+{"id":"fr-004","topic":"cve","prompt":"What is the CVE for the Shellshock Bash vulnerability?","answer":"CVE-2014-6271","alternates":["CVE-2014-6271"]}
+{"id":"fr-005","topic":"cve","prompt":"BlueKeep, the wormable RDP RCE, has which CVE?","answer":"CVE-2019-0708","alternates":["CVE-2019-0708"]}
+{"id":"fr-006","topic":"cve","prompt":"What CVE was assigned to the Spring4Shell remote code execution vulnerability?","answer":"CVE-2022-22965","alternates":["CVE-2022-22965"]}
+{"id":"fr-007","topic":"cve","prompt":"PrintNightmare in Windows Print Spooler is which CVE?","answer":"CVE-2021-34527","alternates":["CVE-2021-34527","CVE-2021-1675"]}
+{"id":"fr-008","topic":"cve","prompt":"The original Apache Struts2 OGNL injection used in the Equifax breach was which CVE?","answer":"CVE-2017-5638","alternates":["CVE-2017-5638"]}
+{"id":"fr-009","topic":"cve","prompt":"What CVE identifies the Dirty COW Linux privilege escalation?","answer":"CVE-2016-5195","alternates":["CVE-2016-5195"]}
+{"id":"fr-010","topic":"cve","prompt":"Spectre Variant 1 (bounds check bypass) is tracked as which CVE?","answer":"CVE-2017-5753","alternates":["CVE-2017-5753"]}
+{"id":"fr-011","topic":"cwe","prompt":"What CWE number covers SQL injection?","answer":"CWE-89","alternates":["CWE-89"]}
+{"id":"fr-012","topic":"cwe","prompt":"Cross-Site Scripting (XSS) is which CWE category?","answer":"CWE-79","alternates":["CWE-79"]}
+{"id":"fr-013","topic":"cwe","prompt":"Use After Free is tracked under which CWE number?","answer":"CWE-416","alternates":["CWE-416"]}
+{"id":"fr-014","topic":"cwe","prompt":"Cross-Site Request Forgery (CSRF) maps to which CWE number?","answer":"CWE-352","alternates":["CWE-352"]}
+{"id":"fr-015","topic":"cwe","prompt":"OS Command Injection is tracked as which CWE?","answer":"CWE-78","alternates":["CWE-78"]}
+{"id":"fr-016","topic":"cwe","prompt":"Path Traversal vulnerabilities are catalogued under which CWE number?","answer":"CWE-22","alternates":["CWE-22"]}
+{"id":"fr-017","topic":"cwe","prompt":"Server-Side Request Forgery (SSRF) is which CWE category?","answer":"CWE-918","alternates":["CWE-918"]}
+{"id":"fr-018","topic":"cwe","prompt":"What CWE describes the deserialization of untrusted data?","answer":"CWE-502","alternates":["CWE-502"]}
+{"id":"fr-019","topic":"cwe","prompt":"Out-of-bounds Write is which CWE number?","answer":"CWE-787","alternates":["CWE-787"]}
+{"id":"fr-020","topic":"cwe","prompt":"Improper Authentication is which CWE number?","answer":"CWE-287","alternates":["CWE-287"]}
+{"id":"fr-021","topic":"mitre","prompt":"What MITRE ATT&CK technique ID covers OS Credential Dumping via LSASS Memory?","answer":"T1003.001","alternates":["T1003.001","T1003"]}
+{"id":"fr-022","topic":"mitre","prompt":"Which MITRE ATT&CK technique is named PowerShell (the scripting interpreter sub-technique)?","answer":"T1059.001","alternates":["T1059.001"]}
+{"id":"fr-023","topic":"mitre","prompt":"What is the ATT&CK technique ID for Phishing as initial access?","answer":"T1566","alternates":["T1566"]}
+{"id":"fr-024","topic":"mitre","prompt":"DLL Side-Loading is which MITRE ATT&CK technique ID?","answer":"T1574.002","alternates":["T1574.002"]}
+{"id":"fr-025","topic":"mitre","prompt":"What technique covers Scheduled Task / Job: Scheduled Task on Windows?","answer":"T1053.005","alternates":["T1053.005","T1053"]}
+{"id":"fr-026","topic":"mitre","prompt":"Pass the Hash is tracked as which MITRE ATT&CK sub-technique?","answer":"T1550.002","alternates":["T1550.002"]}
+{"id":"fr-027","topic":"mitre","prompt":"Kerberoasting is which MITRE ATT&CK technique?","answer":"T1558.003","alternates":["T1558.003"]}
+{"id":"fr-028","topic":"mitre","prompt":"Lateral Movement via SMB / Windows Admin Shares is which technique ID?","answer":"T1021.002","alternates":["T1021.002"]}
+{"id":"fr-029","topic":"mitre","prompt":"What is the ATT&CK technique ID for Exfiltration Over C2 Channel?","answer":"T1041","alternates":["T1041"]}
+{"id":"fr-030","topic":"mitre","prompt":"What ATT&CK tactic does the Defense Evasion category have as its TA-style ID?","answer":"TA0005","alternates":["TA0005"]}
+{"id":"fr-031","topic":"owasp","prompt":"In OWASP Top 10 2021, what is the rank-A01 category named?","answer":"Broken Access Control","alternates":["Broken Access Control","A01:2021"]}
+{"id":"fr-032","topic":"owasp","prompt":"In OWASP Top 10 2021, what is A03 named?","answer":"Injection","alternates":["Injection","A03:2021"]}
+{"id":"fr-033","topic":"owasp","prompt":"OWASP Top 10 2021 category A10 covers what?","answer":"Server-Side Request Forgery","alternates":["Server-Side Request Forgery","SSRF","A10:2021"]}
+{"id":"fr-034","topic":"owasp","prompt":"What is the OWASP Top 10 2021 A07 category called?","answer":"Identification and Authentication Failures","alternates":["Identification and Authentication Failures","A07:2021"]}
+{"id":"fr-035","topic":"owasp","prompt":"Which OWASP Top 10 2021 category is about cryptographic failures?","answer":"A02","alternates":["A02:2021","A02","Cryptographic Failures"]}
+{"id":"fr-036","topic":"crypto","prompt":"What is the block size of AES (in bits)?","answer":"128","alternates":["128 bits","128-bit","128"]}
+{"id":"fr-037","topic":"crypto","prompt":"How many rounds does AES-256 use?","answer":"14","alternates":["14 rounds","14"]}
+{"id":"fr-038","topic":"crypto","prompt":"What is the output size in bits of SHA-256?","answer":"256","alternates":["256 bits","256-bit","256"]}
+{"id":"fr-039","topic":"crypto","prompt":"What stream cipher does the ChaCha20-Poly1305 AEAD construction use?","answer":"ChaCha20","alternates":["ChaCha20"]}
+{"id":"fr-040","topic":"crypto","prompt":"What asymmetric algorithm does Curve25519 implement?","answer":"X25519","alternates":["X25519","ECDH","ECDH key agreement"]}
+{"id":"fr-041","topic":"protocol","prompt":"On what TCP port does HTTPS run by default?","answer":"443","alternates":["443","port 443"]}
+{"id":"fr-042","topic":"protocol","prompt":"What is the default port for SSH?","answer":"22","alternates":["22","port 22"]}
+{"id":"fr-043","topic":"protocol","prompt":"Which TLS version was finalised by RFC 8446?","answer":"TLS 1.3","alternates":["TLS 1.3","1.3"]}
+{"id":"fr-044","topic":"protocol","prompt":"What is the default RDP port?","answer":"3389","alternates":["3389","port 3389"]}
+{"id":"fr-045","topic":"protocol","prompt":"DNS uses which transport protocol port number by default?","answer":"53","alternates":["53","port 53"]}
+{"id":"fr-046","topic":"misc","prompt":"What HTTP response header tells the browser to send a cookie only on same-site requests with strict semantics?","answer":"SameSite=Strict","alternates":["SameSite=Strict","SameSite: Strict"]}
+{"id":"fr-047","topic":"misc","prompt":"What HTTP header forces HTTPS for a domain across all subdomains?","answer":"Strict-Transport-Security","alternates":["Strict-Transport-Security","HSTS","HSTS header"]}
+{"id":"fr-048","topic":"misc","prompt":"What is the name of the tool that enumerates SMB shares as part of pentesting (think enum4linux family)?","answer":"enum4linux","alternates":["enum4linux"]}
+{"id":"fr-049","topic":"misc","prompt":"Which Linux file contains hashed passwords for local accounts?","answer":"/etc/shadow","alternates":["/etc/shadow"]}
+{"id":"fr-050","topic":"misc","prompt":"What hash algorithm is used by Windows NTLM password storage?","answer":"MD4","alternates":["MD4"]}
