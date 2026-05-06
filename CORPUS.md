@@ -6,7 +6,52 @@ This document is the working record of what's currently in the corpus, what's kn
 
 ---
 
-## v1.0 expansion in flight (running on M4)
+## v1.0 corpus (built 2026-05-06, 516,736 train / 27,049 val records, ~363M tokens)
+
+The v1.0 corpus expansion landed: cybersec writeup-style content (the v0.9 substrate) plus three new domains the ghost-small line never saw, code (cybersec tool source), general language (FineWeb-Edu), and math/reasoning (open-web-math). Single rebuild via `scripts/rebuild_corpus.py --max-cve-tokens 6000000`, leakage check returns 0.
+
+| Source | Records | Tokens (M) | Notes |
+|---|---:|---:|---|
+| primus_fineweb | 284,905 | 196 | TinyBERT-filtered cybersec subset of CommonCrawl |
+| primus_seed | 65,160 | 48 | Trend Micro hand-curated cybersec text |
+| nvd | 64,559 | 5.5 | NVD CVE descriptions, capped at 6M tokens via deterministic-hash subsample |
+| **fineweb_edu** | **47,510** | **46** | **NEW: HuggingFaceFW/fineweb-edu, classifier-filtered educational web** |
+| **math_reasoning** | **18,991** | **21** | **NEW: open-web-math/open-web-math, mathematical reasoning** |
+| fact_qa | 10,561 | 0.5 | Qwen-14B-distilled cybersec Q&A |
+| **security_code** | **6,235** | **8.8** | **NEW: source code from 30 curated cybersec tool repos (pwntools, impacket, scapy, sqlmap, volatility3, capa, AFL++, nuclei, etc.)** |
+| exploitdb | 4,711 | 3.6 | Exploit-DB GPL-2.0 PoCs |
+| synthetic | 2,847 | 1.4 | Phase-2 synthetic CTF placeholder |
+| arxiv | 1,890 | 0.7 | arXiv cs.CR abstracts |
+| arxiv_full | 1,880 | 24 | arXiv cs.CR full-text PDFs |
+| cisa_kev | 1,526 | 0.2 | CISA Known Exploited Vulns catalog |
+| mitre_full | 1,064 | 0.2 | MITRE ATT&CK full bundle |
+| **nist_sp800** | **1,001** | **2.6** | **NEW: 26 NIST SP 800 publications, pymupdf-extracted, 12K-char chunks** |
+| cwe | 927 | 0.3 | MITRE CWE entries |
+| **wikipedia_cyber** | **730** | **1.1** | **NEW (resumed): Wikipedia BFS over cybersec categories** |
+| mitre_attack | 655 | 0.2 | MITRE ATT&CK enterprise techniques |
+| capec | 563 | 0.1 | MITRE CAPEC attack patterns |
+| ctftime | 451 | 0.5 | CTFtime inline writeups |
+| **security_blogs** | **199** | **0.6** | **NEW: 11 RSS feeds (Project Zero, PortSwigger, Trail of Bits, etc.)** |
+| owasp_wstg | 126 | 0.3 | OWASP Web Security Testing Guide |
+| owasp_cheatsheets | 106 | 0.3 | OWASP Cheat Sheet Series |
+| owasp_asvs | 75 | 0.04 | OWASP Application Security Verification Standard 5.0 |
+| rfcs | 48 | 0.2 | Curated security IETF RFCs |
+| owasp_top10 | 15 | 0.04 | OWASP Top 10 (2021) per-category markdown |
+| **Total (post-dedup)** | **516,736 train / 27,049 val** | **~363M** | **Six domains: cybersec writeup, code, general language, math, authoritative reference, research-blog register** |
+
+Token share by domain:
+
+- **Cybersec writeup-style** (PRIMUS-Seed/FineWeb, NVD, ExploitDB, MITRE family, OWASP family, RFCs, CTFtime, blogs, NIST, arXiv, fact-QA, etc.): ~265M tokens / 73%. The v0.9 substrate plus the v1.0 reference / blog additions.
+- **General language** (FineWeb-Edu): ~46M / 13%. Textbook-style educational web.
+- **Math / reasoning** (open-web-math): ~21M / 6%. For chain-of-thought on numeric / logical prompts.
+- **Code** (security tool source): ~9M / 2.4%. Cybersec-relevant Python / C / Go / JS.
+- **Mixed crawl** (PRIMUS-FineWeb subset is broadly cybersec + general web): the dominant pre-existing block.
+
+This is the corpus ghost-base v1.0 will train on. The diagnostic from v0.9.2 was that 81M params can't bind facts retrievably regardless of how dense the corpus is on a single domain; ghost-base lifts to 360M and the corpus lifts to multi-domain in the same step. Whichever lever was missing should reveal itself in the v1.0 fact-recall numbers.
+
+---
+
+## v1.0 collectors (the run that built the table above)
 
 For ghost-base v1.0 the corpus needs to grow beyond pure cybersec writeups to support coding ability, general language, and authoritative reference recall. Five collectors are pulling concurrently as of 2026-05-06; outputs land at `data/raw/{security_code, fineweb_edu, nist_sp800, security_blogs, wikipedia_cyber}.jsonl`. None are folded into `data/processed/train.jsonl` yet; that happens via the next `rebuild_corpus.py` run.
 
