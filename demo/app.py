@@ -1,18 +1,23 @@
-"""GhostLM Gradio demo — interactive web UI for the canonical model.
+"""GhostLM Gradio demo, interactive web UI for any saved checkpoint.
 
 Two-tab interface:
 
-  Generate   — single-checkpoint generation with curated prompt presets,
-               generation history, and honest "what to expect" framing.
-  Compare    — side-by-side generation across two checkpoints from the
-               same prompt + sampling settings. Lets a visitor see the
-               Phase 3.5 -> 3.6 trajectory in real text rather than just
-               accuracy numbers.
+  Generate   single-checkpoint generation with curated prompt presets,
+             generation history, and honest "what to expect" framing.
+  Compare    side-by-side generation across two checkpoints from the
+             same prompt + sampling settings. Lets a visitor see the
+             trajectory across versions (e.g. v0.4 chat-v3 vs v0.9 chat)
+             in real text rather than just accuracy numbers.
 
 Run locally:
     python3 demo/app.py
-    python3 demo/app.py --checkpoint checkpoints/phase3.5_balanced/best_model.pt
-    python3 demo/app.py --compare-checkpoint checkpoints/phase3.6_exploitdb/best_model.pt
+    python3 demo/app.py --checkpoint checkpoints/phase19_chat_v09/best_model.pt
+    python3 demo/app.py --compare-checkpoint checkpoints/phase5_chat_v3/best_model.pt
+
+The current canonical chat checkpoint is
+``checkpoints/phase19_chat_v09/best_model.pt`` (v0.9, 81M wide). When
+ghost-base v1.0 ships from the rented-GPU pretrain run, the default
+will switch to the new checkpoint.
 
 On Hugging Face Spaces this file is the entry point (see demo/README.md
 for the Space metadata frontmatter). The Space ships a single canonical
@@ -52,15 +57,16 @@ import gradio as gr
 
 # The canonical default. Resolved at startup; users can override with --checkpoint
 # locally, and the Hugging Face Space drops a copy at this path.
-DEFAULT_CHECKPOINT = "checkpoints/phase3.5_balanced/best_model.pt"
+DEFAULT_CHECKPOINT = "checkpoints/phase19_chat_v09/best_model.pt"
 
 # Common checkpoint paths the Space might know about, ordered by recency.
-# The local repo's all five paths; HF Spaces typically only has one.
+# The local repo has many; HF Spaces typically only has one.
 KNOWN_CHECKPOINTS = [
-    ("Phase 3.5 (v0.3.5, canonical)", "checkpoints/phase3.5_balanced/best_model.pt"),
-    ("Phase 3.6 (v0.3.7, +Exploit-DB regression)", "checkpoints/phase3.6_exploitdb/best_model.pt"),
-    ("Phase 3 (v0.3.3, NVD-dominant)", "checkpoints/phase3_refresh/best_model.pt"),
-    ("Phase 2 (v0.3.0, archived)", "checkpoints/best_model.pt"),
+    ("v0.9 chat (canonical, 81M wide, 273M-token corpus)", "checkpoints/phase19_chat_v09/best_model.pt"),
+    ("v0.7 chat (81M wide)", "checkpoints/phase15_chat_v07/best_model.pt"),
+    ("v0.4 chat-v3 (45M, single-order CTIBench winner)", "checkpoints/phase5_chat_v3/best_model.pt"),
+    ("v0.4 base (45M ghost-small pretrain)", "checkpoints/phase4_ghost_small/best_model.pt"),
+    ("Phase 3.5 (v0.3.5 ghost-tiny, historical)", "checkpoints/phase3.5_balanced/best_model.pt"),
 ]
 
 

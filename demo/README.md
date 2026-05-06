@@ -7,16 +7,22 @@ sdk: gradio
 app_file: app.py
 pinned: false
 license: apache-2.0
-short_description: From-scratch cybersecurity LM — interactive demo
+short_description: From-scratch cybersecurity LM, interactive demo
 ---
 
 # GhostLM Demo
 
-Interactive Gradio UI for the canonical Phase 3.5 ghost-tiny model. Two
-tabs: a single-checkpoint **Generate** view with curated prompt presets
-and a generation history, and an optional **Compare** tab that runs the
-same prompt through two checkpoints side-by-side (the canonical v0.3.5
-vs. the v0.3.7 attempt that regressed).
+Interactive Gradio UI for any GhostLM checkpoint. Two tabs: a
+single-checkpoint **Generate** view with curated prompt presets and a
+generation history, and an optional **Compare** tab that runs the
+same prompt through two checkpoints side-by-side (e.g. an early
+ghost-tiny vs the v0.9 chat to show the trajectory).
+
+The current canonical chat checkpoint is
+`checkpoints/phase19_chat_v09/best_model.pt` (v0.9, 81M wide,
+trained on the 273M-token PRIMUS + CWE + OWASP + RFCs corpus).
+Ghost-base (~360M, v1.0 target) is pending GPU access; once the v1.0
+checkpoint lands the demo's default will switch to it.
 
 This file is dual-purpose:
 
@@ -35,20 +41,21 @@ pip install -r demo/requirements.txt
 PYTHONPATH=. python3 demo/app.py
 ```
 
-Open `http://localhost:7860`. The demo defaults to
-`checkpoints/phase3.5_balanced/best_model.pt` — pass `--checkpoint` to
-load a different one:
+Open `http://localhost:7860`. Pass `--checkpoint` to load any saved
+model; the v0.9 chat checkpoint is the recommended default:
 
 ```bash
-PYTHONPATH=. python3 demo/app.py --checkpoint checkpoints/phase3.6_exploitdb/best_model.pt
+PYTHONPATH=. python3 demo/app.py --checkpoint checkpoints/phase19_chat_v09/best_model.pt
 ```
 
-To enable the Compare tab, add a second checkpoint:
+To enable the Compare tab, add a second checkpoint. Useful pairings:
+v0.4 chat-v3 vs v0.9 chat to see the corpus-density trajectory, or
+the canonical v0.4 base vs ghost-base when v1.0 ships.
 
 ```bash
 PYTHONPATH=. python3 demo/app.py \
-  --checkpoint checkpoints/phase3.5_balanced/best_model.pt \
-  --compare-checkpoint checkpoints/phase3.6_exploitdb/best_model.pt
+  --checkpoint checkpoints/phase19_chat_v09/best_model.pt \
+  --compare-checkpoint checkpoints/phase5_chat_v3/best_model.pt
 ```
 
 The same `--share` flag Gradio supports works:
@@ -87,13 +94,13 @@ cd hf-space
 git lfs install
 git lfs track "*.pt"
 
-# Copy the demo + the ghostlm package + the canonical checkpoint
+# Copy the demo + the ghostlm package + the canonical chat checkpoint
 cp ../demo/app.py .
 cp ../demo/requirements.txt .
 cp ../demo/README.md .
 cp -r ../ghostlm .
-mkdir -p checkpoints/phase3.5_balanced
-cp ../checkpoints/phase3.5_balanced/best_model.pt checkpoints/phase3.5_balanced/
+mkdir -p checkpoints/phase19_chat_v09
+cp ../checkpoints/phase19_chat_v09/best_model.pt checkpoints/phase19_chat_v09/
 
 git add .
 git commit -m "Initial GhostLM Space deploy"
@@ -105,24 +112,24 @@ minutes (gradio + torch wheel install + checkpoint LFS pull). The
 README's frontmatter tells HF this is a Gradio Space, sets the colors,
 and pins `app_file: app.py`.
 
-### 3. Optional — include the Phase 3.6 checkpoint for the Compare tab
+### 3. Optional, include a second checkpoint for the Compare tab
 
-If you want the Compare tab live in the Space, also copy the Phase 3.6
-checkpoint (~177 MB more) and set the env var in the Space's Settings
-page:
+If you want the Compare tab live in the Space, copy a second
+checkpoint (e.g. v0.4 chat-v3 to compare against v0.9) and set the
+env var in the Space's Settings page:
 
 ```bash
-mkdir -p checkpoints/phase3.6_exploitdb
-cp ../checkpoints/phase3.6_exploitdb/best_model.pt checkpoints/phase3.6_exploitdb/
-git add checkpoints/phase3.6_exploitdb
-git commit -m "Add Phase 3.6 for compare tab"
+mkdir -p checkpoints/phase5_chat_v3
+cp ../checkpoints/phase5_chat_v3/best_model.pt checkpoints/phase5_chat_v3/
+git add checkpoints/phase5_chat_v3
+git commit -m "Add v0.4 chat-v3 for compare tab"
 git push
 ```
 
 In the Space's **Settings → Variables**, add:
 
 ```
-GHOSTLM_COMPARE_CHECKPOINT = checkpoints/phase3.6_exploitdb/best_model.pt
+GHOSTLM_COMPARE_CHECKPOINT = checkpoints/phase5_chat_v3/best_model.pt
 ```
 
 The Space restarts automatically. The Compare tab will now be visible.
@@ -141,17 +148,19 @@ collapsible accordions group the preset prompts by register (CVE / MITRE
 prose the model knows. A history panel keeps the last five generations
 visible.
 
-The **Compare** tab — only shown when a second checkpoint is loaded —
-sends the same prompt + sampling settings to both models in turn so the
-Phase 3.5 → 3.6 trajectory is visible in real text rather than just
-accuracy numbers.
+The **Compare** tab, only shown when a second checkpoint is loaded,
+sends the same prompt + sampling settings to both models in turn so
+the trajectory between two checkpoints is visible in real text
+rather than just accuracy numbers.
 
 ## Why this exists
 
-The point of the demo isn't to impress visitors with fluency — at 14.7M
-parameters trained on 8.8M tokens, the model produces register-shaped
-fiction, not knowledge. The point is to make the project's
-trajectory-over-absolute-quality framing concrete: visitors can poke at
-the canonical model, see exactly what it knows and doesn't, and if both
-checkpoints are loaded, see the empirical capacity-ceiling finding for
-themselves.
+The demo isn't there to impress visitors with fluency. At 81M
+parameters trained on 273M tokens, v0.9 is a register-matching
+"cybersec parrot" (per the v0.9.2 fact-recall benchmark, free-form
+factual recall is at floor across the whole ghost-small line). The
+demo lets visitors poke at the canonical model, see exactly what it
+knows and doesn't, and if a second checkpoint is loaded, see the
+trajectory across versions in real prose. Once ghost-base v1.0
+ships from the rented-GPU run, this README's default checkpoint
+will switch to it.

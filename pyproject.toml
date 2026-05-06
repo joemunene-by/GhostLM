@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ghostlm"
-version = "0.5.0"
-description = "An open-source cybersecurity-focused language model built from scratch"
+version = "0.9.2"
+description = "Open-source language model built from scratch in PyTorch. Purpose-built for cybersecurity, with code, general language, and math reasoning folded into the v1.0 corpus."
 readme = "README.md"
-license = "Apache-2.0"
+license = "MIT"
 authors = [{name = "Joe Munene"}]
 requires-python = ">=3.10"
-keywords = ["machine-learning", "cybersecurity", "transformer", "pytorch", "language-model", "nlp"]
+keywords = ["machine-learning", "cybersecurity", "transformer", "pytorch", "language-model", "nlp", "from-scratch", "pretraining", "rope", "cybersec-llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",

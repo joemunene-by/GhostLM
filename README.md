@@ -30,22 +30,22 @@ It is explicitly *not* trying to beat Llama on general benchmarks. It's trying t
 
 ## Architecture
 
-The configuration below is for **ghost-tiny**, the original architecture variant. As of v0.4.0, the canonical released checkpoint is **ghost-small** (~45M params, 6 layers / 512 d_model / 8 heads) trained on the Phase 3.6 corpus. Both variants share the same architecture with scaled layers / dim / heads, see the [Model Variants](#model-variants) table.
+GhostLM is a multi-rung scale ladder. The smallest rung (**ghost-tiny**, 14.7M params) is the educational reference; the largest currently shipped is **ghost-small-v0.9** (81M params, RoPE + SwiGLU + RMSNorm); the v1.0 target is **ghost-base** (~360M, 12L × 768d × 12h, launcher at `scripts/train_ghost_base.py`).
 
-| Parameter | ghost-tiny |
-|---|---|
-| Architecture | Decoder-only Transformer |
-| Parameters | 14.7M |
-| Layers | 2 |
-| Attention Heads | 4 |
-| Embedding Dim | 256 |
-| FFN Dim | 1024 |
-| Context Length | 1024 tokens |
-| Tokenizer | GPT-2 BPE (50,261 tokens, 50,257 base + 4 cyber special) |
+| Variant | Layers | Heads | d_model | d_ff | Params | Tokenizer | Context |
+|---|---:|---:|---:|---:|---:|---|---:|
+| ghost-tiny | 2 | 4 | 256 | 1024 | 14.7M | GPT-2 BPE + 7 special | 1024 |
+| ghost-small (v0.4) | 6 | 8 | 512 | 2048 | ~45M | GPT-2 BPE + 7 special | 1024 |
+| ghost-small-v0.5 | 6 | 8 | 512 | 2048 | ~36M | custom 32K BPE + 7 special | 512 |
+| ghost-small-v0.6 / v0.7 / v0.8 / v0.9 | 6 | 8 / 12 | 512 / 768 | 2048 / 3072 | 45M / 81M | GPT-2 50K BPE + 7 special | 512 |
+| **ghost-base (v1.0 target)** | **12** | **12** | **768** | **3072** | **~360M** | **GPT-2 50K BPE + 7 special** | **1024 train / 2048 inference** |
+| ghost-1B (long-term) | 24 | 16 | 1024 | 4096 | ~1B | TBD | TBD |
 
 Built with:
 - Multi-head causal self-attention (manual implementation)
-- **RoPE** (Rotary Position Embeddings), opt-in via `use_rope=True`, replaces learned positional embeddings with the relative-position encoding used by LLaMA / Mistral
+- **RoPE** (Rotary Position Embeddings), default-on for v0.5+, the relative-position encoding used by LLaMA / Mistral
+- **SwiGLU** FFN, default-on for v0.5+, gated FFN with three projections (LLaMA-style)
+- **RMSNorm**, default-on for v0.5+, half the params of LayerNorm with no quality loss at this scale
 - **Flash Attention**, opt-in via `use_flash_attention=True`, routes through PyTorch 2.0+ `scaled_dot_product_attention` for `O(n)` memory
 - Pre-norm transformer blocks with residual connections
 - Cosine LR schedule with linear warmup
