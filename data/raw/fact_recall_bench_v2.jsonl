@@ -1,0 +1,100 @@
+{"id":"fr2-001","topic":"cve","prompt":"What is the CVE identifier for the EternalBlue SMB vulnerability?","answer":"CVE-2017-0144","alternates":["CVE-2017-0144"]}
+{"id":"fr2-002","topic":"cve","prompt":"What CVE was the Log4Shell vulnerability assigned?","answer":"CVE-2021-44228","alternates":["CVE-2021-44228"]}
+{"id":"fr2-003","topic":"cve","prompt":"Heartbleed in OpenSSL has which CVE identifier?","answer":"CVE-2014-0160","alternates":["CVE-2014-0160"]}
+{"id":"fr2-004","topic":"cve","prompt":"What is the CVE for the Shellshock Bash vulnerability?","answer":"CVE-2014-6271","alternates":["CVE-2014-6271"]}
+{"id":"fr2-005","topic":"cve","prompt":"BlueKeep, the wormable RDP RCE, has which CVE?","answer":"CVE-2019-0708","alternates":["CVE-2019-0708"]}
+{"id":"fr2-006","topic":"cve","prompt":"What CVE was assigned to the Spring4Shell remote code execution vulnerability?","answer":"CVE-2022-22965","alternates":["CVE-2022-22965"]}
+{"id":"fr2-007","topic":"cve","prompt":"PrintNightmare in Windows Print Spooler is which CVE?","answer":"CVE-2021-34527","alternates":["CVE-2021-34527","CVE-2021-1675"]}
+{"id":"fr2-008","topic":"cve","prompt":"The original Apache Struts2 OGNL injection used in the Equifax breach was which CVE?","answer":"CVE-2017-5638","alternates":["CVE-2017-5638"]}
+{"id":"fr2-009","topic":"cve","prompt":"What CVE identifies the Dirty COW Linux privilege escalation?","answer":"CVE-2016-5195","alternates":["CVE-2016-5195"]}
+{"id":"fr2-010","topic":"cve","prompt":"Spectre Variant 1 (bounds check bypass) is tracked as which CVE?","answer":"CVE-2017-5753","alternates":["CVE-2017-5753"]}
+{"id":"fr2-011","topic":"cve","prompt":"Meltdown (CPU-cache speculative-execution attack) has which CVE?","answer":"CVE-2017-5754","alternates":["CVE-2017-5754"]}
+{"id":"fr2-012","topic":"cve","prompt":"What CVE is the ProxyShell Exchange Server chain's authentication-bypass component?","answer":"CVE-2021-34473","alternates":["CVE-2021-34473"]}
+{"id":"fr2-013","topic":"cve","prompt":"What is the CVE for the OpenSSH 'regreSSHion' pre-auth RCE disclosed by Qualys in 2024?","answer":"CVE-2024-6387","alternates":["CVE-2024-6387"]}
+{"id":"fr2-014","topic":"cve","prompt":"Follina, the Microsoft MSDT zero-click via Office documents, has which CVE?","answer":"CVE-2022-30190","alternates":["CVE-2022-30190"]}
+{"id":"fr2-015","topic":"cve","prompt":"What CVE covers the F5 BIG-IP iControl REST authentication bypass disclosed in 2022?","answer":"CVE-2022-1388","alternates":["CVE-2022-1388"]}
+{"id":"fr2-016","topic":"cve","prompt":"What CVE was assigned to the GoAnywhere MFT zero-day exploited by Cl0p in early 2023?","answer":"CVE-2023-0669","alternates":["CVE-2023-0669"]}
+{"id":"fr2-017","topic":"cve","prompt":"What is the CVE for the MOVEit Transfer SQL injection exploited by Cl0p in mid-2023?","answer":"CVE-2023-34362","alternates":["CVE-2023-34362"]}
+{"id":"fr2-018","topic":"cve","prompt":"Citrix Bleed (NetScaler ADC information disclosure) has which CVE?","answer":"CVE-2023-4966","alternates":["CVE-2023-4966"]}
+{"id":"fr2-019","topic":"cve","prompt":"ZeroLogon, the Netlogon cryptographic flaw allowing domain takeover, is which CVE?","answer":"CVE-2020-1472","alternates":["CVE-2020-1472"]}
+{"id":"fr2-020","topic":"cve","prompt":"What CVE is the Polkit pkexec local privilege escalation known as 'PwnKit'?","answer":"CVE-2021-4034","alternates":["CVE-2021-4034"]}
+{"id":"fr2-021","topic":"cve","prompt":"What CVE identifies the SolarWinds Orion supply-chain backdoor (SUNBURST) initial-access vulnerability?","answer":"CVE-2020-10148","alternates":["CVE-2020-10148"]}
+{"id":"fr2-022","topic":"cve","prompt":"What CVE is the Atlassian Confluence OGNL injection from June 2022?","answer":"CVE-2022-26134","alternates":["CVE-2022-26134"]}
+{"id":"fr2-023","topic":"cve","prompt":"What CVE is the Ivanti Connect Secure / Pulse Secure SSL VPN auth bypass disclosed January 2024?","answer":"CVE-2023-46805","alternates":["CVE-2023-46805"]}
+{"id":"fr2-024","topic":"cve","prompt":"What CVE pairs with CVE-2023-46805 in the Ivanti chain (the command-injection half)?","answer":"CVE-2024-21887","alternates":["CVE-2024-21887"]}
+{"id":"fr2-025","topic":"cve","prompt":"What is the CVE for the Apache HTTP Server path-traversal disclosed October 2021?","answer":"CVE-2021-41773","alternates":["CVE-2021-41773"]}
+{"id":"fr2-026","topic":"cve","prompt":"What CVE describes the Sudo heap overflow disclosed January 2021 (Baron Samedit)?","answer":"CVE-2021-3156","alternates":["CVE-2021-3156"]}
+{"id":"fr2-027","topic":"cve","prompt":"What CVE identifies the Linux kernel netfilter use-after-free 'StackRot' from July 2023?","answer":"CVE-2023-3269","alternates":["CVE-2023-3269"]}
+{"id":"fr2-028","topic":"cve","prompt":"What is the CVE for the Microsoft Exchange ProxyLogon SSRF authentication bypass?","answer":"CVE-2021-26855","alternates":["CVE-2021-26855"]}
+{"id":"fr2-029","topic":"cve","prompt":"What CVE identifies the Cisco IOS XE web UI privilege escalation disclosed October 2023?","answer":"CVE-2023-20198","alternates":["CVE-2023-20198"]}
+{"id":"fr2-030","topic":"cve","prompt":"What CVE describes the Fortinet FortiOS SSL VPN heap overflow disclosed December 2022?","answer":"CVE-2022-42475","alternates":["CVE-2022-42475"]}
+{"id":"fr2-031","topic":"mitre","prompt":"What MITRE ATT&CK technique ID is 'Command and Scripting Interpreter'?","answer":"T1059","alternates":["T1059"]}
+{"id":"fr2-032","topic":"mitre","prompt":"Which MITRE ATT&CK technique covers PowerShell specifically as a sub-technique?","answer":"T1059.001","alternates":["T1059.001"]}
+{"id":"fr2-033","topic":"mitre","prompt":"What MITRE ATT&CK technique ID is 'Phishing'?","answer":"T1566","alternates":["T1566"]}
+{"id":"fr2-034","topic":"mitre","prompt":"What MITRE ATT&CK technique covers 'Valid Accounts'?","answer":"T1078","alternates":["T1078"]}
+{"id":"fr2-035","topic":"mitre","prompt":"What MITRE ATT&CK technique ID is 'OS Credential Dumping'?","answer":"T1003","alternates":["T1003"]}
+{"id":"fr2-036","topic":"mitre","prompt":"What MITRE ATT&CK technique covers 'Scheduled Task/Job'?","answer":"T1053","alternates":["T1053"]}
+{"id":"fr2-037","topic":"mitre","prompt":"What MITRE ATT&CK technique ID is 'Lateral Movement via Remote Services'?","answer":"T1021","alternates":["T1021"]}
+{"id":"fr2-038","topic":"mitre","prompt":"What MITRE ATT&CK tactic does TA0001 represent?","answer":"Initial Access","alternates":["Initial Access"]}
+{"id":"fr2-039","topic":"mitre","prompt":"What MITRE ATT&CK tactic does TA0003 represent?","answer":"Persistence","alternates":["Persistence"]}
+{"id":"fr2-040","topic":"mitre","prompt":"What MITRE ATT&CK tactic is TA0010?","answer":"Exfiltration","alternates":["Exfiltration"]}
+{"id":"fr2-041","topic":"mitre","prompt":"What MITRE ATT&CK technique ID is 'Process Injection'?","answer":"T1055","alternates":["T1055"]}
+{"id":"fr2-042","topic":"mitre","prompt":"What MITRE ATT&CK technique covers 'Hijack Execution Flow: DLL Side-Loading'?","answer":"T1574.002","alternates":["T1574.002"]}
+{"id":"fr2-043","topic":"mitre","prompt":"What MITRE ATT&CK technique ID covers 'Exploit Public-Facing Application'?","answer":"T1190","alternates":["T1190"]}
+{"id":"fr2-044","topic":"mitre","prompt":"What MITRE ATT&CK technique ID is 'Remote Services: SMB/Windows Admin Shares'?","answer":"T1021.002","alternates":["T1021.002"]}
+{"id":"fr2-045","topic":"mitre","prompt":"What MITRE ATT&CK technique covers 'Application Layer Protocol' for C2 communication?","answer":"T1071","alternates":["T1071"]}
+{"id":"fr2-046","topic":"cwe","prompt":"What CWE number is 'SQL Injection'?","answer":"CWE-89","alternates":["CWE-89"]}
+{"id":"fr2-047","topic":"cwe","prompt":"What CWE number is 'Cross-Site Scripting' (Reflected/Stored/DOM general)?","answer":"CWE-79","alternates":["CWE-79"]}
+{"id":"fr2-048","topic":"cwe","prompt":"What CWE number describes 'Path Traversal'?","answer":"CWE-22","alternates":["CWE-22"]}
+{"id":"fr2-049","topic":"cwe","prompt":"What CWE number is 'Use of Hard-coded Credentials'?","answer":"CWE-798","alternates":["CWE-798"]}
+{"id":"fr2-050","topic":"cwe","prompt":"What CWE number describes 'Server-Side Request Forgery (SSRF)'?","answer":"CWE-918","alternates":["CWE-918"]}
+{"id":"fr2-051","topic":"cwe","prompt":"What CWE number is 'Cross-Site Request Forgery (CSRF)'?","answer":"CWE-352","alternates":["CWE-352"]}
+{"id":"fr2-052","topic":"cwe","prompt":"What CWE describes 'Improper Restriction of Operations within the Bounds of a Memory Buffer'?","answer":"CWE-119","alternates":["CWE-119"]}
+{"id":"fr2-053","topic":"cwe","prompt":"What CWE number is 'Use After Free'?","answer":"CWE-416","alternates":["CWE-416"]}
+{"id":"fr2-054","topic":"cwe","prompt":"What CWE number describes 'NULL Pointer Dereference'?","answer":"CWE-476","alternates":["CWE-476"]}
+{"id":"fr2-055","topic":"cwe","prompt":"What CWE number is 'Improper Authentication'?","answer":"CWE-287","alternates":["CWE-287"]}
+{"id":"fr2-056","topic":"cwe","prompt":"What CWE number describes 'Insecure Deserialization' / 'Deserialization of Untrusted Data'?","answer":"CWE-502","alternates":["CWE-502"]}
+{"id":"fr2-057","topic":"cwe","prompt":"What CWE number is 'OS Command Injection'?","answer":"CWE-78","alternates":["CWE-78"]}
+{"id":"fr2-058","topic":"cwe","prompt":"What CWE number describes 'Integer Overflow or Wraparound'?","answer":"CWE-190","alternates":["CWE-190"]}
+{"id":"fr2-059","topic":"cwe","prompt":"What CWE describes 'Use of a Broken or Risky Cryptographic Algorithm'?","answer":"CWE-327","alternates":["CWE-327"]}
+{"id":"fr2-060","topic":"cwe","prompt":"What CWE number is 'Out-of-bounds Write'?","answer":"CWE-787","alternates":["CWE-787"]}
+{"id":"fr2-061","topic":"owasp","prompt":"In the OWASP Top 10 2021, what is A01 (the top category)?","answer":"Broken Access Control","alternates":["Broken Access Control","A01:2021"]}
+{"id":"fr2-062","topic":"owasp","prompt":"In the OWASP Top 10 2021, what is A03 the category for?","answer":"Injection","alternates":["Injection"]}
+{"id":"fr2-063","topic":"owasp","prompt":"In the OWASP Top 10 2021, what is A07 the category for?","answer":"Identification and Authentication Failures","alternates":["Identification and Authentication Failures"]}
+{"id":"fr2-064","topic":"owasp","prompt":"In the OWASP Top 10 2021, what category number is 'Server-Side Request Forgery'?","answer":"A10","alternates":["A10","A10:2021"],"disqualifiers":["A10:2017"]}
+{"id":"fr2-065","topic":"owasp","prompt":"In the OWASP API Security Top 10 2023, what is API1 the category for?","answer":"Broken Object Level Authorization","alternates":["Broken Object Level Authorization","BOLA"]}
+{"id":"fr2-066","topic":"owasp","prompt":"OWASP ASVS has how many verification levels?","answer":"three","alternates":["three","3 levels","Level 1, 2, 3"],"disqualifiers":["four levels","2 levels"]}
+{"id":"fr2-067","topic":"owasp","prompt":"What does ASVS stand for?","answer":"Application Security Verification Standard","alternates":["Application Security Verification Standard"]}
+{"id":"fr2-068","topic":"owasp","prompt":"What is the WSTG (OWASP testing methodology)?","answer":"Web Security Testing Guide","alternates":["Web Security Testing Guide"]}
+{"id":"fr2-069","topic":"owasp","prompt":"OWASP categorizes 'Cryptographic Failures' under which Top 10 2021 number?","answer":"A02","alternates":["A02","A02:2021"]}
+{"id":"fr2-070","topic":"owasp","prompt":"OWASP categorizes 'Insecure Design' under which Top 10 2021 number?","answer":"A04","alternates":["A04","A04:2021"]}
+{"id":"fr2-071","topic":"crypto","prompt":"AES-128 uses how many rounds in encryption?","answer":"10","alternates":["10 rounds","10"],"disqualifiers":["12 rounds","14 rounds"]}
+{"id":"fr2-072","topic":"crypto","prompt":"AES-256 uses how many rounds?","answer":"14","alternates":["14 rounds","14"],"disqualifiers":["10 rounds","12 rounds"]}
+{"id":"fr2-073","topic":"crypto","prompt":"What is the output length in bits of SHA-256?","answer":"256 bits","must_appear":["256","bits"],"disqualifiers":["384 bits","512 bits"]}
+{"id":"fr2-074","topic":"crypto","prompt":"Which hash algorithm produces a 160-bit digest?","answer":"SHA-1","alternates":["SHA-1","SHA1"],"disqualifiers":["SHA-256","SHA-512"]}
+{"id":"fr2-075","topic":"crypto","prompt":"What block-cipher mode is recommended for authenticated encryption (AEAD) in TLS 1.3?","answer":"GCM","alternates":["GCM","Galois/Counter Mode","ChaCha20-Poly1305"]}
+{"id":"fr2-076","topic":"crypto","prompt":"What is the recommended minimum RSA key size as of NIST SP 800-57?","answer":"2048 bits","alternates":["2048","RSA 2048"],"disqualifiers":["1024 bits","512 bits"]}
+{"id":"fr2-077","topic":"crypto","prompt":"What elliptic curve does Ed25519 use?","answer":"Curve25519","alternates":["Curve25519","Edwards 25519"]}
+{"id":"fr2-078","topic":"crypto","prompt":"What is the IV size of AES-GCM in bits?","answer":"96 bits","must_appear":["96"],"disqualifiers":["128 bit IV","256 bit IV"]}
+{"id":"fr2-079","topic":"crypto","prompt":"PBKDF2 stands for what?","answer":"Password-Based Key Derivation Function 2","alternates":["Password-Based Key Derivation Function","Password Based Key Derivation Function"]}
+{"id":"fr2-080","topic":"crypto","prompt":"What KDF was the winner of the Password Hashing Competition?","answer":"Argon2","alternates":["Argon2","Argon2id"]}
+{"id":"fr2-081","topic":"protocol","prompt":"What RFC defines TLS 1.3?","answer":"RFC 8446","alternates":["RFC 8446","8446"]}
+{"id":"fr2-082","topic":"protocol","prompt":"What RFC defines TLS 1.2?","answer":"RFC 5246","alternates":["RFC 5246","5246"]}
+{"id":"fr2-083","topic":"protocol","prompt":"What RFC defines HTTP/2?","answer":"RFC 7540","alternates":["RFC 7540","7540","RFC 9113"]}
+{"id":"fr2-084","topic":"protocol","prompt":"What RFC defines OAuth 2.0?","answer":"RFC 6749","alternates":["RFC 6749","6749"]}
+{"id":"fr2-085","topic":"protocol","prompt":"What RFC defines JSON Web Token (JWT)?","answer":"RFC 7519","must_appear":["7519","JWT"]}
+{"id":"fr2-086","topic":"protocol","prompt":"What RFC defines DKIM (DomainKeys Identified Mail)?","answer":"RFC 6376","alternates":["RFC 6376","6376"]}
+{"id":"fr2-087","topic":"protocol","prompt":"What RFC defines DMARC?","answer":"RFC 7489","alternates":["RFC 7489","7489"]}
+{"id":"fr2-088","topic":"protocol","prompt":"What is the standard port for SSH?","answer":"22","alternates":["port 22","TCP 22"],"disqualifiers":["port 23","port 2222"]}
+{"id":"fr2-089","topic":"protocol","prompt":"What is the standard port for SMTPS (SMTP over SSL/TLS)?","answer":"465","alternates":["port 465"]}
+{"id":"fr2-090","topic":"protocol","prompt":"What is the standard port for LDAP over TLS (LDAPS)?","answer":"636","alternates":["port 636"]}
+{"id":"fr2-091","topic":"protocol","prompt":"What TCP port does Kerberos use?","answer":"88","alternates":["port 88","TCP 88"]}
+{"id":"fr2-092","topic":"tool","prompt":"What command-line flag tells Nmap to perform OS fingerprinting?","answer":"-O","alternates":["-O","--osscan"]}
+{"id":"fr2-093","topic":"tool","prompt":"What Sysinternals tool dumps process memory by name (used for credential extraction)?","answer":"procdump","alternates":["procdump","procdump.exe"]}
+{"id":"fr2-094","topic":"tool","prompt":"What is the default name of the LSASS process whose memory contains Windows credentials?","answer":"lsass.exe","alternates":["lsass.exe","lsass"]}
+{"id":"fr2-095","topic":"tool","prompt":"What command lists running services on a Windows host from cmd?","answer":"sc query","alternates":["sc query","sc.exe query"]}
+{"id":"fr2-096","topic":"tool","prompt":"What Windows event ID logs a successful logon (NTLM/Kerberos) on a domain controller?","answer":"4624","alternates":["4624","Event ID 4624"]}
+{"id":"fr2-097","topic":"tool","prompt":"What Windows event ID indicates a Kerberos service ticket request (TGS-REQ)?","answer":"4769","alternates":["4769","Event ID 4769"]}
+{"id":"fr2-098","topic":"misc","prompt":"What is the maximum CVSS v3.1 base score?","answer":"10.0","alternates":["10","10.0"],"disqualifiers":["9.8","9.0"]}
+{"id":"fr2-099","topic":"misc","prompt":"What is the CVSS v3.1 severity band for a base score of 9.0-10.0?","answer":"Critical","alternates":["Critical"]}
+{"id":"fr2-100","topic":"misc","prompt":"What standard governs PCI DSS as of version 4.0?","answer":"PCI DSS 4.0","alternates":["PCI DSS 4.0","Payment Card Industry Data Security Standard"]}

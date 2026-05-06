@@ -28,6 +28,7 @@ data/rag/
 !data/raw/.gitkeep
 !data/raw/ctf_eval_bench.jsonl
 !data/raw/fact_recall_bench.jsonl
+!data/raw/fact_recall_bench_v2.jsonl
 !data/processed/.gitkeep
 
 # Model checkpoints
