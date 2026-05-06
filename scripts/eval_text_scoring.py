@@ -42,7 +42,7 @@ from scripts.eval_debiased import permute_record
 
 def parse_args() -> argparse.Namespace:
     """CLI args."""
-    p = argparse.ArgumentParser(description="CTIBench MCQ eval scoring option TEXT (not letter)")
+    p = argparse.ArgumentParser(description="MCQ eval scoring option TEXT (not letter)")
     p.add_argument("--checkpoint", required=True)
     p.add_argument("--tokenizer", default=None)
     p.add_argument("--label", required=True)
@@ -52,7 +52,25 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--score-mode", choices=["per-token-avg", "total"], default="per-token-avg")
     p.add_argument("--out-json", default=None)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--bench-jsonl", default=None,
+                   help="Path to a JSONL file with {question, choices, answer} "
+                        "records. If unset, uses CTIBench MCQ.")
     return p.parse_args()
+
+
+def load_jsonl_mcq(path: str) -> List[Dict]:
+    """Load a generic MCQ JSONL: {question, choices: {A,B,C,D}, answer}."""
+    out: List[Dict] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            r = json.loads(line)
+            if not r.get("question") or not r.get("choices") or not r.get("answer"):
+                continue
+            out.append(r)
+    return out
 
 
 def format_prompt(record: Dict, tokenizer: GhostTokenizer, *, chat_format: bool) -> List[int]:
@@ -194,10 +212,15 @@ def main() -> None:
 
     chat_format = "ghost_user" in str(getattr(tokenizer, "_special_tokens", {}))
 
-    ds = load_ctibench_mcq()
+    if args.bench_jsonl:
+        ds = load_jsonl_mcq(args.bench_jsonl)
+        bench_name = args.bench_jsonl
+    else:
+        ds = load_ctibench_mcq()
+        bench_name = "CTIBench"
     if args.limit:
         ds = ds[: args.limit]
-    print(f"Loaded {len(ds)} CTIBench MCQ records")
+    print(f"Loaded {len(ds)} {bench_name} MCQ records")
 
     perms: List[List[str]] = [list(CHOICES)]
     seen = {tuple(perms[0])}
