@@ -49,7 +49,7 @@ While ghost-small was being benched, the v1.0 corpus expansion landed (rebuild o
 
 `scripts/train_ghost_base.py` is the v1.0 pretrain entry point: 30L × 960d × 15h × 3200 d_ff architecture (~360M params, SmolLM2-360M shape, verified on M4 smoke), bf16, 30K-step recipe. Runs against the v1.0 `data/processed/train.jsonl`. Acceptance gate at [`docs/ghost_base_spec.md`](docs/ghost_base_spec.md): **≥40% on debiased CTIBench OR ≥65% on the CTF eval OR ≥30% on the 50-question fact-recall set**; passing any one validates the rung. The fact-recall bar is the truth metric (ghost-small fails on it; ghost-base needs to land there for a useful ship).
 
-**v1.0 is gated on rented GPU compute** (~26h / ~$70 on a single spot H100 per the spec). Joe is sourcing GPU access; once available, the kick-off is one command:
+**v1.0 is gated on rented GPU compute** (~26h / ~$70 on a single spot H100 per the spec). Joe is sourcing GPU access; once available, the kick-off is one command. The longer-horizon hardware pathway (owned workstation, multi-year scale ladder through ghost-3B / ghost-7B, corpus-vs-hardware tradeoff, the wall at 100B+) is documented in [`docs/hardware_pathway.md`](docs/hardware_pathway.md).
 
 ```bash
 PYTHONPATH=. python3 scripts/train_ghost_base.py \
@@ -170,7 +170,7 @@ Both are doable on local hardware over weeks. ghost-base is gated on at least th
 |---|---|
 | Layers / d_model / heads | 12 / 768 / 12 |
 | Params | ~350M |
-| Hardware target | Rented GPU (A100 / H100 hours, ~hundreds of hours) |
+| Hardware target | Rented GPU (A100 / H100 hours, ~hundreds of hours) or owned RTX 6000 Ada / 6000 Pro Blackwell. See [`docs/hardware_pathway.md`](docs/hardware_pathway.md). |
 | Training tokens (Chinchilla-optimal) | ~7B |
 
 The first rung that needs rented GPU compute. This is where domain-coherent generation should start to emerge — the model should be able to produce a few sentences of structurally correct cyber-text without falling apart. Still not factually reliable.
@@ -190,7 +190,7 @@ The first rung that needs rented GPU compute. This is where domain-coherent gene
 |---|---|
 | Layers / d_model / heads | 24 / 1024 / 16 |
 | Params | ~1B |
-| Hardware target | Rented H100 cluster, or owned GPU (RTX 4090/5090 class for slow-but-feasible) |
+| Hardware target | Rented H100 cluster, or owned RTX 6000 Pro Blackwell 96GB (single-card, fp8 native). 4090/5090 24GB hits the VRAM cliff at this rung. Pathway in [`docs/hardware_pathway.md`](docs/hardware_pathway.md). |
 | Training tokens (Chinchilla-optimal) | ~20B |
 
 The smallest scale at which a from-scratch cyber LM has a real shot at being **genuinely useful** for tasks like CVE-to-exploit explanation, CTF challenge reasoning, or structured log analysis. Note that "useful" does not mean "competitive with general-purpose 7B+ models" — those have ~20× the params and ~100× the training data. ghost-1B's value proposition is *narrow domain depth*, not breadth.
