@@ -6,7 +6,25 @@ This document is the working record of what's currently in the corpus, what's kn
 
 ---
 
-## Current corpus (v0.9 expansion, 273M train tokens)
+## v1.0 expansion in flight (running on M4)
+
+For ghost-base v1.0 the corpus needs to grow beyond pure cybersec writeups to support coding ability, general language, and authoritative reference recall. Five collectors are pulling concurrently as of 2026-05-06; outputs land at `data/raw/{security_code, fineweb_edu, nist_sp800, security_blogs, wikipedia_cyber}.jsonl`. None are folded into `data/processed/train.jsonl` yet; that happens via the next `rebuild_corpus.py` run.
+
+| Source | Collector | Target | License |
+|---|---|---|---|
+| Security tool source code | `scripts/collect_security_code.py` + `data/security_code_repos.json` | 30 curated repos (pwntools, impacket, scapy, sqlmap, volatility3, capa, plaso, AFL++, nuclei, trivy, prowler, paramiko, pyca/cryptography, etc.) walked at .py / .c / .h / .cpp / .js / .ts / .go / .rs / .sh, capped at 2000 files per repo | per-repo SPDX (MIT, Apache-2.0, BSD-2/3, GPL-2.0, GPL-3.0, LGPL) |
+| FineWeb-Edu | `scripts/collect_fineweb_edu.py` | 50K records of `HuggingFaceFW/fineweb-edu` (sample-10BT split) at edu-score >= 3.0; classifier-filtered educational subset of CommonCrawl | ODC-BY |
+| NIST SP 800 | `scripts/collect_nist_sp800.py` | 26 curated SP 800 publications (RMF, controls, incident handling, identity, IDS, pen-test guide, zero trust, secure SDF, etc.); pymupdf text extraction; chunked at 12K chars | US gov public domain |
+| Security research blogs | `scripts/collect_security_blogs.py` | 11 RSS/Atom feeds (Project Zero, PortSwigger Research, Trail of Bits, Google Security, GitHub SecurityLab, NCC Group, Doyensec, Krebs, DFIR Report, Ret2 Systems, MSRC); stdlib HTML body extractor strips chrome | per-feed (research / non-commercial use, attributed) |
+| Wikipedia cybersec | `scripts/collect_wikipedia_cyber.py` | BFS to depth 2 over `Computer security / Cryptography / Cyberattacks / Network security / Computer security exploits` categories, capped at 2500 articles | CC BY-SA 3.0 |
+
+Expected size at completion: ~150-200M additional tokens beyond v0.9. Target post-merge corpus is 400-500M train tokens spanning cybersec writeup, code, authoritative reference, and general-language registers.
+
+The v1.0 framing is "code + language + cybersec depth" not "more of the same." Ghost-small saturates on register matching at 81M params; ghost-base at 360M is the parameter rung where factual binding and instruction-following are expected to emerge, and that needs corpus diversity not just volume.
+
+---
+
+## Current corpus (v0.9, 273M train tokens — what phase18_v09_pretrain trained on)
 
 The corpus has grown ~30× since the v0.5.0 release. Driven by the diagnosis that 60M tokens of CTF-writeup-heavy text is below the threshold for emergent factual recall on cybersec MCQ benchmarks, v0.9 mixes in open-license cybersec text from PRIMUS, MITRE CWE, OWASP, IETF RFCs, and a Qwen-14B-distilled fact-QA pipeline.
 
