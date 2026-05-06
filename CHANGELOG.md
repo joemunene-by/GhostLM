@@ -603,6 +603,53 @@ benchmark; passing any one is enough to validate the rung.
 - `logs/text_scoring/{v04_chat_v3_ctf, v07_chat_ctf, v09_chat_ctf, v07_ctx1024_chat_ctf}.json`
 - README + RESULTS + MODEL_CARD + ROADMAP updated with the dual-bench picture
 
+### Contamination audit (follow-up investigation)
+
+`scripts/audit_ctibench_contamination.py` — 8-word-shingle overlap
+check between every CTIBench MCQ question (with options) and the v0.9
+pretrain corpus (PRIMUS-Seed + PRIMUS-FineWeb, 149M unique shingles).
+
+**Result: 275 / 2500 (11.0%) of CTIBench questions have at least one
+shingle overlap with PRIMUS.** Avg per-question overlap is 0.92% of
+shingles. Worst offender hits 40/50 shingles (80%) on a question
+about phishing-bot camouflage; the top-10 list is dominated by
+MITRE ATT&CK technique descriptions (T1037.004 Login Hook, T1087.003,
+T1555.004), NTFS Alternate Data Streams, OPC server descriptions,
+and a GDPR personal-data-processing question.
+
+**Interpretation:** the 11% rate is real but mostly reflects
+*shared source material*, not test-set leakage. Both CTIBench and
+PRIMUS-Seed draw from the same public corpora (MITRE / OWASP / NIST
+docs), so shared phrases are expected and don't constitute v0.9
+"reading the answer" during pretrain. If contamination actually
+*helped* v0.9 on CTIBench, we'd expect a gain over v0.7; instead
+v0.9 regressed. The honest read is one of:
+
+1. Contamination is a wash on CTIBench (the model sees the source
+   material but still has to do the question→answer mapping, which
+   it does about as well as any chat-tune).
+2. Contamination actively *confuses* the model (half-remembered
+   phrasings from training are nearby in option-space, biasing
+   the score-by-text rule toward the wrong option in CTIBench's
+   particular framing).
+3. The CTIBench regression is genuinely about register-shift from
+   PRIMUS-FineWeb (the unique-to-v0.9 source), not contamination
+   from PRIMUS-Seed (which v0.7's corpus didn't share but v0.9's
+   FineWeb didn't either).
+
+A natural follow-up (not done): split the v0.9 chat-v09 CTIBench
+score by contaminated-vs-uncontaminated subsets. If v0.9 outperforms
+v0.7 on the 11% contaminated questions but regresses on the other
+89%, the model's general capability is up but CTIBench's
+non-overlapping questions are where it loses ground. If v0.9 ties
+or loses on both subsets equally, contamination isn't the lever and
+the regression is purely register-shift. Either result keeps the
+ghost-base story intact.
+
+`logs/ctibench_contamination.json` has the full per-question
+overlap counts and the top-N list; `scripts/audit_ctibench_contamination.py`
+reproduces from any corpus JSONL.
+
 ---
 
 ## [0.9.0] — 2026-05-06 — Corpus-density attempt; the 30% ceiling is firm at the ghost-small rung
