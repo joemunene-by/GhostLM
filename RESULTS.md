@@ -42,6 +42,7 @@ The first table preserves the **single-order** numbers (one fixed option orderin
 | ghost-small-v0.7 chat (81M wide, step 600 best) | 0.312 / 0.332 | **0.322** | 2026-05-04 |
 | ghost-small-v0.8 chat (81M wide + fact-dense pretrain) | 0.310 / 0.314 | **0.312** | 2026-05-05 |
 | ghost-small-v0.9 chat (81M wide, 273M-token corpus, n=2500 full bench) | 0.287 / 0.291 | **0.289** | 2026-05-06 |
+| ghost-small-v0.7 chat-ctx1024 (extension fine-tune from v0.7 chat) | 0.270 / 0.264 | **0.267** | 2026-05-06 |
 
 ## Cross-bench: in-repo CTF eval (debiased text-scoring, n=30, 4 perms)
 
