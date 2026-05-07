@@ -78,6 +78,12 @@ class GhostLMConfig:
         ffn_params = self.n_layers * (
             2 * self.d_model * self.d_ff + self.d_model + self.d_ff
         )
+        # MoE multiplies the FFN parameter count by n_experts (each
+        # expert is its own FFN pool). Inference compute is still
+        # ~n_experts_active times one expert, but the *parameter count*
+        # this method reports should reflect the full model size.
+        if getattr(self, "use_moe", False):
+            ffn_params *= getattr(self, "n_experts", 4)
         layer_norm_params = self.n_layers * 4 * self.d_model
         output_head_params = self.d_model * self.vocab_size
 
@@ -132,6 +138,48 @@ class GhostLMConfig:
                 "use_rope": True,
                 "use_swiglu": True,
                 "use_rmsnorm": True,
+            },
+            # ghost-1b — first MoE preset. Target shape: ~1.2B active,
+            # ~2.1B total (4 experts of SwiGLU, top-2 routing). This is
+            # the bet 5 differentiator from docs/differentiation.md:
+            # going MoE at 1B from-scratch is rare; most cybersec LMs
+            # that ever reach 1B graft MoE in late or skip it. Defaults
+            # to v1 BPE (vocab 32000) so the cybersec-native tokenizer
+            # benefit lands in the same artifact.
+            "ghost-1b": {
+                "vocab_size": 32000,
+                "context_length": 2048,
+                "d_model": 1536,
+                "n_layers": 24,
+                "n_heads": 24,
+                "d_ff": 6144,
+                "use_rope": True,
+                "use_swiglu": True,
+                "use_rmsnorm": True,
+                "use_flash_attention": True,
+                "use_moe": True,
+                "n_experts": 4,
+                "n_experts_active": 2,
+                "moe_aux_loss_coef": 0.01,
+            },
+            # ghost-3b — second MoE preset. Target shape: ~3.3B active,
+            # ~6B total. Same MoE recipe as ghost-1b, scaled to a
+            # SmolLM2-Mistral-7B-style dense backbone.
+            "ghost-3b": {
+                "vocab_size": 32000,
+                "context_length": 2048,
+                "d_model": 2048,
+                "n_layers": 32,
+                "n_heads": 32,
+                "d_ff": 10240,
+                "use_rope": True,
+                "use_swiglu": True,
+                "use_rmsnorm": True,
+                "use_flash_attention": True,
+                "use_moe": True,
+                "n_experts": 4,
+                "n_experts_active": 2,
+                "moe_aux_loss_coef": 0.01,
             },
         }
 

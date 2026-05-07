@@ -475,6 +475,17 @@ class GhostLM(nn.Module):
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
             )
+            # MoE auxiliary load-balancing loss. Each SparseMoE layer
+            # stashes its per-batch aux term in self.last_aux_loss
+            # during forward; sum them here and weight by the configured
+            # coefficient. Keeping the wiring inside model.forward keeps
+            # the trainer architecture-agnostic.
+            if getattr(self.config, "use_moe", False):
+                aux = sum(
+                    m.last_aux_loss for m in self.modules()
+                    if isinstance(m, SparseMoE)
+                )
+                loss = loss + self.config.moe_aux_loss_coef * aux
 
         return logits, loss
 
