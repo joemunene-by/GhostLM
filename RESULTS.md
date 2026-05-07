@@ -78,7 +78,25 @@ The truth metric for "does the model actually know facts." `scripts/eval_fact_re
 
 Both "hits" are arguably spurious: v0.7's owasp hit ("Injection") appears in tangent prose unrelated to A03; v0.9's crypto hit ("256") comes from echoing "SHA-256" from the question itself. **At the ghost-small (45-81M) parameter scale, free-form fact recall is at floor.** The 28-39% numbers on the MCQ benches above reflect the model's ability to match register and topic, not its ability to retrieve facts.
 
-This is the cleanest evidence that the ghost-small line ships as a "cybersec parrot" and the next move (ghost-base, 12L × 768d × 12h, ~360M) is a parameter-count bet on factual recall emerging.
+This is the cleanest evidence that the ghost-small line ships as a "cybersec parrot" and the next move (ghost-base, 30L × 960d × 15h × 3200 d_ff, ~360M, SmolLM2-360M shape) is a parameter-count bet on factual recall emerging.
+
+---
+
+## Free-form fact recall v2 (n=100, smarter grader, 2026-05-07)
+
+Replaces the n=50 v1 bench with three schema additions: `boundary_match` (rejects "10" matching inside "100"), `disqualifiers` (voids credit if listed phrase appears, catches question echoing), and `must_appear` (composite-fact AND-semantics). Documented in [`docs/fact_recall_v2.md`](docs/fact_recall_v2.md). Also published as a public HF dataset at [`Ghostgim/cybersec-fact-recall`](https://huggingface.co/datasets/Ghostgim/cybersec-fact-recall) for other small-cybersec-LM projects to use as a measurable ruler.
+
+Topic distribution: 30 cve, 15 mitre, 15 cwe, 11 protocol, 10 owasp, 10 crypto, 6 tool, 3 misc.
+
+| Checkpoint | Pass rate | Topics that scored |
+|---|---:|---|
+| ghost-small-v0.4 chat-v3 (45M) | **0/100 (0.0%)** | none |
+| ghost-small-v0.7 chat (81M) | **1/100 (1.0%)** | misc 1/3 |
+| ghost-small-v0.9 chat (81M) | **1/100 (1.0%)** | owasp 1/10 |
+
+Same floor as v1, with the false-positive cleanup confirming nothing changes. Both v0.7 and v0.9 hits are likely spurious echoes of question keywords. The v2 grader doesn't *invent* false positives, but it also can't elevate "near-miss" into "knows the fact". The bench discriminates: a model that clears 30% on this ruler genuinely knows facts; a model at 1% genuinely doesn't, regardless of how high it scored on multiple-choice.
+
+The v1.0 ghost-base acceptance gate uses **>=30% on this v2 bench** as one of three ways the run can validate. The fact-recall floor is the truth metric.
 
 ---
 
