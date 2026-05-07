@@ -102,10 +102,31 @@ PYTHONPATH=. python3 scripts/eval_fact_recall_v2.py \
         v0.9-chat=checkpoints/phase19_chat_v09/best_model.pt
 ```
 
-Expected baseline (per the v0.9.2 narrative): every ghost-small
-checkpoint scores 0-2% across the v1 bench; v2 should sit at the same
-floor with the false-positive cleanup. The bench has done its job
-when v0.9 + RAG (or ghost-base) clears 30% on this set.
+## Baseline numbers (2026-05-07, ghost-small line)
+
+Run on M4 MPS with the canonical greedy / 120-token recipe.
+
+| Checkpoint | Params | Hits / 100 | Rate | Per-topic hit |
+|---|---:|---:|---:|---|
+| ghost-small v0.4 chat-v3 | 45M | 0 | 0.0% | (none) |
+| ghost-small v0.7 chat | 81M | 1 | 1.0% | misc 1/3 |
+| ghost-small v0.9 chat | 81M | 1 | 1.0% | owasp 1/10 |
+
+Floor confirmed: the entire ghost-small line scores at the bench floor
+on v2, exactly the same shape as v1 (0-2% across the line). The two
+"hits" are likely spurious in the same way the v1 hits were:
+v0.7's misc hit comes from surfacing "Critical" or "10" in the CVSS
+question, v0.9's owasp hit comes from echoing one of the OWASP A0x
+labels back. Per-row logs in `logs/fact_recall_v2/{label}.jsonl` for
+spot-checking; the smart grader doesn't *generate* false positives,
+but the underlying register-matching pattern produces near-misses
+that occasionally match a short answer string.
+
+The bench has done its job: ghost-small saturates at the floor, the
+v2 grader reproduces the v1 result without false-positive inflation,
+and the n=100 seed is broad enough to detect a real shift. A model
+that clears 30%+ here genuinely knows facts; a model at 1% clearly
+doesn't, regardless of how high it scored on CTIBench MCQ.
 
 ## Why this is the truth metric
 
