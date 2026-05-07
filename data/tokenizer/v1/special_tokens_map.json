@@ -1,0 +1,19 @@
+{
+  "additional_special_tokens": [
+    "<|endoftext|>",
+    "<|pad|>",
+    "<|bos|>",
+    "<|eos|>",
+    "<|ghost_user|>",
+    "<|ghost_assistant|>",
+    "<|ghost_end|>",
+    "<|tool_call|>",
+    "<|/tool_call|>",
+    "<|tool_response|>",
+    "<|/tool_response|>"
+  ],
+  "unk_token": "<|endoftext|>",
+  "bos_token": "<|bos|>",
+  "eos_token": "<|eos|>",
+  "pad_token": "<|pad|>"
+}

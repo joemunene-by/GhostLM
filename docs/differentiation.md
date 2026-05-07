@@ -122,6 +122,21 @@ new domains (FineWeb-Edu, math, code), the tokenizer should
 preserve general English while specializing on cybersec. The
 compression report tells us honestly whether the bet pays off.
 
+**Result (2026-05-08).** v1 BPE: **0.2190 tokens/byte** vs
+GPT-2's **0.2225** on a 99-record sample → **+1.6% compression
+win**, not the +25-35% the hypothesis projected. Per-record
+distribution shows the expected split: cybersec-heavy logs and
+incident reports compress 5-10% better, but large general-text
+samples (FineWeb-Edu chunks) sometimes regress 0.5-5%. The bet
+didn't pay off at the magnitude expected. Whether to ship v1
+BPE in ghost-base / ghost-1B is now a 1.6% question, not a
+25%+ question. **Recommendation:** keep v1 BPE on the shelf as
+an opt-in alternate backend; default ghost-base to GPT-2 BPE
+unless a downstream eval (CTIBench accuracy at fixed token
+budget) shows the cybersec specialization translates to
+benchmark improvement, not just compression. The honest result
+is the result.
+
 ## Bet 4: long context for IR-style workflows
 
 **Hypothesis.** Real cybersec workflows are long-context. An
