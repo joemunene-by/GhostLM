@@ -166,6 +166,22 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--device", default="auto")
     p.add_argument("--logs-dir", default="logs/fact_recall_v2",
                    help="Per-row JSONL log lands here; one file per checkpoint")
+    # RAG (retrieval-augmented generation) optional path. When --rag-dir
+    # points to a directory containing index.npy + chunks.jsonl, every
+    # question is augmented with the top-K most similar passages before
+    # the model sees it. Same retrieval flow as scripts/rag_chat.py and
+    # the demo Space's chat_fn. Lets us measure whether retrieval lifts
+    # v0.9 chat off the fact-recall floor without retraining.
+    p.add_argument("--rag-dir", default=None,
+                   help="Optional path to a directory with index.npy + "
+                        "chunks.jsonl + meta.json. If set, each question "
+                        "is augmented with the top-K most similar corpus "
+                        "passages before generation.")
+    p.add_argument("--rag-top-k", type=int, default=4,
+                   help="Number of passages to retrieve per question")
+    p.add_argument("--rag-embedder", default="BAAI/bge-small-en-v1.5",
+                   help="HF model id for the retrieval embedder. Must "
+                        "match the embedder the index was built with.")
     return p.parse_args()
 
 
@@ -214,6 +230,59 @@ def load_model(path: Path, device: str) -> Tuple[GhostLM, GhostLMConfig]:
     return model.to(device), cfg
 
 
+def load_rag_state(rag_dir: Path, embedder_name: str, device: str):
+    """Load the retrieval index + embedder. Returns a dict with
+    ``index`` (np.ndarray, fp32, L2-normalized), ``chunks`` (list of
+    dicts), ``embed_tok``, ``embed_model``. Raises on any failure
+    (caller is expected to gate on --rag-dir presence)."""
+    import json as _json
+    import numpy as np
+    idx = np.load(rag_dir / "index.npy")
+    if idx.dtype != np.float32:
+        idx = idx.astype(np.float32)
+    chunks: List[dict] = []
+    with (rag_dir / "chunks.jsonl").open("r", encoding="utf-8") as f:
+        for line in f:
+            chunks.append(_json.loads(line))
+    from transformers import AutoModel, AutoTokenizer
+    e_tok = AutoTokenizer.from_pretrained(embedder_name)
+    e_model = AutoModel.from_pretrained(embedder_name).to(device).eval()
+    print(f"  RAG: {len(chunks)} chunks, dim {idx.shape[1]}, embedder {embedder_name}")
+    return {"index": idx, "chunks": chunks, "embed_tok": e_tok, "embed_model": e_model}
+
+
+def rag_augmented_prompt(question: str, rag, top_k: int, device: str) -> str:
+    """Embed the question, retrieve top-K passages, return a single
+    prompt string with the passages prepended in the same shape the
+    Space's chat_fn uses. Same recipe as scripts/rag_chat.py."""
+    import numpy as np
+    text = "Represent this sentence for searching relevant passages: " + question
+    enc = rag["embed_tok"](
+        text, padding=True, truncation=True, max_length=512, return_tensors="pt",
+    ).to(device)
+    with torch.no_grad():
+        out = rag["embed_model"](**enc)
+    emb = out.last_hidden_state[:, 0]
+    emb = torch.nn.functional.normalize(emb, p=2, dim=-1)
+    q_vec = emb.cpu().to(torch.float32).numpy().reshape(-1)
+    scores = rag["index"] @ q_vec
+    idxs = np.argsort(-scores)[: max(1, top_k)]
+    refs = []
+    for i, j in enumerate(idxs):
+        ch = rag["chunks"][int(j)]
+        snippet = (ch.get("text") or "")[:400]
+        if len(ch.get("text") or "") > 400:
+            snippet = snippet.rsplit(" ", 1)[0] + "..."
+        refs.append(f"[{i+1}] ({ch.get('source', '?')} {ch.get('ref', '')}) {snippet}")
+    return (
+        "Reference passages from the cybersecurity corpus:\n\n"
+        + "\n\n".join(refs)
+        + "\n\nUse the reference passages above to answer the question. If the "
+          "passages don't contain the answer, say so rather than guessing.\n\n"
+          f"Question: {question}"
+    )
+
+
 def generate(model: GhostLM, tokenizer: GhostTokenizer, prompt: str,
              *, max_tokens: int, temperature: float, top_k: int,
              device: str) -> str:
@@ -258,6 +327,15 @@ def main() -> int:
     tokenizer = GhostTokenizer()
     summary_rows = []
 
+    rag = None
+    if args.rag_dir:
+        rag_dir = Path(args.rag_dir)
+        if not rag_dir.is_dir():
+            raise SystemExit(f"--rag-dir does not exist: {rag_dir}")
+        print(f"Loading RAG index from {rag_dir}")
+        rag = load_rag_state(rag_dir, args.rag_embedder, device)
+        print()
+
     for label, ckpt_path in parse_specs(args.checkpoints):
         print(f"=== {label}  ({ckpt_path}) ===")
         model, _ = load_model(ckpt_path, device)
@@ -267,7 +345,14 @@ def main() -> int:
         topic_total: dict = {}
         topic_hits: dict = {}
         for rec in bench:
-            completion = generate(model, tokenizer, rec["prompt"],
+            # If RAG is loaded, prepend retrieved passages to the prompt.
+            # Otherwise pass the bare question through. Same prompt shape
+            # the demo Space and scripts/rag_chat.py use.
+            if rag is not None:
+                prompt = rag_augmented_prompt(rec["prompt"], rag, args.rag_top_k, device)
+            else:
+                prompt = rec["prompt"]
+            completion = generate(model, tokenizer, prompt,
                                   max_tokens=args.max_tokens,
                                   temperature=args.temperature, top_k=args.top_k,
                                   device=device)
