@@ -241,8 +241,99 @@ class SwiGLU(nn.Module):
         return self.dropout(self.fc3(F.silu(self.fc1(x)) * self.fc2(x)))
 
 
+class SparseMoE(nn.Module):
+    """Sparse Mixture-of-Experts feed-forward layer.
+
+    Differentiator for ghost-1B+: dense FFN at 1B params is the
+    obvious move, but going MoE (4 experts, 2 active per token, with
+    a learned router) gives effectively 2B parameters of capacity at
+    the inference cost of ~1B dense. From-scratch MoE at this scale
+    is rare; most cybersec LMs that ever reach 1B graft MoE in late
+    or skip it entirely.
+
+    Architecture (matches the standard Mixtral / DeepSeek-MoE shape):
+      - Router: linear projection from d_model to n_experts
+      - Top-K gating: softmax over top_k logits, zero elsewhere
+      - Each expert is its own SwiGLU FFN (parallel parameter pools)
+      - Output: sum of expert(x) weighted by gate(x), summed over
+                the top_k experts the router selected
+
+    Config flags (additions to GhostLMConfig):
+      use_moe (bool, default False)
+      n_experts (int, default 4)
+      n_experts_active (int, default 2; the K in top-K routing)
+      moe_aux_loss_coef (float, default 0.01; load-balancing weight)
+
+    The auxiliary load-balancing loss (returned alongside the FFN
+    output) penalizes routing collapse to a single expert. The
+    trainer needs to add it to the cross-entropy loss with the
+    configured weight.
+    """
+
+    def __init__(self, config: GhostLMConfig):
+        super().__init__()
+        self.n_experts = int(getattr(config, "n_experts", 4))
+        self.top_k = int(getattr(config, "n_experts_active", 2))
+        if self.top_k > self.n_experts:
+            raise ValueError(
+                f"n_experts_active ({self.top_k}) cannot exceed "
+                f"n_experts ({self.n_experts})"
+            )
+        self.gate = nn.Linear(config.d_model, self.n_experts, bias=False)
+        self.experts = nn.ModuleList([SwiGLU(config) for _ in range(self.n_experts)])
+        self.dropout = nn.Dropout(config.dropout)
+        # Buffer for the most recently computed aux loss (load-balancing
+        # term). Trainer reads ``last_aux_loss`` after each forward and
+        # adds ``moe_aux_loss_coef * sum(last_aux_loss)`` across all MoE
+        # layers to the main objective.
+        self.register_buffer("last_aux_loss", torch.zeros(1), persistent=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Top-K routing + weighted expert sum + load-balancing loss."""
+        b, t, d = x.shape
+        flat = x.reshape(b * t, d)
+
+        # Router: pick top_k experts per token.
+        gate_logits = self.gate(flat)                          # [b*t, n_experts]
+        top_w, top_idx = gate_logits.topk(self.top_k, dim=-1)  # [b*t, top_k]
+        top_w = F.softmax(top_w, dim=-1)                       # gate weights
+
+        # Aux loss: encourage uniform expert utilization.
+        # Equation 4 from the Switch Transformer paper, adapted for
+        # top-K (the per-expert mass + per-expert routing fraction
+        # should both be near 1/n_experts).
+        gate_probs = F.softmax(gate_logits, dim=-1)
+        expert_mask = torch.zeros_like(gate_probs).scatter_(
+            -1, top_idx, 1.0,
+        )
+        f_i = expert_mask.mean(dim=0)            # fraction routed to each expert
+        p_i = gate_probs.mean(dim=0)             # routing prob mass per expert
+        self.last_aux_loss = (f_i * p_i).sum() * self.n_experts
+
+        # Dispatch: compute expert(x) for each routed token, weighted.
+        out = torch.zeros_like(flat)
+        for i, expert in enumerate(self.experts):
+            # Tokens routed to this expert (may be empty).
+            mask = (top_idx == i).any(dim=-1)
+            if not mask.any():
+                continue
+            # Per-token weight = sum of weights where this expert was
+            # in the top_k (typically 0 or 1 entries; rarely 2 if
+            # n_experts == top_k).
+            w = (top_w * (top_idx == i).float()).sum(dim=-1, keepdim=True)
+            tokens = flat[mask]
+            expert_out = expert(tokens)
+            out[mask] += expert_out * w[mask]
+
+        return self.dropout(out).reshape(b, t, d)
+
+
 def make_ffn(config: GhostLMConfig) -> nn.Module:
-    """Return SwiGLU or FeedForward based on ``config.use_swiglu``."""
+    """Return SparseMoE, SwiGLU, or FeedForward based on config flags.
+    Order: MoE wins if use_moe is set; SwiGLU wins if use_swiglu is set
+    (and MoE is off); plain GELU FeedForward otherwise."""
+    if getattr(config, "use_moe", False):
+        return SparseMoE(config)
     if getattr(config, "use_swiglu", False):
         return SwiGLU(config)
     return FeedForward(config)

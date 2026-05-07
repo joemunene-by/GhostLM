@@ -26,6 +26,18 @@ class GhostLMConfig:
     use_rmsnorm: bool = False
     use_flash_attention: bool = False
 
+    # Mixture-of-Experts (sparse FFN). Off by default; enable for
+    # ghost-1B and beyond. With use_moe = True the FFN at every
+    # transformer block becomes a SparseMoE layer with n_experts
+    # parallel SwiGLU pools and top-K routing. Effective parameter
+    # count = n_experts * (per-expert SwiGLU params), inference cost
+    # = n_experts_active * (per-expert SwiGLU compute).
+    # See ghostlm.model.SparseMoE for routing + load-balancing detail.
+    use_moe: bool = False
+    n_experts: int = 4
+    n_experts_active: int = 2     # the K in top-K routing
+    moe_aux_loss_coef: float = 0.01  # load-balancing loss weight
+
     # Training
     batch_size: int = 32
     learning_rate: float = 3e-4
