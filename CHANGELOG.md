@@ -1356,7 +1356,75 @@ The Unreleased section below tracks both.
 ## [Unreleased]
 
 The next release will close out whatever follow-ups land before the
-ghost-base v1.0 GPU run. Currently empty.
+ghost-base v1.0 GPU run. Current contents: differentiation strategy
+(six concrete bets to make GhostLM not-another-point-on-the-plot),
+each with a runnable scaffold in the repo.
+
+### 2026-05-08, six differentiation bets
+
+Doc: [docs/differentiation.md](docs/differentiation.md). Strategic
+frame: the v0.9.3 RAG diagnostic identified a real bottleneck (81M
+extracts from supplied context 1% of the time), the parameter-count
+escape hatch is expensive, and the more interesting moves are
+architectural / training-recipe / ecosystem-level changes that other
+from-scratch projects aren't attempting. Six bets, each with code
+already in the repo:
+
+1. **Tool-grounded model (bet 1).** [scripts/distill_tool_use.py](scripts/distill_tool_use.py).
+   Train ghost-base on tool-use traces (`question -> tool_call ->
+   tool_response -> answer`) so it learns "lookup before answering"
+   instead of "guess from memory". 4 tools wired (NVD, MITRE, CWE,
+   RAG). Quality filter requires literal tag strings + parseable
+   tool-call JSON. Cost: ~$200 on Sonnet for 10K traces.
+
+2. **Continuously-updated model (bet 2).** [scripts/daily_finetune.py](scripts/daily_finetune.py).
+   Nightly LoRA tune over the previous 24h of fresh threat-intel,
+   pushed to a date-stamped HF Models repo
+   (`Ghostgim/GhostLM-daily-YYYY-MM-DD`). Base checkpoint stays
+   fixed; consumers download adapter and merge at load time. Cost:
+   ~1-2 GPU hours per day.
+
+3. **Custom 32K BPE (bet 3).** [scripts/train_v1_bpe.py](scripts/train_v1_bpe.py).
+   **Result: +1.6% vs GPT-2 BPE on a 99-record sample**, well
+   below the +25-35% projection. Per-record distribution shows
+   cybersec-heavy text wins 5-10% but FineWeb-Edu samples
+   sometimes regress 0.5-5%. Artifact at `data/tokenizer/v1/`,
+   wired into [ghostlm/tokenizer.py](ghostlm/tokenizer.py) as the
+   `GhostTokenizerV1` opt-in backend; ghost-base default stays
+   GPT-2 BPE pending a downstream eval that proves cybersec
+   specialization translates to benchmark gains.
+
+4. **Long context via RoPE NTK rebase (bet 4).** [scripts/extend_context_ntk.py](scripts/extend_context_ntk.py).
+   Code Llama-style non-linear scaling so high-frequency RoPE
+   components stay sharp while low-frequency ones stretch to 16K.
+   Two modes: `--rebase-only` for zero-shot extension testing,
+   full mode for production-grade fine-tune. Cost: ~3-5 GPU hours.
+
+5. **MoE architecture for ghost-1B+ (bet 5).** SparseMoE class in
+   [ghostlm/model.py](ghostlm/model.py), config flags in
+   [ghostlm/config.py](ghostlm/config.py). 4 experts top-2 routing,
+   parallel SwiGLU experts, Switch-Transformer load-balancing aux
+   loss now wired into `GhostLM.forward()` (trainer stays
+   architecture-agnostic). Smoke-validated: aux ~2.0 per layer with
+   uniform routing, gradients flow to gate weights. Two new presets
+   in `from_preset()`: `ghost-1b` (1536d / 24L / 24h / 4 experts =
+   2.1B total / ~1.2B active) and `ghost-3b` (2048d / 32L / 32h /
+   4 experts = 6.0B total / ~3.3B active).
+
+6. **Format-aware pretrain (bet 6).** [scripts/distill_format_aware.py](scripts/distill_format_aware.py).
+   Synthesize (natural_language to structured_artifact and back)
+   pairs across four format families: STIX 2.1 indicators, YARA
+   rules, Sigma detection rules, MISP event JSON. Each ships its
+   own syntactic validator (`parse_stix`, `parse_yara`,
+   `parse_sigma`, `parse_misp`) so unparseable teacher outputs get
+   filtered before write. The structural lever (different *kinds*
+   of text the model sees) is complementary to the bet 3
+   token-density lever. ~$50-100 on Sonnet for 1K clean traces;
+   free Ollama smoke-test path.
+
+The strategic claim isn't that any one bet definitely works; it's
+that the **combination** of six reasonable bets gives GhostLM a
+defensible identity that parameter-scale-only roadmaps don't.
 
 ---
 
