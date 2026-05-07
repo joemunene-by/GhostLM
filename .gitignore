@@ -29,6 +29,7 @@ data/rag/
 !data/raw/ctf_eval_bench.jsonl
 !data/raw/fact_recall_bench.jsonl
 !data/raw/fact_recall_bench_v2.jsonl
+!data/raw/format_aware_seeds.jsonl
 !data/processed/.gitkeep
 
 # Model checkpoints

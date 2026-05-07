@@ -111,6 +111,55 @@ SYSTEM_PROMPT = (
 )
 
 
+SEED_PATH = REPO_ROOT / "data" / "raw" / "format_aware_seeds.jsonl"
+
+
+def load_few_shots() -> Dict[str, List[Dict[str, str]]]:
+    """Load hand-curated gold examples grouped by format. Each entry has
+    ``prompt`` and ``artifact`` fields. Returns an empty dict if the
+    seed file isn't present so the script remains runnable in CI
+    without the data file.
+
+    The seed file lives at ``data/raw/format_aware_seeds.jsonl`` and
+    is the few-shot prompt material used to anchor the teacher
+    model's output style plus the gold set for the structural-compliance
+    eval at ``scripts/eval_format_compliance.py``."""
+    out: Dict[str, List[Dict[str, str]]] = {}
+    if not SEED_PATH.exists():
+        return out
+    with SEED_PATH.open("r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            fmt = rec.get("format")
+            if fmt and rec.get("prompt") and rec.get("artifact"):
+                out.setdefault(fmt, []).append(rec)
+    return out
+
+
+def few_shot_prefix(few_shots: List[Dict[str, str]], n: int = 1) -> str:
+    """Build a prepended few-shot block for the teacher prompt. We
+    include up to ``n`` examples (default 1, since adding more burns
+    the context budget without much marginal teacher-quality lift in
+    practice on small models). Format chosen to be unambiguous: each
+    example is delimited by EXAMPLE / END EXAMPLE tags so the teacher
+    doesn't conflate boundaries."""
+    if not few_shots:
+        return ""
+    chunks: List[str] = []
+    for ex in few_shots[:n]:
+        chunks.append(
+            "=== EXAMPLE ===\n"
+            f"Request:\n{ex['prompt']}\n\n"
+            f"Output:\n{ex['artifact']}\n"
+            "=== END EXAMPLE ===\n"
+        )
+    return ("Reference example(s) of the requested format:\n\n"
+            + "\n".join(chunks) + "\n")
+
+
 # ---------------------------------------------------------------------------
 # STIX 2.1
 # ---------------------------------------------------------------------------
@@ -307,7 +356,7 @@ def parse_misp(blob: str) -> Optional[Dict]:
 
 FORMATS = {
     "stix_indicator": {
-        "seed_source_path": "data/raw/nvd_full.jsonl",
+        "seed_source_path": "data/raw/cve_full.jsonl",
         "prompt_fn": stix_prompt_from_cve,
         "parse_fn": parse_stix,
     },
@@ -335,11 +384,21 @@ FORMATS = {
 
 
 def generate_one(cfg: ProviderConfig, fmt_name: str, seed: Dict[str, str],
-                 prompt_fn, parse_fn) -> Optional[DistillRecord]:
+                 prompt_fn, parse_fn,
+                 few_shots: Optional[List[Dict[str, str]]] = None
+                 ) -> Optional[DistillRecord]:
     """Single (seed -> prompt -> teacher -> parsed artifact) round.
     Returns a typed DistillRecord on success, None on any failure
-    (provider error, unparseable output, quality-filter rejection)."""
-    prompt = prompt_fn(seed)
+    (provider error, unparseable output, quality-filter rejection).
+
+    When ``few_shots`` is supplied the teacher gets one or more gold
+    reference examples prepended to its prompt. This raises the floor
+    on output quality enough to matter for quirky formats (Sigma's
+    YAML structure, MISP's nested ``Event.Attribute`` shape) where
+    a zero-shot prompt routinely produces near-misses."""
+    base_prompt = prompt_fn(seed)
+    fewshot = few_shot_prefix(few_shots or [], n=1)
+    prompt = fewshot + base_prompt if fewshot else base_prompt
     raw = call_provider(cfg, prompt, system=SYSTEM_PROMPT)
     if not raw:
         return None
@@ -369,10 +428,15 @@ def generate_one(cfg: ProviderConfig, fmt_name: str, seed: Dict[str, str],
 
 def run_format(cfg: ProviderConfig, fmt_name: str, fmt_spec: Dict,
                max_traces: int, writer: StreamingWriter,
-               resume: ResumeIndex) -> int:
+               resume: ResumeIndex,
+               few_shots: Optional[List[Dict[str, str]]] = None) -> int:
     """Loop over seed records for one format, generate up to
     ``max_traces`` clean records, write each as it lands. Returns the
-    count of accepted records."""
+    count of accepted records.
+
+    ``few_shots`` is the per-format slice of ``load_few_shots()``;
+    each generation gets a fresh copy of the same examples (kept
+    deterministic so resume is meaningful)."""
     seed_path = REPO_ROOT / fmt_spec["seed_source_path"]
     seeds = load_jsonl_source(seed_path)
     if not seeds:
@@ -386,7 +450,8 @@ def run_format(cfg: ProviderConfig, fmt_name: str, fmt_spec: Dict,
         if resume.already_done(fmt_name, seed["seed_id"]):
             continue
         rec = generate_one(cfg, fmt_name, seed,
-                           fmt_spec["prompt_fn"], fmt_spec["parse_fn"])
+                           fmt_spec["prompt_fn"], fmt_spec["parse_fn"],
+                           few_shots=few_shots)
         if rec is None:
             continue
         candidates.append(rec)
@@ -418,6 +483,10 @@ def parse_args() -> argparse.Namespace:
                         "formats default 250 → up to 1000 records total.")
     p.add_argument("--formats", default="stix_indicator,yara_rule,sigma_rule,misp_event",
                    help="Comma-separated subset of formats to run")
+    p.add_argument("--no-few-shots", action="store_true",
+                   help="Disable the data/raw/format_aware_seeds.jsonl "
+                        "few-shot prefix; useful for measuring zero-shot "
+                        "teacher quality.")
     return p.parse_args()
 
 
@@ -437,18 +506,23 @@ def main() -> int:
     if unknown:
         sys.exit(f"unknown formats: {unknown}; available: {list(FORMATS)}")
 
+    few_shots_all = {} if args.no_few_shots else load_few_shots()
+
     print(f"distill_format_aware via {cfg.name}/{cfg.model}")
     print(f"  formats: {formats_to_run}")
     print(f"  max per format: {args.max_traces_per_format}")
     print(f"  output: {out_path}")
     print(f"  already-done seeds: {len(resume.seen)}")
+    print(f"  few-shots loaded: "
+          f"{ {k: len(v) for k, v in few_shots_all.items()} or 'none'}")
 
     total = 0
     for fmt_name in formats_to_run:
         print(f"\n=== {fmt_name} ===")
         spec = FORMATS[fmt_name]
         total += run_format(cfg, fmt_name, spec,
-                            args.max_traces_per_format, writer, resume)
+                            args.max_traces_per_format, writer, resume,
+                            few_shots=few_shots_all.get(fmt_name))
 
     writer.close()
     print(f"\nDone. Wrote {total} records to {out_path}")
