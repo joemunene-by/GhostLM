@@ -1353,7 +1353,163 @@ The Unreleased section below tracks both.
 
 ---
 
-## [Unreleased] — v1.0 corpus built; ghost-base launcher shipped; awaiting GPU
+## [Unreleased]
+
+The next release will close out whatever follow-ups land before the
+ghost-base v1.0 GPU run. Currently empty.
+
+---
+
+## [0.9.3] — 2026-05-07 — pre-GPU push: RAG layer, fact-recall v2, distillation pipeline, retrieval-vs-generation diagnostic
+
+The release that closed out a long pre-GPU work session. No model
+training; no GPU spend; one published HF dataset; one diagnostic
+finding strong enough to validate the parameter-scaling thesis the
+project has been pursuing since v0.6.0.
+
+### Headline finding
+
+Three numbers from running the new RAG layer end-to-end on the v0.9
+chat checkpoint plus a separate retrieval-quality diagnostic that
+strips the language model out of the loop. **Retrieval works,
+generation doesn't.**
+
+```
+Retrieval@4 (no LM):              41 / 100  (41.0%)
+v0.9-bare fact-recall v2:          1 / 100  (1.0%)
+v0.9+RAG fact-recall v2:           0 / 100  (0.0%)
+```
+
+The retriever surfaces a passage containing the canonical answer
+for ~41% of fact-recall questions, but the 81M chat-tuned model
+can extract those facts in ~1% of cases. Worse: the longer
+RAG-augmented prompt destabilizes generation into mode-collapse
+("X X X X X" repetition), dropping the score from 1/100 to 0/100.
+Adding the right context to the prompt makes the 81M model
+*worse*, not better. At this parameter scale the model has not
+just failed to memorize facts; it has failed to learn the
+meta-skill of "use the context window to answer". Per-topic
+retrieval@4 (mitre 93%, tool 83%, cwe 67%, owasp 0%, protocol 9%)
+is itself diagnostic; the BGE-small embedder fails on short-label
+queries. Full investigation in
+[`docs/rag_diagnostic_findings.md`](docs/rag_diagnostic_findings.md).
+
+This is the cleanest evidence to date for the parameter-scaling
+diagnosis. Validates the RAG infrastructure (retrieval works);
+validates the parameter-scaling thesis (generation fails); confirms
+the v1.0 ghost-base GPU run is the right next move.
+
+### Hardware pathway documented
+
+`docs/hardware_pathway.md` ships the multi-year scale-ladder
+hardware recommendation: **RTX 6000 Pro Blackwell 96GB** (~$10K used)
+for a workstation that carries the project through ghost-7B with
+fp8 native training; corpus is the harder ceiling than hardware
+past ghost-3B (Chinchilla-optimal scales linearly: ghost-7B wants
+140B tokens, current corpus is 363M, 480x short). 100B+ documented
+as cluster territory; the realistic path past ghost-7B is
+continued-pretrain on a borrowed base. ROADMAP cross-links the
+new doc from Phase 5 / Phase 6 hardware-target rows.
+
+### Pre-GPU artifacts
+
+Eight discrete artifacts shipped without GPU spend:
+
+- **Corpus contamination audit.**
+  `scripts/audit_corpus_contamination.py`. Two-tier check (exact
+  substring + 12-word shingle overlap) gating the v1.0 GPU spend.
+  Smoke run confirmed clean; full 2500-question audit running on
+  M4 with results in `docs/contamination_audit.md`.
+- **Free-form fact-recall benchmark v2** (n=100 seed, growing to
+  200). Three schema additions over v1: `boundary_match` (rejects
+  "10" matching inside "100"), `disqualifiers` (voids credit if
+  listed phrase appears, catches question echoing), and
+  `must_appear` (composite-fact AND-semantics). Doc at
+  `docs/fact_recall_v2.md`. Published as a public HF Dataset at
+  `Ghostgim/cybersec-fact-recall` for other small-cybersec-LM
+  projects to use as a measurable ruler. Baseline numbers across
+  v0.4 / v0.7 / v0.9 chat: 0/100, 1/100, 1/100 respectively.
+- **RAG layer wired into the demo Space.**
+  `huggingface.co/spaces/Ghostgim/ghostlm` chat now runs in
+  retrieval-augmented mode by default when the index is loaded.
+  Embeds queries with BAAI/bge-small-en-v1.5, retrieves top-4
+  from a 83K-chunk index over the cybersec corpus, prepends as
+  "Reference passages" before generation. Gracefully falls back
+  to bare chat with an honest "RAG: OFF" note when the index
+  isn't loaded.
+- **Streaming chat in the Space.** `chat_fn` is now a generator;
+  the Space yields tokens as they're sampled instead of blocking
+  for 15-25 s per reply. Same total wall-clock, immediate first-
+  token, far better perceived UX.
+- **HF Models repo card.** `Ghostgim/GhostLM-v0.9-experimental` now
+  has proper README.md frontmatter with bench numbers in the
+  model-index schema (CTIBench 28.9% / SecQA 39.3% / in-repo CTF
+  59.2% / fact recall 1/50 v1, 1/100 v2). Surfaces in HF model
+  search.
+- **Distillation pipeline scaffold for ghost-3B+ corpus.**
+  `scripts/distill_common.py` (provider abstractions for Ollama /
+  Anthropic / OpenAI-compatible, resume-safe writer, 5-shingle
+  dedup, quality filters) plus four per-type scripts:
+  `distill_ctf_walkthroughs.py` (offensive register from
+  MITRE / CAPEC), `distill_threat_modeling.py` (STRIDE from
+  OWASP / CWE), `distill_deobfuscation.py` (RE walkthroughs from
+  exploitdb / security_code), `distill_malware_analysis.py`
+  (IR-style writeups from MITRE / CISA-KEV). Doc at
+  `docs/distillation.md`: target volume 130K records / ~65M
+  synthetic tokens, provider cost envelope ~$400-2000.
+- **MCP tool harness expansion.** Three new tools:
+  `ghostlm_search_cve_nvd` (live REST API to NIST NVD,
+  deterministic), `ghostlm_lookup_mitre_technique` (local-corpus
+  MITRE lookup, also deterministic), `ghostlm_rag_query`
+  (retrieval-augmented chat using the same RAG index). `docs/mcp.md`
+  splits tools into model-backed vs deterministic categories.
+- **Quantization script for v0.9 chat.** `scripts/quantize_v09.py`
+  produces fp16 (~162 MB) and int8 (`torch.ao.quantization.quantize_dynamic`,
+  ~80-110 MB) artifacts from the bf16 checkpoint. GGUF export
+  documented as ~1 week of future work.
+
+### Threat-intel corpus expansion (ongoing)
+
+Three new collectors landed:
+
+- `scripts/collect_vendor_research.py` for 11 vendor TI feeds:
+  Cisco Talos, Palo Alto Unit 42, CrowdStrike, Mandiant, Rapid7,
+  Tenable, Sophos, ESET, Trend Micro, SANS ISC, Recorded Future.
+- `scripts/collect_cisa_advisories.py` for CISA Cybersecurity
+  Advisories (separate from KEV; technical bulletins, joint
+  advisories with FBI/NSA/MI5, ICS-CERT alerts).
+- `scripts/collect_misp_feeds.py` for open MISP OSINT feeds (CIRCL,
+  BotvrijEU). Renders structured threat-intel events as prose.
+
+First batch of an ongoing collector series. Future batches: FIRST
+PSIRT, vendor whitepapers, paid threat-intel feeds.
+
+### Diagnostic-only artifact
+
+- `scripts/eval_rag_recall.py` measures retrieval@K independent of
+  the language model. Distinguishes the two failure modes that look
+  identical on the generation bench: retriever-broken vs LM-can't-
+  extract. The 41/100 vs 0/100 split documented above is from this
+  script.
+
+### What's still pending after this release
+
+- **Rented GPU access** for the ~26h ghost-base pretrain.
+- **RAG index rebuild** over the v1.0 corpus (current index was
+  built 2026-05-01 against the v0.4-era corpus; rebuilding will
+  fix the owasp 0% retrieval@4 result).
+- **BM25 sparse-retrieval fallback** for short-label queries
+  (protocol 9% retrieval@4 is the symptom).
+- **GGUF export** for llama.cpp / Ollama (~1 week of careful
+  mapping work).
+- **fact-recall v2 expansion to n=200** (more handwriting; n=100
+  seed is broad enough to detect the parameter gate).
+- **Context-extension fine-tune** to ctx-1024 for long-form CTI
+  inputs (carried over from prior [Unreleased]).
+
+---
+
+### v1.0 corpus + ghost-base launcher (carried into 0.9.3 from earlier)
 
 ### v1.0 corpus expansion (2026-05-06)
 
@@ -1519,19 +1675,8 @@ to `data/raw/vendor_research.jsonl` with source-tag
 batches: CISA cybersecurity advisories beyond KEV, MISP feeds,
 FIRST.org PSIRT.
 
-### What's still pending
-
-- **Rented GPU access** for the ~26h ghost-base pretrain
-  (Chinchilla-suboptimal at ~363M tokens but covers the multi-domain
-  mix). One spot H100 at ~$2.50/h is ~$70 for a 3-epoch run.
-- **Chat-tune of ghost-base** on the canonical chat-v3 SFT recipe.
-  Cheap (~1h on M4) once the base lands.
-- **Bench ghost-base on all four eval surfaces** (CTIBench full, CTF
-  eval, SecQA, fact recall v2) and decide whether v1.0 ships.
-- **RAG-augmented v0.9 cross-bench rerun** to measure how much the
-  retrieval layer lifts v0.9 on debiased CTIBench / SecQA / fact
-  recall v2. If RAG-augmented v0.9 clears the ghost-base gate without
-  GPU spend, that's a real finding worth shipping as v0.9.3.
-- **GGUF export** for llama.cpp / Ollama compatibility (~1 week).
-- **Context-extension fine-tune** to ctx-1024 for long-form CTI
-  inputs (carried over from prior [Unreleased]).
+(The earlier "What's still pending" list from when this content lived
+under [Unreleased] is superseded by the consolidated post-release list
+above; the RAG-augmented v0.9 cross-bench rerun item it referenced
+has now been completed and produced the headline finding for this
+release.)
