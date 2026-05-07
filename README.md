@@ -379,18 +379,19 @@ GhostLM/
 
 GhostLM is a multi-year effort. The honest framing is that ghost-tiny is a learning artifact and a working pipeline, *not* a useful cyber-task model. The path to "useful" is the scale ladder below, paired with a corpus that grows by ~100× from where it is today. See [ROADMAP.md](ROADMAP.md) for full milestones, compute estimates, and corpus targets.
 
-**Where we are (Phase 3.5, complete, v0.3.5):** ghost-tiny @ 30K steps on the rebalanced ~8.8M-token corpus (NVD share 65%, six sources balanced). Cyber-text perplexity dropped 32% (142.09 → 96.24), per-source val PPL dropped 62% overall (172 → 66), PMI security task accuracy doubled (20% → 40%). The model now switches register between CVE / MITRE / CTF prompts where v0.3.3 collapsed everything into CVE prose. The recipe both scales with data (Phase 2→3) and benefits from source diversity (Phase 3→3.5), both Phase 4 (ghost-small) gates met on the recipe side.
+**Where we are (v0.9.3 + six differentiation bets, 2026-05-08):** the ghost-small line saturated at ~28% on debiased CTIBench and 0-2% on free-form fact recall, register-matching parrot, not a fact-knower. v0.9 chat is the bench winner across CTIBench full / in-repo CTF eval / external SecQA but the truth metric is at floor for the whole 81M parameter rung. Diagnostic: retriever surfaces the right passage 41% of the time; the 81M model extracts the fact 1% of the time. The bottleneck is generation capacity, not retrieval, and parameter scaling is the answer. **The v1.0 corpus is built**: 516,736 train / 27,049 val / ~363M tokens across six domains. **Ghost-base (~360M)** is the v1.0 target, launcher and spec ready, gated on rented GPU. **Six differentiation bets** are scaffolded in the repo: tool-grounded SFT, daily LoRA over fresh threat-intel, custom 32K BPE (measured +1.6% vs GPT-2 BPE, opt-in), RoPE NTK 16K context extension, MoE for ghost-1B+ with `ghost-1b` (2.1B total / 1.2B active) and `ghost-3b` (6.0B total / 3.3B active) presets shipped, and structured-format pretrain (STIX / YARA / Sigma / MISP). Strategic frame at [docs/differentiation.md](docs/differentiation.md).
 
 **Where we're going:**
 
-1. **Corpus diversity:** break the NVD-87% lopsidedness. CTFtime archives, security research blogs (Project Zero, PortSwigger, Trail of Bits), MITRE ATT&CK, tool docs. This is the long-term moat and compounds even when compute is the bottleneck.
-2. **ghost-small (~55M params):** first scale-up rung. M4 GPU/MPS feasible. Phase 3 met the gating criterion (recipe-scales-with-data validated); the remaining gate is corpus diversity above.
-3. **ghost-base (~350M params):** first rung that needs rented GPU compute. Where domain-coherent generation should start to emerge.
-4. **ghost-1B:** the long-term goal. The smallest scale at which a from-scratch cyber LM has a real shot at being genuinely useful. Will need either rented H100 hours or owned GPU.
+1. **Ghost-base v1.0 GPU run:** rented H100 hours, 360M params on the 363M-token corpus. The acceptance gate is ≥40% CTIBench OR ≥65% CTF eval OR ≥30% on the 50-question fact-recall set. This is the spend that converts the saturated ghost-small line into a model with measurable fact-recall capability. Spec at [docs/ghost_base_spec.md](docs/ghost_base_spec.md).
+2. **Bet 1 (tool-use SFT) on top of ghost-base:** ~$200 distillation budget for 10K traces, 1-2 GPU hours to fine-tune. The point of the GPU spend, the meta-skill of "lookup before answering" beats memorization at small scale.
+3. **Bet 4 (long context to 16K):** RoPE NTK rebase + 3-5 GPU hours of long-form fine-tune. Unlocks IR triage workflows where a 50K-token threat report goes in the prompt.
+4. **Bet 2 (daily LoRA cron):** practical once owned hardware lands (Blackwell 96GB recommendation); rented-GPU expense before that.
+5. **Ghost-1b with native MoE from step 0:** 24-layer / 1536-d / 4-expert top-2. Bet 5's preset already in `ghostlm/config.py` so the architecture is settled; the remaining work is the actual pretrain run on owned compute.
 
-**Realistic timeline:** 2-3 years of sustained work to a useful 1B from-scratch cyber LM. That is the actual shape of this work; there are no shortcuts for "from scratch" at scale. Detailed phase plan in [ROADMAP.md](ROADMAP.md).
+**Realistic timeline:** 2-3 years of sustained work to a useful 1B from-scratch cyber LM. The shape of the curve from here is "park at the small-cybersec-LM benchmark plateau OR climb to ghost-base on rented H100s and re-bench." The differentiation bets are the strategic answer to "park is a crowded place." Detailed phase plan in [ROADMAP.md](ROADMAP.md), full multi-year hardware pathway in [docs/hardware_pathway.md](docs/hardware_pathway.md).
 
-For changelog history (v0.1.0 → v0.3.5), see [CHANGELOG.md](CHANGELOG.md).
+For changelog history (v0.1.0 onward), see [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
