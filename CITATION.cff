@@ -1,0 +1,50 @@
+cff-version: 1.2.0
+title: "GhostLM: a from-scratch cybersecurity language model on a transparent scale ladder"
+message: "If you reference GhostLM in research or downstream tooling, please cite this repository."
+type: software
+authors:
+  - family-names: Munene
+    given-names: Joe
+    orcid: "https://orcid.org/0000-0000-0000-0000"  # placeholder; will be filled when assigned
+repository-code: "https://github.com/joemunene-by/GhostLM"
+url: "https://huggingface.co/Ghostgim/GhostLM-v0.9-experimental"
+abstract: >-
+  GhostLM is a decoder-only transformer language model built entirely
+  from scratch in PyTorch and trained on a curated cybersecurity
+  corpus (NVD CVEs, MITRE ATT&CK, CWE, CAPEC, OWASP, IETF RFCs,
+  CTFtime writeups, PRIMUS, NIST SP 800, plus general-language and
+  math-reasoning shards in the v1.0 corpus). The project is
+  organized as a transparent multi-rung scale ladder
+  (ghost-tiny 14.7M, ghost-small 45-81M, ghost-base ~360M target,
+  ghost-1B / ghost-3B / ghost-7B in subsequent rungs). All training
+  code, evaluation harnesses, corpus collectors, and benchmark
+  results are public. The project explicitly avoids fine-tuning on
+  top of pretrained weights so the codebase doubles as a readable
+  reference implementation.
+keywords:
+  - language model
+  - cybersecurity
+  - from-scratch
+  - transformer
+  - pytorch
+  - small model
+  - cti
+  - mitre attack
+  - cve
+  - ctibench
+license: MIT
+version: "0.9.3"
+date-released: "2026-05-07"
+preferred-citation:
+  type: software
+  authors:
+    - family-names: Munene
+      given-names: Joe
+  title: "GhostLM: a from-scratch cybersecurity language model on a transparent scale ladder"
+  year: 2026
+  url: "https://github.com/joemunene-by/GhostLM"
+  notes: >-
+    v0.9.3 release. Headline finding: retrieval@4 = 41/100 on free-form
+    fact recall but v0.9+RAG = 0/100 generation, validating the
+    parameter-scaling diagnosis at the 81M ghost-small rung. Ghost-base
+    (~360M) is gated on rented GPU compute.
