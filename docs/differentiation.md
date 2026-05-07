@@ -4,7 +4,7 @@ Most from-scratch cybersec LMs in 2025-2026 follow the same recipe:
 clone SmolLM2 architecture, train on PRIMUS + CTIBench-adjacent web
 text, ship at 28-32% on debiased CTIBench MCQ, declare victory. The
 benchmarks are crowded with near-identical artifacts. This document
-captures GhostLM's five concrete bets to be **genuinely different**
+captures GhostLM's six concrete bets to be **genuinely different**
 rather than another point in that crowd, with a scaffold per bet
 that's already in the repo.
 
@@ -30,7 +30,7 @@ retrieved context destabilizes the model into mode collapse.**
 
 The obvious fix is parameter scaling (ghost-base, ghost-1B, etc).
 That's the v1.0 GPU spend already planned at
-`docs/ghost_base_spec.md`. The five bets below are different
+`docs/ghost_base_spec.md`. The six bets below are different
 moves: each is something a parameter-scaled-only roadmap doesn't
 solve.
 
@@ -203,32 +203,87 @@ post-hoc graft on a pretrained dense base. Ghost-1B trained
 with native MoE from step 1 is a different artifact with
 different compute/capacity tradeoffs.
 
+## Bet 6: format-aware structured-data pretrain
+
+**Hypothesis.** Other small cybersec LMs train almost entirely
+on prose: blog posts, RFCs, MITRE technique descriptions, CVE
+summaries. They get OK at *talking about* threat intel but
+can't *produce* the structured artifacts real CTI workflows
+exchange (STIX 2.1 bundles, YARA rules, Sigma detection rules,
+MISP event JSON). A model that reads AND emits those formats
+slots into existing pipelines without a translator. Bet 3's
++1.6% compression result already showed that "recompress the
+same prose" is a small lever; the bigger lever is letting the
+model see *different kinds of text* during pretrain.
+
+**Fix.** Synthesize 1K (natural_language ↔ structured_artifact)
+pairs across four format families via teacher distillation
+(Sonnet / Qwen-14B), seeded from existing GhostLM corpus
+shards (NVD for STIX, security blogs for YARA + MISP, MITRE for
+Sigma). Each generation passes a syntactic validator
+(`parse_stix`, `parse_yara`, `parse_sigma`, `parse_misp`)
+before write so the corpus stays clean. Drops into
+`data/processed/train.jsonl` like every other distill output;
+ghost-base sees STIX-shaped JSON, YARA-shaped DSL, etc., during
+pretrain and learns the structural vocabulary, not just the
+prose vocabulary.
+
+**Scaffold.** `scripts/distill_format_aware.py` (commit `XXX`).
+Four format adapters: `stix_indicator`, `yara_rule`,
+`sigma_rule`, `misp_event`. Free smoke-test path on Ollama
+(`--provider ollama --model qwen2.5:14b --max-traces-per-format
+10`); production path on Anthropic (~$50-100 budget for 1K
+clean traces). Resume-safe via the shared `ResumeIndex` from
+`scripts/distill_common.py`; reruns skip already-distilled
+seed records.
+
+**Why it's the differentiator.** No other from-scratch cybersec
+LM trains on the structured-format vocabulary at pretrain time.
+The few that handle YARA / Sigma do it as a downstream tool
+integration (call the model, regex-extract, format separately).
+Native structural literacy is a different capability. It also
+compounds with bet 1 (tool-use SFT): tools that emit STIX or
+YARA in their responses become first-class citizens of the
+training distribution rather than out-of-domain artifacts.
+
 ## How the bets compose
 
-The five bets are independent but mutually reinforcing:
+The six bets are independent but mutually reinforcing:
 
 | Bet | Pairs well with | Anti-pairs with |
 |---|---|---|
-| 1 (tool-use SFT) | RAG layer, MCP tools, daily updates | (none) |
+| 1 (tool-use SFT) | RAG layer, MCP tools, daily updates, format-aware pretrain (structured tool outputs) | (none) |
 | 2 (daily updates) | tool-use SFT (more tools to call), context extension | (none) |
-| 3 (custom BPE) | every other bet (smaller tokens = more budget) | (none) |
+| 3 (custom BPE) | every other bet (smaller tokens = more budget); +1.6% measured, optional default | (none) |
 | 4 (long context) | tool-use SFT (longer tool responses), MoE (more attention compute amortized) | (none) |
 | 5 (MoE) | scaling beyond 1B; less impact at 360M ghost-base scale | parameter-efficient fine-tunes (LoRA on MoE is finicky) |
+| 6 (format-aware pretrain) | tool-use SFT (tools emit STIX/YARA/Sigma cleanly), daily updates (fresh threat-intel artifacts arrive in these formats) | (none) |
 
 Recommended sequencing:
 
-1. **Now (M4-doable, $0):** Bet 3 (custom BPE) — runs in 30-60 min
-   while waiting on the v1.0 RAG rebuild. Either compresses or
-   doesn't; the report tells us.
-2. **After ghost-base v1.0 GPU run lands:** Bet 1 (tool-use SFT)
+1. **Done (2026-05-08):** Bet 3 (custom BPE) ran in ~30 min on
+   M4. Result: +1.6% vs GPT-2 BPE, well below the +25-35%
+   projection. The artifact is committed at
+   `data/tokenizer/v1/` and wired into `ghostlm/tokenizer.py`
+   as the `GhostTokenizerV1` opt-in backend; ghost-base default
+   stays GPT-2 BPE pending a downstream eval.
+2. **Now (M4-doable, free Ollama):** Bet 6 (format-aware
+   pretrain) smoke-test on the existing seed shards. ~10
+   traces per format on Ollama validates the prompt + parser
+   pipeline end to end before committing $50-100 to the
+   Anthropic production run.
+3. **After ghost-base v1.0 GPU run lands:** Bet 1 (tool-use SFT)
    on top of ghost-base. ~$200 distillation budget + 1-2 GPU
    hours to fine-tune. The point of the GPU spend.
-3. **After bet 1:** Bet 4 (long context) extension on the
+4. **In parallel with bet 1:** Bet 6 production run (~1K traces,
+   $50-100 on Sonnet) so the SFT data already includes
+   structured-format examples.
+5. **After bet 1:** Bet 4 (long context) extension on the
    tool-using ghost-base. ~3-5 GPU hours. Unlocks IR workflows.
-4. **Once owned hardware (Blackwell 96GB) lands:** Bet 2 (daily
+6. **Once owned hardware (Blackwell 96GB) lands:** Bet 2 (daily
    cron) becomes practical at home; before that it's a rented-
    GPU expense.
-5. **When ghost-1B planning starts:** Bet 5 (MoE) bakes into the
+7. **When ghost-1B planning starts:** Bet 5 (MoE) bakes into the
    architecture from step 0. No retrofit cost.
 
 ## What this is not
@@ -247,21 +302,22 @@ Recommended sequencing:
   produces a real artifact; whether the artifact wins is an
   empirical question the eval harness answers.
 - **An exhaustive list.** Other plausible bets we considered and
-  did not scaffold: STIX/MISP-aware structured-format pretrain,
-  RAFT-style retrieval-aware fine-tune (variant of bet 1),
-  RLHF on offensive-security correctness with a domain-expert
-  reward model, distillation-built corpus expansion to ghost-7B
-  scale. The five we shipped are the ones with the cleanest
-  ROI given current GhostLM state.
+  did not scaffold: RAFT-style retrieval-aware fine-tune (variant
+  of bet 1), RLHF on offensive-security correctness with a
+  domain-expert reward model, distillation-built corpus expansion
+  to ghost-7B scale. STIX/MISP-aware structured-format pretrain
+  graduated from this list to a full bet (bet 6 above). The six
+  we shipped are the ones with the cleanest ROI given current
+  GhostLM state.
 
 ## Summary
 
-The five scaffolds collectively shift GhostLM from "another point
+The six scaffolds collectively shift GhostLM from "another point
 on the small-cybersec-LM benchmark plot" to "an artifact with a
 recognizable shape: tool-grounded, continuously updated, cybersec-
-tokenized, long-context, sparsely-activated". Each scaffold is
-already in the repo and runs as soon as compute / budget /
-operator attention are available. The strategic claim isn't
-that any one bet definitely works; it's that the **combination**
-of five reasonable bets gives GhostLM a defensible identity that
-parameter-scale-only roadmaps don't.
+tokenized, long-context, sparsely-activated, structurally
+literate". Each scaffold is already in the repo and runs as soon
+as compute / budget / operator attention are available. The
+strategic claim isn't that any one bet definitely works; it's that
+the **combination** of six reasonable bets gives GhostLM a
+defensible identity that parameter-scale-only roadmaps don't.

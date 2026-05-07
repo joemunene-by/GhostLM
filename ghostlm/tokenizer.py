@@ -437,12 +437,169 @@ class GhostTokenizerV05:
         return f"GhostTokenizerV05(vocab_size={self._vocab_size}, special_tokens={len(self._special_tokens)})"
 
 
-def load_tokenizer(path: Optional[str] = None):
-    """Factory: return v0.5 BPE if a tokenizer.json is provided, else legacy.
+class GhostTokenizerV1:
+    """v1 tokenizer: 32K BPE retrained on the v1.0 corpus by
+    ``scripts/train_v1_bpe.py``. Differs from V05 in the special-token
+    naming scheme plus four extra tool-use tags:
 
-    Train code paths can call this with ``config.tokenizer_path`` and not
-    care about the backend.
+      Specials in v1 (per ``special_tokens_map.json``):
+        <|endoftext|>, <|pad|>, <|bos|>, <|eos|>,
+        <|ghost_user|>, <|ghost_assistant|>, <|ghost_end|>,
+        <|tool_call|>, <|/tool_call|>,
+        <|tool_response|>, <|/tool_response|>
+
+    The four tool tags exist so SFT data produced by
+    ``scripts/distill_tool_use.py`` (bet 1 from
+    ``docs/differentiation.md``) tokenizes as exactly four atomic IDs,
+    not 8-12 BPE fragments, which keeps the loss-mask boundaries
+    stable across tokenizer choices.
+
+    The bet 3 compression report on a 99-record sample showed v1 BPE
+    is +1.6% denser than GPT-2's 50K BPE on the v1.0 corpus, well
+    below the +25-35% hypothesis. As of 2026-05-08 this class exists
+    primarily so the artifact is reachable from training code if a
+    downstream benchmark proves it earns its keep; ghost-base default
+    remains GPT-2 BPE."""
+
+    BOS = "<|bos|>"
+    EOS = "<|eos|>"
+    PAD = "<|pad|>"
+    UNK = "<|endoftext|>"
+    USER = "<|ghost_user|>"
+    ASSISTANT = "<|ghost_assistant|>"
+    END = "<|ghost_end|>"
+    # New for v1 (bet 1 tool-use SFT format).
+    TOOL_CALL = "<|tool_call|>"
+    TOOL_CALL_END = "<|/tool_call|>"
+    TOOL_RESPONSE = "<|tool_response|>"
+    TOOL_RESPONSE_END = "<|/tool_response|>"
+
+    def __init__(self, path: str):
+        """Load tokenizer.json (and sibling special_tokens_map.json if present)."""
+        from tokenizers import Tokenizer
+        self._tok = Tokenizer.from_file(path)
+        self._vocab_size = self._tok.get_vocab_size()
+        # Bind every named special. token_to_id returns None for missing
+        # tokens; we want a hard error so misconfigured tokenizer files
+        # don't silently mask bugs at training time.
+        names = (self.BOS, self.EOS, self.PAD, self.UNK,
+                 self.USER, self.ASSISTANT, self.END,
+                 self.TOOL_CALL, self.TOOL_CALL_END,
+                 self.TOOL_RESPONSE, self.TOOL_RESPONSE_END)
+        self._special_tokens = {}
+        for name in names:
+            tid = self._tok.token_to_id(name)
+            if tid is None:
+                raise ValueError(
+                    f"v1 tokenizer at {path} missing special token {name!r}; "
+                    f"retrain via scripts/train_v1_bpe.py"
+                )
+            self._special_tokens[name] = tid
+        self._id_to_special = {v: k for k, v in self._special_tokens.items()}
+
+    @classmethod
+    def from_file(cls, path: str) -> "GhostTokenizerV1":
+        """Constructor alias matching V05.from_file."""
+        return cls(path)
+
+    @property
+    def vocab_size(self) -> int:
+        """Total vocab size (32000 by default)."""
+        return self._vocab_size
+
+    def _special_token_ids(self) -> set:
+        """Set of all special-token integer IDs."""
+        return set(self._special_tokens.values())
+
+    def encode(self, text: str, add_bos: bool = False, add_eos: bool = False) -> List[int]:
+        """Encode text -> ids (matches V05.encode shape)."""
+        ids = self._tok.encode(text).ids
+        if add_bos:
+            ids = [self._special_tokens[self.BOS]] + ids
+        if add_eos:
+            ids = ids + [self._special_tokens[self.EOS]]
+        return ids
+
+    def decode(self, ids: List[int], skip_special: bool = True) -> str:
+        """Decode ids -> text (matches V05.decode shape)."""
+        if skip_special:
+            specials = self._special_token_ids()
+            ids = [i for i in ids if i not in specials]
+        return self._tok.decode(ids)
+
+    def encode_batch(self, texts: List[str], add_bos: bool = False, add_eos: bool = False) -> List[List[int]]:
+        """Batch encode."""
+        return [self.encode(t, add_bos=add_bos, add_eos=add_eos) for t in texts]
+
+    def encode_chat(self, turns: List[dict]) -> tuple:
+        """Build (token_ids, loss_mask) for chat (matches V05.encode_chat)."""
+        user_id = self._special_tokens[self.USER]
+        assistant_id = self._special_tokens[self.ASSISTANT]
+        end_id = self._special_tokens[self.END]
+        ids: List[int] = []
+        mask: List[int] = []
+        for turn in turns:
+            role = turn["role"]
+            content_ids = self._tok.encode(turn["content"]).ids
+            if role == "user":
+                ids.append(user_id); mask.append(0)
+                ids.extend(content_ids); mask.extend([0] * len(content_ids))
+                ids.append(end_id); mask.append(0)
+            elif role == "assistant":
+                ids.append(assistant_id); mask.append(0)
+                ids.extend(content_ids); mask.extend([1] * len(content_ids))
+                ids.append(end_id); mask.append(1)
+            else:
+                raise ValueError(f"Unknown role: {role!r}")
+        return ids, mask
+
+    def format_chat_prompt(self, turns: List[dict]) -> List[int]:
+        """Inference-side prompt ending in <|ghost_assistant|>."""
+        ids, _ = self.encode_chat(turns)
+        ids.append(self._special_tokens[self.ASSISTANT])
+        return ids
+
+    def to_tensor(self, ids: List[int], device: str = "cpu") -> torch.Tensor:
+        """Convert ids -> (1, T) torch.LongTensor."""
+        return torch.tensor(ids, dtype=torch.long, device=device).unsqueeze(0)
+
+    def __len__(self) -> int:
+        """Return vocab size."""
+        return self._vocab_size
+
+    def __repr__(self) -> str:
+        """Concise summary."""
+        return f"GhostTokenizerV1(vocab_size={self._vocab_size}, special_tokens={len(self._special_tokens)})"
+
+
+def _looks_like_v1(path: Path) -> bool:
+    """Heuristic: v1 tokenizers have a sibling ``special_tokens_map.json``
+    that lists the four tool-use tags. v0.5 tokenizers don't."""
+    sibling = path.parent / "special_tokens_map.json"
+    if not sibling.exists():
+        return False
+    try:
+        meta = json.loads(sibling.read_text())
+    except (json.JSONDecodeError, OSError):
+        return False
+    extras = meta.get("additional_special_tokens", [])
+    return "<|tool_call|>" in extras
+
+
+def load_tokenizer(path: Optional[str] = None):
+    """Factory: pick the right tokenizer backend.
+
+    Resolution order:
+      - No path (or path missing): legacy GhostTokenizer (GPT-2 BPE).
+      - Path resolves AND looks like a v1 artifact (has the four
+        tool-use tags in sibling special_tokens_map.json): V1 backend.
+      - Otherwise: V05 backend.
+
+    Train code paths can call this with ``config.tokenizer_path`` and
+    not care about the backend.
     """
     if path and Path(path).exists():
+        if _looks_like_v1(Path(path)):
+            return GhostTokenizerV1(path)
         return GhostTokenizerV05(path)
     return GhostTokenizer()
