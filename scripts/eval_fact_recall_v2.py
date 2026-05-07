@@ -246,8 +246,13 @@ def load_rag_state(rag_dir: Path, embedder_name: str, device: str):
             chunks.append(_json.loads(line))
     from transformers import AutoModel, AutoTokenizer
     e_tok = AutoTokenizer.from_pretrained(embedder_name)
-    e_model = AutoModel.from_pretrained(embedder_name).to(device).eval()
-    print(f"  RAG: {len(chunks)} chunks, dim {idx.shape[1]}, embedder {embedder_name}")
+    # Force the embedder to CPU. BGE-small on MPS produces nan/inf in
+    # some PyTorch / Mac driver combinations; on CUDA it would be fine
+    # but we can't tell here. Embedding cost is one short query at a
+    # time so CPU is plenty fast (~50-200 ms per query). The main
+    # GhostLM model stays on whatever device the caller asked for.
+    e_model = AutoModel.from_pretrained(embedder_name).to("cpu").eval()
+    print(f"  RAG: {len(chunks)} chunks, dim {idx.shape[1]}, embedder {embedder_name} on CPU")
     return {"index": idx, "chunks": chunks, "embed_tok": e_tok, "embed_model": e_model}
 
 
@@ -257,9 +262,12 @@ def rag_augmented_prompt(question: str, rag, top_k: int, device: str) -> str:
     Space's chat_fn uses. Same recipe as scripts/rag_chat.py."""
     import numpy as np
     text = "Represent this sentence for searching relevant passages: " + question
+    # Embedder is pinned to CPU (see load_rag_state). Move inputs to
+    # CPU regardless of what `device` the main model is on, so the
+    # forward pass is deterministic across host devices.
     enc = rag["embed_tok"](
         text, padding=True, truncation=True, max_length=512, return_tensors="pt",
-    ).to(device)
+    ).to("cpu")
     with torch.no_grad():
         out = rag["embed_model"](**enc)
     emb = out.last_hidden_state[:, 0]
