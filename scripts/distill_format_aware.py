@@ -284,7 +284,13 @@ def parse_sigma(blob: str) -> Optional[Dict]:
         blob = re.sub(r"^```(?:ya?ml)?", "", blob, count=1).rstrip("` \n")
     try:
         import yaml  # type: ignore[import-not-found]
-        obj = yaml.safe_load(blob)
+        try:
+            obj = yaml.safe_load(blob)
+        except yaml.YAMLError:
+            # Free-form prose, hallucinated narrative, malformed YAML
+            # all land here. Treat as 'not a Sigma rule' rather than
+            # propagating the exception up through the eval harness.
+            return None
         if not isinstance(obj, dict):
             return None
         if not all(k in obj for k in SIGMA_REQUIRED_FIELDS):
