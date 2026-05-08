@@ -94,6 +94,10 @@ The agent went from 4 demo-grade tools (CVE / MITRE / CWE / RAG) to 9 tools that
 
 The original bet 7 bank (v0.9.5) had 12 code-security patterns, heavily Python-biased (10/12). v0.9.17 expands to 32 patterns covering Python, JavaScript, Java, Go, C, Ruby, and PHP, adding new CWE classes (1321 prototype pollution, 1333 ReDoS, 134 format string, 190 integer overflow, 285 missing authz, 326 weak crypto, 915 mass assignment, 98 LFI). The existing `scripts/synth_code_security.py` reuses unchanged; the SFT corpus grows from 48 to 128 records. Held-out eval extended from 20 to 32 prompts covering the new languages. 9 new test cases, total tests 221, all green. This is the first half of "is code at similar level as cybersec?": the SFT answer goes from 48 records to 128, comparable to bets 1/6/9 sizes.
 
+### General-knowledge SFT bank shipped (v0.9.18)
+
+`data/raw/chat/general_knowledge.jsonl` ships 98 hand-written 2-turn conversations across 15 topics (programming, math, science, geography, etymology, uncertainty/refusal, how-to, identity, comparison, definitions, reasoning, history, cross-domain, philosophy, conversation). `scripts/build_chat_dataset.py` gains `--general-knowledge` / `--general-knowledge-multiplier` / `--general-knowledge-val-frac` flags that mix the bank into chat training at ~5% of pairs. Combined with the existing 153-record `small_talk.jsonl` seed, the non-cybersec SFT floor is now 251 records (up from 153), enough to teach the model to recognize non-cybersec questions and admit uncertainty when appropriate. 11 new test cases, total tests 232, all green. This closes the second half of "code + general knowledge at similar level as cybersec?".
+
 ### Canonical models on disk
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
 - **Chat (best ghost-small):** `checkpoints/phase19_chat_v09/best_model.pt` (v0.9, wins all three MCQ benches on apples-to-apples scoring).

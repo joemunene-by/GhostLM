@@ -1360,6 +1360,111 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.18] — 2026-05-09 — general-knowledge SFT bank: 98 records across 15 topics
+
+The "general knowledge for it to be there" half of "is code at the
+same level as cybersec, and is general knowledge present?" v0.9.17
+delivered the first half (bet 7 expansion). This release ships a
+98-record general-knowledge SFT bank that teaches the model:
+GhostLM is not a one-domain savant; it should respond reasonably
+to non-cybersec questions and admit uncertainty when it does not
+know.
+
+### data/raw/chat/general_knowledge.jsonl
+
+98 hand-written 2-turn conversations spanning 15 topics:
+
+  programming     13   (recursion, list vs tuple, HTTP, hash funcs,
+                         git, TCP/UDP, API, regex, DB index, async,
+                         Docker, Unicode, == vs ===)
+  math            11   (arithmetic, percentages, square root, F-to-C,
+                         powers of 2, simple algebra, area, pi, KB vs KiB)
+  science         10   (gravity, DNA, batteries, atoms, sky color,
+                         photosynthesis, evolution, speed of light,
+                         seasons, black holes)
+  geography        9   (capitals, continents, oceans, rivers,
+                         highest mountains)
+  conversation     8   (thanks, ok, got it, that's helpful, "I don't
+                         understand", "explain it more simply",
+                         "can you give an example?")
+  etymology        7   (algorithm, cybersecurity, bug, API, SQL, URL, TLS)
+  uncertainty      6   (weather, election, investments, "is X true?",
+                         "what's my password?", live prices)
+  how_to           6   (prime check, list sort, file read, JSON parse,
+                         fridge function, tying a tie)
+  identity         5   (size, training data, language coverage, who-built)
+  comparison       5   (weather/climate, virus/bacteria, RAM/storage,
+                         AI/ML, compiler/interpreter)
+  definitions      5   (entropy, paradox, ergonomic, pragmatic, idiomatic)
+  reasoning        4   (step-by-step tea, train catch-up, fractions,
+                         debug-program walkthrough)
+  history          4   (WWII end, Cold War, Alan Turing, Renaissance)
+  cross_domain     3   ("only cybersec?", "anything other than security?",
+                         cooking)
+  philosophy       2   (meaning of life, trolley problem)
+
+The bank deliberately includes uncertainty / refusal patterns so
+the model learns NOT to confidently answer questions about
+real-time data, predictions, personal account info, or unsourced
+claims. Combined with the existing 153-record `small_talk.jsonl`,
+the chat seed is now 251 records with broad domain + register
+coverage.
+
+### scripts/build_chat_dataset.py
+
+Three new flags:
+
+  --general-knowledge          path to the bank
+                                (default: data/raw/chat/general_knowledge.jsonl)
+  --general-knowledge-multiplier  copies to inject (default 5; brings
+                                   the bank to ~5% of training pairs)
+  --general-knowledge-val-frac    held-out fraction for validation
+                                   (default 0.1)
+
+Loaded the same way as `--small-talk` and `--mcq-jsonl`: split out
+a held-out validation slice first, then oversample the training
+portion. The 5x default keeps general-knowledge at a meaningful
+percentage of the SFT mix without overshadowing the security
+signal (small-talk runs at 30x because that one needs to overcome
+chat-shape collapse; general-knowledge needs to teach a softer
+distribution shift).
+
+### tests/test_general_knowledge_bank.py
+
+11 cases: file exists + loads as valid JSONL (2), record shape
+(turns/source/topic) + alternating roles + non-empty content (3),
+topic coverage spans the 13+ expected categories (1), every topic
+has multiple records to survive train/val split (1), uncertainty
++ cross-domain patterns are present (2), CLI advertises the new
+flags (1), default path points at the real file (1). Total tests
+now 232, all green.
+
+### Why this matters
+
+A model trained only on cybersec produces cybersec answers
+regardless of the user's question; that's the v0.5 chat-v3 failure
+the project documented in detail. The small_talk seed plus this
+general-knowledge bank give the SFT distribution enough non-
+cybersec mass that the model recognises non-cybersec questions and
+responds appropriately, including knowing what it doesn't know.
+
+This closes the second half of the "code + general knowledge at
+similar level as cybersec" question. SFT mass:
+
+  cybersec bets (1+6+7+8+9+10+11+12)        ~1,825 records
+  bet 7 expansion (v0.9.17)                  +80
+  small-talk + general-knowledge seeds       +251
+  ────────────────────────────────────────────────
+  cybersec SFT                              ~1,905 records
+  non-cybersec / cross-domain SFT             ~349 records
+
+Still 5x cybersec heavy, but the non-cybersec floor is no longer
+zero. When ghost-base trains on the combined corpus, it has
+enough non-cybersec signal to maintain a coherent generalist
+register while still being sharp on the cybersec specialty.
+
+---
+
 ## [0.9.17] — 2026-05-09 — bet 7 expansion: 32 patterns across 7 languages
 
 The original bet 7 bank (v0.9.5) had 12 code-security patterns,
