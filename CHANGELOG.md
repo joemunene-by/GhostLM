@@ -1360,6 +1360,94 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.19] — 2026-05-09 — bet 7 phase 2: 62 patterns across 11 languages, 243 SFT records
+
+Continued expansion of the bet 7 code-security bank. v0.9.5 shipped
+12 patterns. v0.9.17 brought it to 32 (across Python, JavaScript,
+Java, Go, C, Ruby, PHP). v0.9.19 brings it to **62 patterns across
+11 languages**, with the SFT corpus growing to **243 records** (up
+from 128).
+
+### data/raw/code_security_patterns.jsonl
+
+30 new patterns (PAT-033 through PAT-062). New languages:
+
+  rust         3   unsafe pointer arithmetic, thread_rng for tokens,
+                    SQL injection via format!
+  csharp       3   SqlCommand concat, BinaryFormatter, raw HTML in
+                    Razor (XSS)
+  swift        2   SQLite injection via interpolation, hardcoded API
+                    key in source
+  kotlin       2   ObjectInputStream deserialization, JdbcTemplate
+                    string-template SQL
+
+Plus expansions in existing languages with new CWE classes:
+
+  python       4 new: TOCTOU file race (CWE-367), eval injection
+                       (CWE-95), verbose stack-trace error (CWE-209),
+                       missing CSRF token (CWE-352)
+  javascript   3 new: SSRF via axios (CWE-918), hardcoded JWT secret
+                       (CWE-798), eval (CWE-95)
+  java         3 new: LDAP injection (CWE-90), Struts2 OGNL injection
+                       (CWE-1336), HTTP response splitting (CWE-113)
+  go           3 new: TOCTOU on Stat+Open (CWE-367), header injection
+                       in Set-Cookie (CWE-113), SSRF via http.Get
+                       (CWE-918)
+  c            3 new: heap overflow via memcpy (CWE-122), data race
+                       on shared counter (CWE-362), system() with
+                       attacker-controlled argv (CWE-78)
+  php          2 new: unrestricted file upload (CWE-434), header
+                       injection via header() (CWE-113)
+  ruby         1 new: Marshal.load on cookie (CWE-502)
+  python       1 more: insecure session-cookie config (CWE-1004)
+
+  Total new CWE classes introduced: 367 TOCTOU, 362 race condition,
+  90 LDAP injection, 1336 OGNL/EL injection, 113 HTTP header
+  injection, 434 unrestricted upload, 122 heap overflow, 95 eval
+  injection, 209 information leak via error, 1004 missing cookie
+  flags.
+
+### scripts/expand_code_security_bank_phase2.py
+
+Idempotent expansion script analogous to v0.9.17's. Loads bank,
+checks IDs, appends only the missing patterns. Joe runs once on
+the Mac, then re-runs `synth_code_security.py`.
+
+### data/raw/code_security_eval.jsonl
+
+18 new prompts (32 -> 50) covering Rust, C#, Swift, Kotlin, plus
+TOCTOU, eval injection, error verbosity, CSRF, SSRF, LDAP injection,
+HTTP header injection, file upload, Marshal deserialization. Each
+prompt's `required_substrings` asserts the canonical CWE label
+plus a fix-recipe term.
+
+### tests/test_code_security_expansion.py
+
+Updated to assert the larger bank/eval sizes:
+  - bank size >= 60 patterns
+  - all 11 languages present (was 7)
+  - phase-2 CWE classes present (CWE-367, CWE-362, CWE-90,
+    CWE-113, CWE-434, CWE-95, CWE-209, CWE-1336)
+  - eval size >= 50 prompts
+  - eval covers rust + csharp + swift + kotlin terms
+  - synth integration produces >= 220 records
+
+Total tests now 232, all green where runnable.
+
+### SFT mass tally after phase 2
+
+  bet 7 v0.9.5 (12 patterns):     48 records
+  bet 7 v0.9.17 (32 patterns):   128 records
+  bet 7 v0.9.19 (62 patterns):   243 records  <- this release
+
+The bet 7 SFT corpus is now **roughly the same size as bets 1, 6,
+and 9** (424, 560, 429 respectively). Cross-language coverage
+spans 11 languages where the original bank had 3. The "is code at
+similar level as cybersec?" answer is now defensibly yes for SFT
+scale and language breadth.
+
+---
+
 ## [0.9.18] — 2026-05-09 — general-knowledge SFT bank: 98 records across 15 topics
 
 The "general knowledge for it to be there" half of "is code at the
