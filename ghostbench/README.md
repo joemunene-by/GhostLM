@@ -63,13 +63,20 @@ request any subset of:
   complement for the others. E.g. for a code-security record,
   `required_substrings = ["CWE-89", "parameterized"]`.
 
-- **`semantic`** (reserved) — LLM-as-judge tier. Not implemented in
-  v0.1; the slot is reserved so future versions can add it without
-  breaking the API.
+- **`behavioral`** (v0.3+): would a real downstream tool accept this?
+  Lazy-imports the canonical reference parser (`stix2`, `yara-python`,
+  `pysigma`, `jsonschema`) and uses it for full validation. Falls
+  back to enhanced-structural validators when those libraries
+  aren't installed (deeper than parse: validates UUID and RFC3339
+  formats in STIX, parses YARA rule bodies properly, validates Sigma
+  detection structure with selection refs in conditions, checks MISP
+  attribute types against the controlled vocabulary). Opt in per
+  record with `behavioral: true`, or via the CLI flag `--behavioral`
+  to force-enable across the whole run.
 
-- **`behavioral`** (reserved) — end-to-end task-completion tier.
-  E.g. does `yara -p file rule.yar` actually compile the predicted
-  rule? Not implemented in v0.1.
+- **`semantic`** (reserved): LLM-as-judge tier. Not implemented in
+  v0.3; the slot is reserved so future versions can add it without
+  breaking the API.
 
 `Score.passed` is the strict-AND across the *requested* tiers, not
 all possible tiers, so a record with only `required_substrings` is
@@ -149,6 +156,15 @@ python -m ghostbench suite-compare \
     --a-predictions-dir logs/baselines_v09_chat --a-name v09_chat \
     --b-predictions-dir logs/baselines_ghost_base_v1 \
     --b-name ghost_base_v1
+
+# Force the behavioural tier on every record (real-tool-accepts-this
+# validation; lazy-imports stix2 / yara-python / pysigma if
+# installed, otherwise uses enhanced-structural fallbacks).
+python -m ghostbench summary \
+    --eval-dir data/raw \
+    --predictions-dir logs/baselines_v09_chat \
+    --run-name v09_chat_behavioral \
+    --behavioral
 ```
 
 ## v0.9 baseline (verified 2026-05-08)
@@ -189,20 +205,25 @@ overall-pass-rate tracking.
 
 ## Roadmap
 
-The slot for `semantic` and `behavioral` tiers is reserved in
-`Score.tier_results` but not implemented in v0.1. v0.2 candidates:
+v0.2 (shipped) added matplotlib plotting + scaling-law projections.
+v0.3 (shipped) added the behavioural tier with two-path validators
+(reference library + enhanced-structural fallback).
+
+v0.4 candidates:
 
 - **Semantic tier** via LLM-as-judge with cheap models (Claude
   Haiku, gpt-4o-mini). Score a prediction's *meaning* against an
   expected rationale, not just substring presence.
-- **Behavioral tier** for executable artifacts: actually run YARA
-  / Sigma / STIX through their reference parsers and score the
-  binary outcome.
 - **Coverage / accuracy / specificity** sub-metrics for bet 9's
   cite tags: don't just count cites, verify each cite resolves
   to a field that actually appears in the tool response.
-- **Plotting** module: matplotlib helpers for lift charts, paired-
-  comparison forest plots, per-bet bar charts with CIs.
+- **HF transformers competitor runner**: a small inference adapter
+  that points at SmolLM2 / Qwen2.5-0.5B / Llama-3.2-1B and produces
+  prediction JSONLs in the GhostBench format. Demonstrates the
+  suite is genuinely model-agnostic.
+- **PyPI release**: ghostbench is currently a single-repo package.
+  Publishing as `ghostbench-eval` would let the community adopt
+  it for their own small-LM work.
 
 Contributions welcome via the
 [GhostLM repo](https://github.com/joemunene-by/GhostLM).

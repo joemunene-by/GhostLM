@@ -1360,6 +1360,86 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.7] — 2026-05-08 — GhostBench v0.3: behavioural tier with two-path validators
+
+GhostBench's reserved `behavioral` tier moves from "slot reserved"
+to "fully implemented." The tier asks a strictly stronger question
+than `parse`: would a real downstream tool actually accept this
+artifact? Each validator has a two-path design.
+
+### Two-path validators
+
+**Real-library path:** lazy-import the canonical reference parser
+when available. STIX 2.1 via `stix2.parse(blob)`, YARA via
+`yara.compile(source=blob)` (libyara binding), Sigma via
+`sigma.collection.SigmaCollection.from_yaml()` from pysigma, MISP
+via jsonschema validation. Catches edge cases the structural
+parser doesn't (invalid UUID4 in STIX `id`, malformed YARA
+condition trees, Sigma logsource taxonomy violations, MISP
+attribute types outside the controlled vocab).
+
+**Enhanced-structural fallback:** when the reference library isn't
+installed, fall back to a deeper structural check than the v0.1
+`parsers.py` ones. STIX: UUID4 format, RFC3339 timestamps,
+`modified >= created` ordering, indicator-specific pattern + label
+checks. YARA: rule-name validity, string-def shape, condition
+references at least one defined string OR uses a wildcard, paren /
+brace / bracket balance. Sigma: logsource has at least one of
+(category, product, service); detection has selection blocks and a
+condition that references at least one selection; level vocabulary
+check. MISP: threat_level_id / analysis / distribution range
+checks, every Attribute type in a curated subset of the MISP
+controlled vocabulary, every Attribute has a non-empty value.
+Provenance: every cite tag's source_id matches a plausible
+identifier shape (CVE / CWE / T-code / passage / generic).
+
+The fallbacks are still a strict upgrade over the parse tier; they
+just don't catch every edge case the real library would.
+
+### CLI integration
+
+Every subcommand (`score`, `summary`, `compare`, `suite-compare`)
+gets a common `--behavioral` flag that opts every record into the
+behavioural tier at score time:
+
+```bash
+python -m ghostbench summary \
+    --eval-dir data/raw \
+    --predictions-dir logs/baselines_v09_chat \
+    --run-name v09_chat --behavioral
+```
+
+Verified end-to-end on Mac. The behavioural tier appears as a
+distinct row in the per-tier breakdown for the structurally
+validated bets (bet 6 format-aware, bet 9 provenance), giving
+operators the diagnostic view: how often does a prediction parse
+but fail at the deeper validation layer?
+
+### API additions
+
+  - `ghostbench.behavioral` module with `BEHAVIORAL_VALIDATORS`
+    public registry.
+  - `score_record()` gains `behavioral_validators=` kwarg; eval
+    records can request the tier via `behavioral: true`.
+  - `Bench.score()` gains `behavioral_validators=` and
+    `force_behavioral=True` kwargs for bulk override.
+  - `__version__` bumped to `0.3.0`.
+
+### Test stats
+
+**205 total tests passing** (94 GhostLM + 111 ghostbench). 31 new
+behavioural tests cover STIX UUID / timestamp / modified-vs-created
+/ indicator pattern presence / external_ref shape; YARA
+condition-references-strings / wildcard support / unbalanced
+parens; Sigma logsource required keys / condition refs / level
+vocabulary; MISP threat_level_id / analysis / distribution /
+attribute-type vocabulary / value presence; provenance source_id
+plausibility / field whitelist; registry coverage. Plus integration
+tests showing the asymmetry: parse can pass while behavioural
+fails (the strict-stricter property).
+
+---
+
 ## [0.9.6] — 2026-05-08 — GhostBench: a packaged eval suite turns the project into a research artifact
 
 The release that converts the v0.9.5 in-script eval scaffolding
