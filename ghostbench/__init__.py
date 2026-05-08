@@ -46,6 +46,7 @@ that the eval record actually requested.
 from __future__ import annotations
 
 from .bench import Bench, Suite, EvalRecord, Prediction
+from .behavioral import BEHAVIORAL_VALIDATORS
 from .scoring import Score, RunReport, score_record
 from .stats import wilson_ci, mcnemar_test, cohen_h, paired_diff_ci
 
@@ -61,6 +62,7 @@ __all__ = [
     "mcnemar_test",
     "cohen_h",
     "paired_diff_ci",
+    "BEHAVIORAL_VALIDATORS",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"

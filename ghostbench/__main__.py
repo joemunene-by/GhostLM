@@ -36,6 +36,7 @@ import sys
 from pathlib import Path
 from typing import List
 
+from .behavioral import BEHAVIORAL_VALIDATORS
 from .bench import Bench, EvalRecord, Prediction, Suite
 from .parsers import DEFAULT_PARSERS
 from .reports import (
@@ -45,7 +46,7 @@ from .reports import (
     render_suite_paired_comparison,
     render_suite_summary,
 )
-from .scoring import RunReport
+from .scoring import RunReport, score_record
 
 
 def _load_predictions(path: Path) -> List[Prediction]:
@@ -75,7 +76,11 @@ def _cmd_score(args: argparse.Namespace) -> int:
         path=eval_path, parsers=DEFAULT_PARSERS,
     )
     preds = _load_predictions(pred_path)
-    report = bench.score(preds, run_name=args.run_name)
+    report = bench.score(
+        preds, run_name=args.run_name,
+        behavioral_validators=BEHAVIORAL_VALIDATORS if args.behavioral else None,
+        force_behavioral=args.behavioral,
+    )
     out_md = render_run_report(report)
     if any(s.fmt for s in report.scores):
         out_md += "\n## Per-format breakdown\n\n"
@@ -104,7 +109,11 @@ def _cmd_summary(args: argparse.Namespace) -> int:
             print(f"  [skip] predictions missing: {pred_path}")
             continue
         preds = _load_predictions(pred_path)
-        reports.append(bench.score(preds, run_name=args.run_name))
+        reports.append(bench.score(
+            preds, run_name=args.run_name,
+            behavioral_validators=BEHAVIORAL_VALIDATORS if args.behavioral else None,
+            force_behavioral=args.behavioral,
+        ))
 
     out_md = render_suite_summary(reports, args.run_name)
     out_md += "\n## Per-bench detail\n\n"
@@ -132,8 +141,13 @@ def _cmd_compare(args: argparse.Namespace) -> int:
     )
     a_preds = _load_predictions(a_path)
     b_preds = _load_predictions(b_path)
-    a_report = bench.score(a_preds, run_name=args.a_name)
-    b_report = bench.score(b_preds, run_name=args.b_name)
+    bv = BEHAVIORAL_VALIDATORS if args.behavioral else None
+    a_report = bench.score(a_preds, run_name=args.a_name,
+                            behavioral_validators=bv,
+                            force_behavioral=args.behavioral)
+    b_report = bench.score(b_preds, run_name=args.b_name,
+                            behavioral_validators=bv,
+                            force_behavioral=args.behavioral)
     out_md = render_paired_comparison(a_report, b_report)
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
@@ -152,14 +166,19 @@ def _cmd_suite_compare(args: argparse.Namespace) -> int:
 
     a_reports: List[RunReport] = []
     b_reports: List[RunReport] = []
+    bv = BEHAVIORAL_VALIDATORS if args.behavioral else None
     for bench in suite:
         a_path = a_dir / f"{bench.name}.jsonl"
         b_path = b_dir / f"{bench.name}.jsonl"
         if not (a_path.exists() and b_path.exists()):
             print(f"  [skip] missing predictions for {bench.name}")
             continue
-        a_reports.append(bench.score(_load_predictions(a_path), args.a_name))
-        b_reports.append(bench.score(_load_predictions(b_path), args.b_name))
+        a_reports.append(bench.score(_load_predictions(a_path), args.a_name,
+                                      behavioral_validators=bv,
+                                      force_behavioral=args.behavioral))
+        b_reports.append(bench.score(_load_predictions(b_path), args.b_name,
+                                      behavioral_validators=bv,
+                                      force_behavioral=args.behavioral))
 
     out_md = render_suite_paired_comparison(a_reports, b_reports)
     if args.out:
@@ -175,7 +194,19 @@ def main() -> int:
     p = argparse.ArgumentParser(prog="ghostbench", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    p_score = sub.add_parser("score", help="Score a single run")
+    # Common --behavioral flag for every subcommand: opts every record
+    # into the behavioural tier at score time. When absent, behavioural
+    # is only run for records that explicitly set ``behavioral: true``
+    # in the eval JSONL.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--behavioral", action="store_true",
+                        help="Force the behavioural tier on for every "
+                             "record. Lazy-imports stix2 / yara-python / "
+                             "pysigma / jsonschema if installed; falls "
+                             "back to enhanced-structural validators.")
+
+    p_score = sub.add_parser("score", help="Score a single run",
+                              parents=[common])
     p_score.add_argument("--eval", required=True)
     p_score.add_argument("--predictions", required=True)
     p_score.add_argument("--bench-name", required=True)
@@ -183,7 +214,8 @@ def main() -> int:
     p_score.add_argument("--out")
     p_score.set_defaults(func=_cmd_score)
 
-    p_sum = sub.add_parser("summary", help="Suite-level summary")
+    p_sum = sub.add_parser("summary", help="Suite-level summary",
+                            parents=[common])
     p_sum.add_argument("--eval-dir", required=True)
     p_sum.add_argument("--predictions-dir", required=True)
     p_sum.add_argument("--run-name", required=True)
@@ -191,7 +223,8 @@ def main() -> int:
     p_sum.set_defaults(func=_cmd_summary)
 
     p_cmp = sub.add_parser("compare",
-                           help="Paired comparison of two runs on one bench")
+                           help="Paired comparison of two runs on one bench",
+                           parents=[common])
     p_cmp.add_argument("--eval", required=True)
     p_cmp.add_argument("--a-predictions", required=True)
     p_cmp.add_argument("--a-name", required=True)
@@ -202,7 +235,8 @@ def main() -> int:
     p_cmp.set_defaults(func=_cmd_compare)
 
     p_scmp = sub.add_parser("suite-compare",
-                             help="Paired comparison across all benches")
+                             help="Paired comparison across all benches",
+                             parents=[common])
     p_scmp.add_argument("--eval-dir", required=True)
     p_scmp.add_argument("--a-predictions-dir", required=True)
     p_scmp.add_argument("--a-name", required=True)

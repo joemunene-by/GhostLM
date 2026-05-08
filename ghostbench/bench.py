@@ -157,7 +157,9 @@ class Bench:
                    records=records, parsers=parsers)
 
     def score(self, predictions: List[Prediction],
-              run_name: str) -> RunReport:
+              run_name: str,
+              behavioral_validators: Optional[Dict[str, Any]] = None,
+              force_behavioral: bool = False) -> RunReport:
         """Score ``predictions`` against this bench's records.
 
         Predictions are matched to eval records by matching ``prompt``
@@ -166,12 +168,30 @@ class Bench:
         the required_fields / required_substrings tags from the
         inference step). This keeps ``Bench.score`` decoupled from
         the eval JSONL when the prediction file is self-describing.
+
+        Args:
+            predictions: List of model outputs to score.
+            run_name: Identifier propagated into the RunReport.
+            behavioral_validators: Optional map from format to
+                behavioural validator function. When supplied AND
+                the eval record has ``behavioral: true`` (or
+                ``force_behavioral`` is True), the behavioural tier
+                is evaluated.
+            force_behavioral: If True, override the eval record's
+                ``behavioral`` flag to True for every record. Useful
+                when the operator wants behavioural validation across
+                the whole run without re-curating the eval JSONL.
         """
         scores: List[Score] = []
         for pred in predictions:
+            score_dict = pred.to_score_dict()
+            if force_behavioral:
+                score_dict["behavioral"] = True
             scores.append(
-                score_record(pred.to_score_dict(),
-                             pred.predicted_artifact, self.parsers)
+                score_record(
+                    score_dict, pred.predicted_artifact, self.parsers,
+                    behavioral_validators=behavioral_validators,
+                )
             )
         return RunReport(
             bench_name=self.name,

@@ -21,16 +21,23 @@ named tiers. A tier is one of:
                   text? Right for YARA, code-security, binary-
                   literacy, plus a useful complement for the others.
 
+  ``behavioral``  Would a real downstream tool accept this artifact?
+                  Implemented in v0.3: ghostbench.behavioral has
+                  validators that lazy-import the canonical reference
+                  parser (``stix2``, ``yara-python``, ``pysigma``,
+                  ``jsonschema``) and fall back to enhanced-structural
+                  checks when those libraries aren't installed.
+                  Catches edge cases the parse tier doesn't (invalid
+                  UUIDs in STIX ids, unbalanced parens in YARA
+                  conditions, MISP attribute types outside the
+                  controlled vocab). Requested by setting
+                  ``behavioral: true`` on the eval record.
+
   ``semantic``    (Reserved.) An LLM-as-judge tier that scores the
                   prediction against the eval record on richer
                   criteria than substring match. Not implemented in
-                  v0.1; the slot is reserved so future ``ghostbench``
+                  v0.3; the slot is reserved so future ``ghostbench``
                   versions can add it without breaking the API.
-
-  ``behavioral``  (Reserved.) End-to-end task-completion tier:
-                  given the prediction, can a downstream tool
-                  actually consume it? E.g. does ``yara -p file
-                  rule.yar`` compile the predicted rule?
 
 A ``Score`` records pass/fail for every tier the eval record asked
 about. ``Score.passed`` is the strict-AND across requested tiers;
@@ -45,7 +52,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +211,9 @@ def _check_substrings(artifact: str, required: List[str]) -> List[str]:
 
 
 def score_record(eval_rec: Dict[str, Any], predicted: str,
-                 parsers: Dict[str, Callable[[str], Any]]) -> Score:
+                 parsers: Dict[str, Callable[[str], Any]],
+                 behavioral_validators: Optional[Dict[str, Callable[[str], Any]]] = None,
+                 ) -> Score:
     """Score one prediction against its eval record.
 
     Tiers requested are inferred from the eval record:
@@ -212,6 +221,9 @@ def score_record(eval_rec: Dict[str, Any], predicted: str,
                           ``parsers``; vacuously True if not.
       - ``fields``       requested if ``required_fields`` is non-empty.
       - ``substrings``   requested if ``required_substrings`` is non-empty.
+      - ``behavioral``   requested if the eval record sets
+                          ``behavioral: true`` AND a behavioural
+                          validator is registered for the format.
 
     Tiers that aren't requested are NOT included in ``passed``'s
     AND, so a record with only ``required_substrings`` will have
@@ -219,10 +231,19 @@ def score_record(eval_rec: Dict[str, Any], predicted: str,
 
     Args:
         eval_rec: The eval JSONL record (with ``format``, ``prompt``,
-                  ``required_fields``, ``required_substrings``).
+                  ``required_fields``, ``required_substrings``,
+                  optional ``behavioral`` flag).
         predicted: The model's prediction text.
-        parsers: Map from ``format`` value to parser function. The
+        parsers: Map from ``format`` value to structural parser. The
                  parser returns a parsed object on success or None.
+        behavioral_validators: Optional map from ``format`` value to
+                                behavioural validator. Each validator
+                                returns True (passed real-tool
+                                validation), False (failed), or None
+                                (not measurable). When None is
+                                returned, the tier is treated as
+                                not-measured and excluded from
+                                ``passed``'s AND.
 
     Returns:
         A ``Score`` capturing per-tier results and miss reasons.
@@ -231,6 +252,7 @@ def score_record(eval_rec: Dict[str, Any], predicted: str,
     seed_id = eval_rec.get("seed_id") or eval_rec.get("prompt", "")[:60]
     required_fields = eval_rec.get("required_fields") or []
     required_subs = eval_rec.get("required_substrings") or []
+    behavioral_requested = bool(eval_rec.get("behavioral"))
 
     parser = parsers.get(fmt)
     if parser is None:
@@ -261,6 +283,20 @@ def score_record(eval_rec: Dict[str, Any], predicted: str,
         requested.append("substrings")
         tier_results["substrings"] = not sub_misses
         tier_misses["substrings"] = sub_misses
+    if behavioral_requested and behavioral_validators is not None:
+        validator = behavioral_validators.get(fmt)
+        if validator is not None:
+            outcome = validator(predicted)
+            # Outcome is True / False / None. None means
+            # "not measurable"; treat as not-requested for the AND.
+            if outcome is None:
+                tier_misses["behavioral"] = ["<not measurable>"]
+            else:
+                requested.append("behavioral")
+                tier_results["behavioral"] = bool(outcome)
+                tier_misses["behavioral"] = (
+                    [] if outcome else ["<failed behavioural validation>"]
+                )
 
     return Score(
         seed_id=str(seed_id),

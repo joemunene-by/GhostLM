@@ -2,6 +2,7 @@
 
 import pytest
 
+from ghostbench.behavioral import BEHAVIORAL_VALIDATORS
 from ghostbench.parsers import DEFAULT_PARSERS, parse_provenance, parse_stix
 from ghostbench.scoring import Score, get_path, score_record
 
@@ -168,3 +169,124 @@ def test_score_record_required_fields_with_no_parser():
     }
     score = score_record(rec, "anything", DEFAULT_PARSERS)
     assert score.tier_pass("fields") is False
+
+
+# ---------------------------------------------------------------------------
+# Behavioural tier integration
+# ---------------------------------------------------------------------------
+
+
+def test_score_record_behavioral_requested_passes():
+    """Eval record with behavioral=True + a valid STIX prediction
+    triggers behavioural validation that passes."""
+    rec = {
+        "format": "stix_indicator",
+        "prompt": "make a STIX indicator",
+        "behavioral": True,
+        "required_substrings": ["CVE-2017-0144"],
+        "seed_id": "case_beh1",
+    }
+    pred = (
+        '{"type":"indicator","spec_version":"2.1",'
+        '"id":"indicator--26afc2b0-3cdf-4d36-988e-9caa42a8dabc",'
+        '"created":"2017-03-14T00:00:00.000Z",'
+        '"modified":"2017-03-14T00:00:00.000Z",'
+        '"pattern_type":"stix",'
+        '"pattern":"[network-traffic:dst_port = 445]",'
+        '"valid_from":"2017-03-14T00:00:00Z",'
+        '"labels":["malicious-activity"],'
+        '"name":"CVE-2017-0144 EternalBlue"}'
+    )
+    score = score_record(rec, pred, DEFAULT_PARSERS,
+                          behavioral_validators=BEHAVIORAL_VALIDATORS)
+    assert score.tier_pass("behavioral") is True
+    assert score.tier_pass("parse") is True
+
+
+def test_score_record_behavioral_requested_fails_on_invalid_uuid():
+    """An indicator with a malformed id (non-UUID4) passes parse but
+    fails behavioural."""
+    rec = {
+        "format": "stix_indicator",
+        "prompt": "make a STIX indicator",
+        "behavioral": True,
+        "seed_id": "case_beh2",
+    }
+    pred = (
+        '{"type":"indicator","spec_version":"2.1",'
+        '"id":"indicator--not-a-real-uuid",'
+        '"created":"2017-03-14T00:00:00.000Z",'
+        '"modified":"2017-03-14T00:00:00.000Z",'
+        '"pattern_type":"stix",'
+        '"pattern":"[file:name = \'x\']",'
+        '"valid_from":"2017-03-14T00:00:00Z",'
+        '"labels":["malicious-activity"],'
+        '"name":"x"}'
+    )
+    score = score_record(rec, pred, DEFAULT_PARSERS,
+                          behavioral_validators=BEHAVIORAL_VALIDATORS)
+    assert score.tier_pass("parse") is True       # structural shape OK
+    assert score.tier_pass("behavioral") is False  # but UUID is malformed
+
+
+def test_score_record_behavioral_not_requested_when_flag_absent():
+    """No ``behavioral: true`` flag means the behavioural tier is
+    NOT requested even if a validator is registered."""
+    rec = {
+        "format": "stix_indicator",
+        "prompt": "x",
+        "required_substrings": ["indicator"],
+        "seed_id": "case_beh3",
+    }
+    pred = "irrelevant"
+    score = score_record(rec, pred, DEFAULT_PARSERS,
+                          behavioral_validators=BEHAVIORAL_VALIDATORS)
+    assert "behavioral" not in score.requested_tiers
+
+
+def test_score_record_behavioral_none_outcome_excluded_from_requested():
+    """If the behavioural validator returns None ('not measurable',
+    e.g. empty input), the tier is excluded from requested so it
+    doesn't drag passed."""
+    rec = {
+        "format": "stix_indicator",
+        "prompt": "x",
+        "behavioral": True,
+        "required_substrings": [],
+        "seed_id": "case_beh4",
+    }
+    pred = ""
+    score = score_record(rec, pred, DEFAULT_PARSERS,
+                          behavioral_validators=BEHAVIORAL_VALIDATORS)
+    # Behavioural was requested but came back None; should not be
+    # in requested_tiers, and tier_misses should record the
+    # 'not measurable' note.
+    assert "behavioral" not in score.requested_tiers
+    assert "<not measurable>" in score.tier_misses.get("behavioral", [])
+
+
+def test_score_record_behavioral_strictly_stricter_than_parse():
+    """Behavioural can fail even when parse passes; parse cannot
+    fail when behavioural passes (in our current validators).
+    Demonstrate the asymmetry on YARA: a rule that parses but
+    has unbalanced parens fails behavioural."""
+    rec = {
+        "format": "yara_rule",
+        "prompt": "x",
+        "behavioral": True,
+        "seed_id": "case_yara_beh",
+    }
+    pred = (
+        "rule X {\n"
+        "    strings:\n"
+        "        $s = \"foo\"\n"
+        "    condition:\n"
+        "        $s and (any of them\n"   # missing close paren
+        "}\n"
+    )
+    score = score_record(rec, pred, DEFAULT_PARSERS,
+                          behavioral_validators=BEHAVIORAL_VALIDATORS)
+    # parse_yara checks brace balance but not paren balance, so this
+    # still passes the parse tier. Behavioural catches it.
+    assert score.tier_pass("parse") is True
+    assert score.tier_pass("behavioral") is False
