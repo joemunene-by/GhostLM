@@ -1360,6 +1360,101 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.14] — 2026-05-09 — MCP server retrofit: ghostlm_agent tool exposes the full agent loop
+
+The existing MCP server (`scripts/mcp_server.py`) shipped before
+the agent runtime existed; its six tools were direct-model
+invocations or deterministic lookups. v0.9.14 retrofits the server
+with a seventh tool, `ghostlm_agent`, that runs the full GhostAgent
+loop and returns the cite-tagged final answer. Claude Desktop /
+Claude Code / Cursor / any MCP-compatible client can now invoke
+the cybersec agent loop the same way they invoke any other tool.
+
+### scripts/mcp_server.py
+
+New tool:
+
+```
+ghostlm_agent(query, max_iters=6, include_trace=False) -> str
+```
+
+The tool wires GhostAgent around the same model the MCP server
+already loaded for the older direct-chat tools. No second
+checkpoint load: the new helper `make_generator_from_loaded` in
+`ghostlm/agent/runner.py` builds the Generator from an already-
+loaded model + tokenizer, so the MCP server's GhostLMRuntime
+shares one set of weights between the direct-chat and agent-loop
+code paths. `runtime.agent(max_iters=N)` is a lazy factory that
+caches the GhostAgent instance and rebuilds when the iteration
+cap changes.
+
+The `include_trace=True` flag prepends a JSON-serialised trace
+block (every message, every tool call, every cite tag) before the
+final answer, which lets a Claude session inspect the loop's
+reasoning step-by-step. Useful for debugging an answer that looks
+wrong: the trace shows whether the model emitted a tool call,
+whether the tool succeeded, and what the model did with the
+response.
+
+### ghostlm/agent/runner.py
+
+Refactored `make_generator(checkpoint_path, ...)` to delegate the
+Generator-building part to a new helper:
+
+```
+make_generator_from_loaded(model, config, tokenizer, device, ...)
+                                  -> Generator
+```
+
+`make_generator(checkpoint_path)` now does
+`load_model -> make_generator_from_loaded`, which preserves the
+existing CLI behaviour while exposing the underlying builder for
+callers that already have the model in memory. This is what the
+MCP server uses; it is also what tests and any future shared-
+runtime caller (a multi-tenant server, a notebook context) will
+use to avoid duplicate model loading.
+
+### Tests
+
+[`tests/test_mcp_agent.py`](tests/test_mcp_agent.py) covers the
+MCP-server-specific wiring (3 cases: agent lazy-built, same
+max_iters returns cached, different max_iters rebuilds, ghostlm
+_agent tool returns final answer, include_trace emits JSON block).
+The whole file skips cleanly via `pytest.importorskip("mcp")` on
+machines without the `mcp` package installed; it runs end-to-end
+on machines with `pip install mcp`.
+
+[`tests/test_agent.py`](tests/test_agent.py) gains one case
+(`TestMakeGeneratorFromLoaded`) that drives the agent loop against
+random ghost-tiny weights via the new builder. This runs
+everywhere (no MCP dependency) and verifies the refactor preserves
+the Generator contract.
+
+Total tests now 195 (one new in test_agent + 5 new in test_mcp_agent
+that are guarded by importorskip), all green where runnable.
+
+### Why this matters
+
+The MCP server is the contact surface between GhostLM and the rest
+of the AI tooling ecosystem. Before today it was useful only for
+direct-chat invocation; now any MCP-aware client can call into the
+full agent loop with one tool name. Combined with v0.9.12's HTTP
+server, GhostLM is now reachable from:
+
+  - Any OpenAI-SDK client            (HTTP /v1/chat/completions)
+  - Any Anthropic-SDK client         (HTTP /v1/messages)
+  - Any Gemini-SDK client            (HTTP /v1beta/models/...)
+  - Any Ollama-compatible client     (HTTP /api/chat)
+  - Any MCP-compatible client        (stdio MCP, ghostlm_agent)
+  - Direct CLI                       (python -m ghostlm.agent)
+
+That is a deliberately oversized client surface for an 81M-param
+model. The point is to make the model's *availability* irrelevant
+to its quality: when ghost-base trains and the quality jumps, every
+existing integration just gets better without any glue code.
+
+---
+
 ## [0.9.13] — 2026-05-09 — agent-trace distillation: bet 1 + bet 9 traces from any OpenAI-compatible teacher
 
 The 850 templated bet 1 + bet 9 traces produced by
