@@ -111,7 +111,15 @@ continues; the harness scores whatever the seed file contains.
 
 ## Comparison rows (this table grows)
 
-| Checkpoint | Date | Eval set | Pretrain notes | parse-pass % | fields-pass % | n |
+| Checkpoint | Date | Eval set | Pretrain notes | parse-pass % (95% CI) | fields-pass % (95% CI) | n |
 |---|---|---|---|---:|---:|---:|
-| v0.9 chat (81M) | 2026-05-08 | format_aware_seeds (leaky) | PRIMUS + CWE + OWASP + RFCs + fact-QA, no structured-format data | 0.0% | 0.0% | 8 |
-| v0.9 chat (81M) | 2026-05-08 | format_aware_eval (held-out) | same checkpoint, same pretrain | 0.0% | 0.0% | 8 |
+| v0.9 chat (81M) | 2026-05-08 | format_aware_seeds (leaky) | PRIMUS + CWE + OWASP + RFCs + fact-QA, no structured-format data | 0.0% [0.0-32.4] | 0.0% [0.0-32.4] | 8 |
+| v0.9 chat (81M) | 2026-05-08 | format_aware_eval (held-out, n=8) | same checkpoint, same pretrain | 0.0% [0.0-32.4] | 0.0% [0.0-32.4] | 8 |
+| v0.9 chat (81M) | 2026-05-08 | format_aware_eval (held-out, n=32) | same checkpoint, same pretrain, expanded eval set | **0.0% [0.0-10.7]** | **0.0% [0.0-10.7]** | 32 |
+
+The n=32 row is the canonical baseline going forward. Wilson 95%
+upper bound is 10.7%, so any future checkpoint scoring above ~11%
+on this eval is statistically separated from v0.9 chat at the 95%
+confidence level. At n=8 the upper bound was 32.4%, which left
+plenty of room for a future "wins" claim to fall inside the CI of
+the baseline; n=32 closes that loophole.
