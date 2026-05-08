@@ -247,6 +247,9 @@ class Suite:
             "code_security_eval.jsonl": "bet7_code_security",
             "binary_literacy_eval.jsonl": "bet8_binary_literacy",
             "provenance_eval.jsonl": "bet9_provenance",
+            "log_analysis_eval.jsonl": "bet10_log_analysis",
+            "iac_security_eval.jsonl": "bet11_iac_security",
+            "protocol_fields_eval.jsonl": "bet12_protocol_fields",
         }
         m = dict(default_mapping)
         if mapping:
@@ -261,6 +264,15 @@ class Suite:
                                      "recognition and explanation.",
             "bet9_provenance": "Inline cite-tag emission with valid "
                                 "source_type:source_id format.",
+            "bet10_log_analysis": "ATT&CK technique identification + "
+                                   "diagnostic-field citation on held-out "
+                                   "log lines.",
+            "bet11_iac_security": "Cloud-IaC misconfiguration "
+                                   "identification and remediation "
+                                   "(Terraform / K8s).",
+            "bet12_protocol_fields": "Network protocol wire-format "
+                                      "field reading (TLS / DNS / HTTP/2 / "
+                                      "BGP / IP / TCP / Ethernet).",
         }
 
         benches: List[Bench] = []

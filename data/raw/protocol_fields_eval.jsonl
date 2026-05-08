@@ -1,0 +1,20 @@
+{"format": "protocol_fields", "prompt": "What protocol and message type is this?\n\n```\n16 03 03 00 7A 02 00 00 76 03 03 [32 random bytes] 20 [SessionID] 13 02 00\n```", "required_substrings": ["TLS", "ServerHello"]}
+{"format": "protocol_fields", "prompt": "Identify this protocol message:\n\n```\n45 00 00 28 1C 47 40 00 40 11 8E 5C C0 A8 01 02 08 08 08 08\n```", "required_substrings": ["IPv4", "UDP"]}
+{"format": "protocol_fields", "prompt": "What is the destination port in this TCP header?\n\n```\nDD 4F 01 BB 00 00 00 00 00 00 00 00 50 02 FA F0 00 00 00 00 02 04 05 B4\n```", "required_substrings": ["443", "HTTPS"]}
+{"format": "protocol_fields", "prompt": "What protocol is this?\n\n```\n00 00 0C 04 00 00 00 00 00 00 04 00 00 00 64 00 05 00 00 40 00\n```", "required_substrings": ["HTTP/2", "SETTINGS"]}
+{"format": "protocol_fields", "prompt": "Decode this DNS message header:\n\n```\nF1 23 81 00 00 01 00 00 00 00 00 00\n```", "required_substrings": ["query", "response"]}
+{"format": "protocol_fields", "prompt": "What protocol is this opcode?\n\n```\n00 01 08 00 06 04 00 02 [sender MAC] [sender IP] [target MAC] [target IP]\n```", "required_substrings": ["ARP", "reply"]}
+{"format": "protocol_fields", "prompt": "What is this ICMP message?\n\n```\n0B 00 F4 FF 00 00 00 00 [original IP header + 8 bytes]\n```", "required_substrings": ["Time Exceeded", "traceroute"]}
+{"format": "protocol_fields", "prompt": "What does this TCP flag byte represent?\n\n```\nTCP DataOffset+Flags = 0x5002\n```", "required_substrings": ["SYN"]}
+{"format": "protocol_fields", "prompt": "What is the EtherType in this Ethernet frame?\n\n```\nFF FF FF FF FF FF 00 1A 2B 3C 4D 5E 86 DD 60 00 00 00\n```", "required_substrings": ["IPv6", "broadcast"]}
+{"format": "protocol_fields", "prompt": "What protocol message?\n\n```\nFE 53 4D 42 40 00 00 00 00 00 00 00 05 00 00 00 [...]\n```", "required_substrings": ["SMB2", "TREE_CONNECT"]}
+{"format": "protocol_fields", "prompt": "How can you tell what TLS version a connection is using when the legacy_version field shows 0x0303?\n\nThe ClientHello has hex `16 03 01 02 00 01 00 01 FC 03 03 [...]`.", "required_substrings": ["supported_versions", "extension"]}
+{"format": "protocol_fields", "prompt": "What does QType 0x000F mean in DNS?", "required_substrings": ["MX", "mail"]}
+{"format": "protocol_fields", "prompt": "What is the protocol field 0x32 in IPv4?", "required_substrings": ["ESP", "IPsec"]}
+{"format": "protocol_fields", "prompt": "What does TCP flag 0x14 represent?", "required_substrings": ["RST", "ACK"]}
+{"format": "protocol_fields", "prompt": "Identify this DHCP message type byte:\n\n```\n63 82 53 63 35 01 02\n```", "required_substrings": ["OFFER", "magic cookie"]}
+{"format": "protocol_fields", "prompt": "What does the BGP marker (16 bytes of 0xFF) indicate?", "required_substrings": ["BGPv4", "authentication"]}
+{"format": "protocol_fields", "prompt": "What MQTT message type is 0x30?", "required_substrings": ["PUBLISH"]}
+{"format": "protocol_fields", "prompt": "What does the QUIC long-header type bits 0xC0 indicate?", "required_substrings": ["Long header", "Initial"]}
+{"format": "protocol_fields", "prompt": "What is the cleartext field that leaks the username in an RDP connection request?", "required_substrings": ["Cookie", "mstshash"]}
+{"format": "protocol_fields", "prompt": "What does Kerberos message type 0x0E (decimal 14) represent?", "required_substrings": ["AP-REQ"]}

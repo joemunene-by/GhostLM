@@ -36,6 +36,12 @@ data/rag/
 !data/raw/code_security_eval.jsonl
 !data/raw/binary_literacy_eval.jsonl
 !data/raw/provenance_eval.jsonl
+!data/raw/log_analysis_patterns.jsonl
+!data/raw/log_analysis_eval.jsonl
+!data/raw/iac_security_patterns.jsonl
+!data/raw/iac_security_eval.jsonl
+!data/raw/protocol_field_patterns.jsonl
+!data/raw/protocol_fields_eval.jsonl
 !data/processed/.gitkeep
 
 # Model checkpoints
