@@ -1,0 +1,20 @@
+{"format": "binary_literacy", "prompt": "I see these bytes at the start of a file: `7F 45 4C 46 02 01 01 00`. What format is this and what does each byte mean?", "required_substrings": ["ELF", "64-bit", "little-endian"]}
+{"format": "binary_literacy", "prompt": "I see these bytes at the start of a file: `4D 5A 90 00 03 00 00 00 04 00 00 00 FF FF`. What format is this and what's at offset 0x3C?", "required_substrings": ["PE", "MZ", "e_lfanew"]}
+{"format": "binary_literacy", "prompt": "I see these bytes at offset 0: `25 50 44 46 2D 31 2E 37`. What is this?", "required_substrings": ["PDF", "1.7"]}
+{"format": "binary_literacy", "prompt": "Bytes: `D0 CF 11 E0 A1 B1 1A E1`. What format and what are common file extensions for it?", "required_substrings": ["OLE2", "compound", ".doc"]}
+{"format": "binary_literacy", "prompt": "Bytes at file offset 0: `89 50 4E 47 0D 0A 1A 0A`. What is this and why is the byte 0x89 specifically chosen?", "required_substrings": ["PNG", "high-bit"]}
+{"format": "binary_literacy", "prompt": "Bytes: `50 4B 03 04 14 00 00 00 08 00`. What is this header and what are three different file types that produce it?", "required_substrings": ["ZIP", "DOCX", "JAR"]}
+{"format": "binary_literacy", "prompt": "Bytes: `CA FE BA BE 00 00 00 02`. What is this? (Note: there are two file types that share this magic; explain both.)", "required_substrings": ["Java", "Mach-O fat"]}
+{"format": "binary_literacy", "prompt": "Bytes: `CF FA ED FE 07 00 00 01`. What architecture and format is this?", "required_substrings": ["Mach-O", "x86_64", "macOS"]}
+{"format": "binary_literacy", "prompt": "I see a section named `UPX0` followed by another named `UPX1` in a PE file's section table, plus the bytes `55 50 58 21` later in the file. What does this tell me about the binary?", "required_substrings": ["UPX", "packed"]}
+{"format": "binary_literacy", "prompt": "I see a long run of 0x90 bytes in a network packet: `90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90`. What technique is this and what does it accomplish?", "required_substrings": ["NOP sled", "shellcode"]}
+{"format": "binary_literacy", "prompt": "In an x86_64 binary I see `48 31 C0 50 48 BB 2F 62 69 6E 2F 73 68 00 53 48 89 E7 48 31 D2 48 31 F6 B0 3B 0F 05`. What does this 28-byte sequence do?", "required_substrings": ["execve", "/bin/sh"]}
+{"format": "binary_literacy", "prompt": "After the PE signature `50 45 00 00`, the next two bytes are `4C 01`. What does this mean?", "required_substrings": ["i386", "32-bit", "Machine"]}
+{"format": "binary_literacy", "prompt": "After the PE signature, the Machine field is `64 86`. What architecture?", "required_substrings": ["x86_64", "AMD64", "64-bit"]}
+{"format": "binary_literacy", "prompt": "The PE Optional Header starts with the bytes `0B 02`. What does this say about the binary?", "required_substrings": ["PE32+", "64-bit"]}
+{"format": "binary_literacy", "prompt": "I see this canonical instruction pattern at the start of an x64 function: `55 48 89 E5`. What is this and what does it do?", "required_substrings": ["function prologue", "rbp", "push"]}
+{"format": "binary_literacy", "prompt": "I see the byte sequence `0F 05` in a Linux x86_64 binary. What instruction is this and why is it interesting?", "required_substrings": ["syscall"]}
+{"format": "binary_literacy", "prompt": "An ELF binary has e_type = 0x03. Is this an executable, a shared object, or something else?", "required_substrings": ["ET_DYN", "shared object", "PIE"]}
+{"format": "binary_literacy", "prompt": "Bytes: `37 7A BC AF 27 1C`. What format is this?", "required_substrings": ["7z", "7-Zip"]}
+{"format": "binary_literacy", "prompt": "A PE file has a section named `.themida` and the entry-point routine has 10,000+ instructions of branchy obfuscation. What does this tell me?", "required_substrings": ["Themida", "protector"]}
+{"format": "binary_literacy", "prompt": "I see UTF-16-encoded ASCII strings 'AsyncRAT' and 'Plugin.dll' inside a .NET PE binary. What family is this likely to be?", "required_substrings": ["AsyncRAT", "remote access"]}

@@ -74,12 +74,46 @@ from scripts.distill_format_aware import (  # noqa: E402
     parse_stix, parse_yara, parse_sigma, parse_misp,
 )
 
+import re as _re
+
+_CITE_TAG_RE = _re.compile(r"<\|cite\|>([^<]+)<\|/cite\|>")
+
+
+def parse_provenance(blob: str):
+    """Bet 9 parser: return the list of well-formed cite tags found.
+
+    A cite is well-formed if its body matches ``source_type:source_id``
+    (contains a colon, both halves non-empty). Returns the list of
+    matches if at least one is well-formed, otherwise None. The
+    caller can use ``len(parse_provenance(text))`` as the cite count.
+
+    This is the structural shape we trained for in bet 9; an eval
+    response that contains only malformed or zero cite tags fails
+    parse_ok at score time."""
+    if not blob:
+        return None
+    matches = _CITE_TAG_RE.findall(blob)
+    valid = []
+    for m in matches:
+        m = m.strip()
+        if not m or ":" not in m:
+            continue
+        head, _, tail = m.partition(":")
+        if head and tail:
+            valid.append(m)
+    return valid if valid else None
+
 
 PARSERS = {
     "stix_indicator": parse_stix,
     "yara_rule": parse_yara,
     "sigma_rule": parse_sigma,
     "misp_event": parse_misp,
+    "provenance": parse_provenance,
+    # ``code_security`` and ``binary_literacy`` deliberately have no
+    # parser: bets 7 and 8 evaluate by required-substring presence only.
+    # The evaluator below treats missing-parser as parse_ok = True so
+    # the substring check is the actual scoring lever.
 }
 
 
@@ -105,8 +139,14 @@ def required_fields_pass(parsed: Any, required: List[Dict[str, str]]) -> List[st
     """Return the list of required-field misses. An empty list means
     all fields matched. ``required`` entries are
     ``{"path": "<dotted>", "value": "<expected>"}``; ``value`` may be
-    a substring (matched case-insensitively) when the field is text."""
+    a substring (matched case-insensitively) when the field is text.
+
+    If ``required`` is empty there are no field requirements to fail,
+    regardless of whether ``parsed`` is None (formats without a parser
+    rely entirely on ``required_substrings``)."""
     misses: List[str] = []
+    if not required:
+        return misses
     if parsed is None:
         return ["<unparseable>"]
     for req in required:
@@ -150,18 +190,32 @@ def evaluate_record(rec: Dict[str, Any], pred_field: str) -> Dict[str, Any]:
 
     Two field-check styles are supported per record:
       ``required_fields``       dotted-path checks against the parsed
-                                object; right for STIX / Sigma / MISP.
+                                object; right for STIX / Sigma / MISP /
+                                provenance (when parser returns a list,
+                                fields are checked against the parsed
+                                object; if parser returns text, only
+                                substring checks apply).
       ``required_substrings``   plain substring matches on the raw
-                                artifact text; right for YARA, plus a
-                                useful fallback for other formats."""
+                                artifact text; right for YARA, code_security,
+                                binary_literacy, plus a useful fallback for
+                                other formats.
+
+    Format types without a parser registered (code_security,
+    binary_literacy, plus any unknown) default to ``parse_ok = True``
+    so the substring check is the actual scoring lever; ``fields_ok``
+    is then determined by the substring + field misses alone."""
     fmt = rec.get("format")
-    if fmt not in PARSERS:
-        return {"parse_ok": False, "fields_ok": False,
-                "fields_misses": [f"unknown format: {fmt!r}"], "parsed": None}
-    parser = PARSERS[fmt]
     artifact = rec.get(pred_field) or ""
-    parsed = parser(artifact)
-    parse_ok = parsed is not None
+    parser = PARSERS.get(fmt)
+    if parser is None:
+        # No parser registered. parse_ok is vacuously true; scoring
+        # falls entirely on the required-substring + required-field
+        # checks below.
+        parsed = None
+        parse_ok = True
+    else:
+        parsed = parser(artifact)
+        parse_ok = parsed is not None
     field_misses = required_fields_pass(parsed, rec.get("required_fields") or [])
     sub_misses = required_substrings_pass(artifact, rec.get("required_substrings") or [])
     misses = field_misses + sub_misses

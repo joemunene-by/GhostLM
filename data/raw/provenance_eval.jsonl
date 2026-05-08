@@ -1,0 +1,15 @@
+{"format": "provenance", "prompt": "What is CVE-2021-44228 about? Use a tool to look it up and cite the source for each fact in your answer.", "required_substrings": ["<|tool_call|>", "<|/tool_call|>", "<|tool_response|>", "<|/tool_response|>", "<|cite|>", "<|/cite|>", "CVE-2021-44228"]}
+{"format": "provenance", "prompt": "What does ATT&CK technique T1003.001 do? Look it up and cite the source.", "required_substrings": ["<|tool_call|>", "<|/tool_call|>", "<|cite|>", "<|/cite|>", "T1003.001", "lsass"]}
+{"format": "provenance", "prompt": "What is CWE-352? Use a tool and cite the relevant fields.", "required_substrings": ["<|tool_call|>", "<|cite|>", "<|/cite|>", "CWE-352", "CSRF"]}
+{"format": "provenance", "prompt": "Tell me about CVE-2014-0160 with citations for each fact.", "required_substrings": ["<|tool_call|>", "<|cite|>", "<|/cite|>", "CVE-2014-0160", "Heartbleed"]}
+{"format": "provenance", "prompt": "What is ATT&CK T1059.001 used for? Cite the technique fields you reference.", "required_substrings": ["<|cite|>", "<|/cite|>", "T1059.001", "PowerShell"]}
+{"format": "provenance", "prompt": "Explain CWE-89 (SQL Injection) using a tool lookup, with cites.", "required_substrings": ["<|tool_call|>", "<|cite|>", "<|/cite|>", "CWE-89"]}
+{"format": "provenance", "prompt": "What is BlueKeep (CVE-2019-0708)? Cite each factual claim.", "required_substrings": ["<|tool_call|>", "<|cite|>", "<|/cite|>", "CVE-2019-0708", "RDP"]}
+{"format": "provenance", "prompt": "From the cybersec corpus, what does OWASP say about session management? Use rag_retrieve and cite the passage.", "required_substrings": ["rag_retrieve", "<|cite|>", "<|/cite|>", "session"]}
+{"format": "provenance", "prompt": "Look up MITRE T1486 and tell me what it is, with citations.", "required_substrings": ["<|cite|>", "<|/cite|>", "T1486", "Encrypted"]}
+{"format": "provenance", "prompt": "What is CWE-79? Use a tool and provide cites.", "required_substrings": ["<|cite|>", "<|/cite|>", "CWE-79", "XSS"]}
+{"format": "provenance", "prompt": "Explain ATT&CK T1078 (Valid Accounts) with tool-grounded cites.", "required_substrings": ["<|cite|>", "<|/cite|>", "T1078"]}
+{"format": "provenance", "prompt": "Tell me about CVE-2017-5638 (the Equifax Struts2 vuln) with citations.", "required_substrings": ["<|cite|>", "<|/cite|>", "CVE-2017-5638", "Struts"]}
+{"format": "provenance", "prompt": "Describe CWE-22 (Path Traversal) using a tool lookup with cites.", "required_substrings": ["<|cite|>", "<|/cite|>", "CWE-22"]}
+{"format": "provenance", "prompt": "Look up ATT&CK T1133 and explain what it covers, with cites.", "required_substrings": ["<|cite|>", "<|/cite|>", "T1133", "Remote"]}
+{"format": "provenance", "prompt": "What is CVE-2024-3094 (xz-utils backdoor)? Cite each fact you use.", "required_substrings": ["<|cite|>", "<|/cite|>", "CVE-2024-3094"]}
