@@ -453,6 +453,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--exclude-sources", nargs="*", default=[],
                    help="Source names to skip (e.g. mitre_full cisa_kev) — "
                         "used to A/B-test which sources help vs hurt.")
+    p.add_argument("--general-knowledge",
+                   default="data/raw/chat/general_knowledge.jsonl",
+                   help="Hand-written general-knowledge seed JSONL "
+                        "(math, science, programming, geography, "
+                        "etymology, refusal/uncertainty patterns). "
+                        "Set to '' to skip.")
+    p.add_argument("--general-knowledge-multiplier", type=int, default=5,
+                   help="Copies of general_knowledge to inject. Default 5x "
+                        "brings the bank to roughly five percent of "
+                        "training pairs, which teaches 'GhostLM is not "
+                        "pure cybersec' without swamping the security "
+                        "signal.")
+    p.add_argument("--general-knowledge-val-frac", type=float, default=0.1,
+                   help="Held-out fraction of general_knowledge for val.")
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
@@ -544,6 +558,27 @@ def main() -> None:
               f"train_after_×{args.mcq_cot_multiplier}={len(cot_train_oversampled):,})")
         train_pairs.extend(cot_train_oversampled)
         val_pairs.extend(cot_val)
+
+    # General-knowledge seed (math, science, programming, refusals,
+    # cross-domain identity) — mixed at ~5% of training to teach the
+    # model that GhostLM responds outside cybersec without swamping
+    # the security signal.
+    if args.general_knowledge and Path(args.general_knowledge).exists():
+        gk_all = load_jsonl(Path(args.general_knowledge))
+        rng.shuffle(gk_all)
+        n_gk_val = max(1, int(len(gk_all)
+                                * args.general_knowledge_val_frac))
+        gk_val = gk_all[:n_gk_val]
+        gk_train_unique = gk_all[n_gk_val:]
+        gk_train_over = (gk_train_unique
+                          * args.general_knowledge_multiplier)
+        print(f"  general_knowledge: unique={len(gk_all):,} "
+              f"(val={len(gk_val):,}, train_unique="
+              f"{len(gk_train_unique):,}, train_after_"
+              f"×{args.general_knowledge_multiplier}="
+              f"{len(gk_train_over):,})")
+        train_pairs.extend(gk_train_over)
+        val_pairs.extend(gk_val)
 
     rng.shuffle(train_pairs)
     rng.shuffle(val_pairs)

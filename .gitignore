@@ -42,6 +42,8 @@ data/rag/
 !data/raw/iac_security_eval.jsonl
 !data/raw/protocol_field_patterns.jsonl
 !data/raw/protocol_fields_eval.jsonl
+!data/raw/chat/
+!data/raw/chat/general_knowledge.jsonl
 !data/processed/.gitkeep
 
 # Model checkpoints
