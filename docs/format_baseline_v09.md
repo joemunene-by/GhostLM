@@ -11,12 +11,21 @@ checkpoint we plan to lift. This file captures that floor.
 - Checkpoint: `Ghostgim/GhostLM-v0.9-experimental` (a.k.a.
   `phase19_chat_v09/best_model.pt`, 81M params, 6L / 768d / 12h, GPT-2 BPE,
   trained on PRIMUS + CWE + OWASP + RFCs + fact-QA pretrain plus chat-tune).
-- Eval set: the 8-record gold seed bank at
-  [`data/raw/format_aware_seeds.jsonl`](../data/raw/format_aware_seeds.jsonl)
+- Eval set: the 8-record held-out eval at
+  [`data/raw/format_aware_eval.jsonl`](../data/raw/format_aware_eval.jsonl)
   (2 records per format across STIX 2.1 indicators, YARA rules, Sigma
-  rules, MISP events). Each record has the natural-language prompt, the
-  hand-written gold artifact, and per-record `required_fields` /
-  `required_substrings` tags.
+  rules, MISP events). Each record has the natural-language prompt and
+  per-record `required_fields` / `required_substrings` tags. **The
+  eval set is deliberately disjoint from the few-shot bank at
+  `format_aware_seeds.jsonl`**: distillation reads from the few-shot
+  bank, eval reads from this file, and the two share zero prompts. Bet
+  6 lift numbers are therefore measured on unseen examples.
+
+  The original baseline (commit `349c29f`) was scored on the few-shot
+  bank itself, before the train-on-test fix in `bbe34c9` separated the
+  files. Re-running on the held-out eval set reproduces the same
+  headline number, so this doc captures both rows in the comparison
+  table below.
 - Inference: `scripts/run_format_baseline.py` against MPS on the M4
   with `temperature=0.7 top_k=50 top_p=0.95 max_tokens=600`.
 - Scoring: `scripts/eval_format_compliance.py`.
@@ -102,6 +111,7 @@ continues; the harness scores whatever the seed file contains.
 
 ## Comparison rows (this table grows)
 
-| Checkpoint | Date | Pretrain notes | parse-pass % | fields-pass % | n |
-|---|---|---|---:|---:|---:|
-| v0.9 chat (81M) | 2026-05-08 | PRIMUS + CWE + OWASP + RFCs + fact-QA, no structured-format data | 0.0% | 0.0% | 8 |
+| Checkpoint | Date | Eval set | Pretrain notes | parse-pass % | fields-pass % | n |
+|---|---|---|---|---:|---:|---:|
+| v0.9 chat (81M) | 2026-05-08 | format_aware_seeds (leaky) | PRIMUS + CWE + OWASP + RFCs + fact-QA, no structured-format data | 0.0% | 0.0% | 8 |
+| v0.9 chat (81M) | 2026-05-08 | format_aware_eval (held-out) | same checkpoint, same pretrain | 0.0% | 0.0% | 8 |
