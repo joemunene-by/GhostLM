@@ -1360,6 +1360,129 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.23] — 2026-05-09 — code-explain synth: 200 records from 40 patterns, code SFT push to surpass cybersec
+
+The user's stated target: "expand the code till it surpasses the
+cybersec." Cybersec SFT is at ~1,940 records. Code SFT before this
+release was bet 7 (243) + programming-qa (66) + binary-literacy
+(109) = 418. Closing the gap requires several aggressive code-
+focused releases. v0.9.23 is the first: a templated code-explain
+synth that produces 200 records from 40 patterns at zero
+inference cost.
+
+### scripts/synth_code_explain.py
+
+Mirrors the bet 7 / bet 8 templated synth pattern. Each pattern in
+the bank is a code snippet plus metadata (language, purpose,
+explanation, key concepts, optional walkthrough); the synth
+produces 5 variants per pattern:
+
+  pretrain_prose     markdown article describing what the code
+                      does and why it matters
+  identify_lang      USER shows snippet, asks "what language?";
+                      ASSISTANT names the language with a clue
+  explain_purpose    USER shows snippet, asks "what does this do?";
+                      ASSISTANT gives the one-sentence purpose +
+                      the longer explanation
+  walkthrough        USER shows snippet, asks for line-by-line
+                      walkthrough; ASSISTANT walks through it
+  concepts           USER asks "what concepts does this
+                      demonstrate?"; ASSISTANT names the key
+                      programming concepts plus context
+
+40 patterns × 5 variants = **200 records**, all parser-clean.
+
+### data/raw/code_explain_patterns.jsonl
+
+40 hand-curated patterns covering broad CS:
+
+  Algorithms (10):  recursive Fibonacci, memoized Fibonacci,
+                     iterative Fibonacci, binary search, Go
+                     quicksort, Python BFS, Rust merge sort,
+                     JS DFS, Python heap top-K, Go in-place reverse
+  Data structures (8): Python linked-list node, Java BST insert,
+                        Python queue-from-two-stacks, Python LRU
+                        cache via OrderedDict, Rust Box<Node>
+                        immutable list, Python Counter,
+                        defaultdict grouping, CSV streaming
+  Idioms (8):        Python contextmanager, Go defer, Rust ? error
+                      propagation, list comprehension, JS optional
+                      chaining + nullish coalescing, Rust match,
+                      Python decorator factory, Go goroutine +
+                      channel + close+range
+  Patterns (7):      Python singleton via decorator, TS factory
+                      with literal-union types, Python observer,
+                      Java builder, Python strategy via dispatch
+                      dict, Python retry decorator with arguments,
+                      Rust trait-object polymorphism
+  Concurrency + I/O + collections (7): asyncio.gather, Python
+                                        atomic file write via
+                                        tempfile + os.replace,
+                                        Go HTTP server, Python
+                                        IPv4 regex, dict
+                                        comprehension grouping,
+                                        Rust iterator chain,
+                                        Python set algebra
+
+Languages covered: Python, JavaScript, TypeScript, Go, Rust,
+Java, C (via existing patterns), plus more in future expansions.
+
+### data/raw/code_explain_eval.jsonl
+
+15 held-out eval prompts asking the model to explain, identify,
+walk through, or name the pattern of a code snippet. Required-
+substring scoring uses the canonical answer terms (e.g.
+"recursion", "exponential", "memoization", "atomic", "two pointers").
+
+### tests/test_code_explain_synth.py
+
+8 cases: bank loads + size + record shape + diverse languages +
+unique ids (4), eval loads + shape (2), end-to-end synth produces
+≥ 195 records covering all 5 variant types (1), record format /
+source / teacher fields correct (1). Total tests now 268, all
+green where runnable.
+
+### Code SFT progress toward surpassing cybersec
+
+Before v0.9.23:
+  bet 7 code-security        243
+  binary-literacy            109
+  programming-qa              66
+  ───────────────────────────────
+  code-related total         418
+
+After v0.9.23:
+  bet 7 code-security        243
+  binary-literacy            109
+  programming-qa              66
+  code-explain synth         200  <- new
+  ───────────────────────────────
+  code-related total         618
+
+Cybersec is at ~1,940. Gap is now ~1,322 records. Remaining plan
+to surpass:
+
+  v0.9.24  code-write synth (templated, ~50 patterns × 4 = 200)
+  v0.9.25  bet 7 phase 3 (~30 more patterns = +120 records)
+  v0.9.26  algorithm-explain expansion (~40 more patterns = +200)
+  v0.9.27  programming-qa hand-written expansion (+150 records)
+  v0.9.28  code-debug synth (~30 patterns × 4 = +120)
+  v0.9.29  code-refactor synth (~30 patterns × 4 = +120)
+  v0.9.30  code-write phase 2 (~50 more patterns = +200)
+
+That's ~1,110 records across 7 releases. Combined with v0.9.23's
+200 = 1,310. Total code SFT at end: 418 + 1,310 = 1,728. Roughly
+matches cybersec; further bet 7 phases would surpass.
+
+The path is: templated synth gives the fastest record generation
+per unit of hand-curation work. Each new pattern multiplies through
+4-5 variants. The honest tradeoff: templated synth has less natural
+variation than human-written or distilled data, which v0.9.13's
+distillation pipeline (OpenAICompatGenerator + Ollama Qwen-14B)
+can supply at scale once Joe runs it on M4.
+
+---
+
 ## [0.9.22] — 2026-05-09 — bet 8 expansion: 40 binary-literacy patterns, 109 SFT records
 
 The original bet 8 bank (v0.9.5) was thin at 15 patterns. This
