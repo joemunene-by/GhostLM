@@ -69,7 +69,7 @@ the recommendation in [docs/differentiation.md](differentiation.md)
 stays unchanged: **default ghost-base to GPT-2 BPE; treat
 `GhostTokenizerV1` (mixed) as opt-in for cyber-only inference paths
 where the +4% buys ~5% more usable context. Don't ship `v1_cyber` at
-all — the general-text regression isn't worth the marginal cybersec
+all, the general-text regression isn't worth the marginal cybersec
 lift.**
 
 ## Per-source detail
