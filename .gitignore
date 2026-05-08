@@ -32,6 +32,7 @@ data/rag/
 !data/raw/format_aware_seeds.jsonl
 !data/raw/format_aware_eval.jsonl
 !data/raw/code_security_patterns.jsonl
+!data/raw/binary_literacy_patterns.jsonl
 !data/processed/.gitkeep
 
 # Model checkpoints
