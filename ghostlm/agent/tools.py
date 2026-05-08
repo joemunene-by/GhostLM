@@ -35,6 +35,7 @@ import os
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -362,6 +363,420 @@ def _backend_rag_retrieve(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# CISA Known Exploited Vulnerabilities (KEV)
+#
+# CISA publishes a public JSON feed of CVEs that are actively exploited
+# in the wild, with required-action deadlines for federal agencies. The
+# feed is at https://www.cisa.gov/sites/default/files/feeds/...
+# Real upstream is reachable without an API key, so this tool follows the
+# same try-real-then-cache pattern as search_cve_nvd.
+# ---------------------------------------------------------------------------
+
+
+_KEV_OFFLINE_CACHE: Dict[str, Dict[str, Any]] = {
+    "CVE-2017-0144": {
+        "cve": "CVE-2017-0144", "vendor": "Microsoft",
+        "product": "SMBv1", "vulnerabilityName": "EternalBlue",
+        "shortDescription": "SMBv1 RCE weaponised in WannaCry.",
+        "requiredAction": "Apply MS17-010; disable SMBv1 where unused.",
+        "knownRansomwareCampaignUse": "Known", "source": "offline_cache",
+    },
+    "CVE-2021-44228": {
+        "cve": "CVE-2021-44228", "vendor": "Apache",
+        "product": "Log4j2", "vulnerabilityName": "Log4Shell",
+        "shortDescription": "JNDI lookup in log strings allows RCE.",
+        "requiredAction": "Upgrade to Log4j 2.17.1+.",
+        "knownRansomwareCampaignUse": "Known", "source": "offline_cache",
+    },
+    "CVE-2019-0708": {
+        "cve": "CVE-2019-0708", "vendor": "Microsoft",
+        "product": "Remote Desktop Services", "vulnerabilityName": "BlueKeep",
+        "shortDescription": "Pre-auth RCE in RDP; wormable.",
+        "requiredAction": "Apply patches; disable port 3389 where unused.",
+        "knownRansomwareCampaignUse": "Unknown", "source": "offline_cache",
+    },
+    "CVE-2020-1472": {
+        "cve": "CVE-2020-1472", "vendor": "Microsoft",
+        "product": "Netlogon", "vulnerabilityName": "Zerologon",
+        "shortDescription": "Crypto flaw in Netlogon allows DC takeover.",
+        "requiredAction": "Apply August 2020 cumulative updates.",
+        "knownRansomwareCampaignUse": "Known", "source": "offline_cache",
+    },
+    "CVE-2024-3094": {
+        "cve": "CVE-2024-3094", "vendor": "xz / liblzma",
+        "product": "xz-utils", "vulnerabilityName": "xz-utils backdoor",
+        "shortDescription": "Supply-chain backdoor in liblzma 5.6.0/5.6.1.",
+        "requiredAction": "Downgrade liblzma to 5.4.x; rotate SSH keys.",
+        "knownRansomwareCampaignUse": "Unknown", "source": "offline_cache",
+    },
+    "CVE-2023-44487": {
+        "cve": "CVE-2023-44487", "vendor": "Multiple",
+        "product": "HTTP/2 implementations",
+        "vulnerabilityName": "HTTP/2 Rapid Reset",
+        "shortDescription": "DDoS via repeated stream resets.",
+        "requiredAction": "Apply vendor patches; rate-limit RST_STREAM.",
+        "knownRansomwareCampaignUse": "Unknown", "source": "offline_cache",
+    },
+}
+
+
+def _backend_lookup_cisa_kev(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Check whether a CVE is on CISA's Known Exploited Vulnerabilities
+    list. Returns the KEV entry with required-action data when present."""
+    cve = args.get("cve_id", "").strip().upper()
+    if not cve:
+        return {"error": "missing required arg 'cve_id'"}
+
+    if os.environ.get("GHOST_AGENT_OFFLINE", "0") != "1":
+        try:
+            url = ("https://www.cisa.gov/sites/default/files/feeds/"
+                   "known_exploited_vulnerabilities.json")
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "ghostlm-agent/0.1"},
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read())
+            for vuln in data.get("vulnerabilities", []):
+                if vuln.get("cveID", "").upper() == cve:
+                    return {
+                        "cve": cve,
+                        "vendor": vuln.get("vendorProject"),
+                        "product": vuln.get("product"),
+                        "vulnerabilityName": vuln.get("vulnerabilityName"),
+                        "dateAdded": vuln.get("dateAdded"),
+                        "shortDescription": vuln.get("shortDescription"),
+                        "requiredAction": vuln.get("requiredAction"),
+                        "dueDate": vuln.get("dueDate"),
+                        "knownRansomwareCampaignUse":
+                            vuln.get("knownRansomwareCampaignUse"),
+                        "source": "cisa_kev_api",
+                    }
+            return {"cve": cve, "found": False, "source": "cisa_kev_api"}
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+            pass
+
+    if cve in _KEV_OFFLINE_CACHE:
+        return _KEV_OFFLINE_CACHE[cve]
+    return {"cve": cve, "found": False, "source": "offline_cache"}
+
+
+# ---------------------------------------------------------------------------
+# GreyNoise IP reputation
+#
+# GreyNoise classifies internet-wide scanners and benign noise vs targeted
+# attacks. Free community API exists at api.greynoise.io but rate-limited.
+# We try the API if reachable and a key is set; otherwise fall back to a
+# hand-curated cache of well-known scanners + RFC documentation IPs.
+# ---------------------------------------------------------------------------
+
+
+_GREYNOISE_OFFLINE_CACHE: Dict[str, Dict[str, Any]] = {
+    "192.0.2.1": {
+        "ip": "192.0.2.1", "classification": "documentation",
+        "name": "RFC 5737 documentation prefix",
+        "noise": False, "riot": False,
+        "source": "offline_cache",
+    },
+    "198.51.100.1": {
+        "ip": "198.51.100.1", "classification": "documentation",
+        "name": "RFC 5737 documentation prefix",
+        "noise": False, "riot": False,
+        "source": "offline_cache",
+    },
+    "8.8.8.8": {
+        "ip": "8.8.8.8", "classification": "benign",
+        "name": "Google Public DNS", "noise": False, "riot": True,
+        "source": "offline_cache",
+    },
+    "1.1.1.1": {
+        "ip": "1.1.1.1", "classification": "benign",
+        "name": "Cloudflare DNS", "noise": False, "riot": True,
+        "source": "offline_cache",
+    },
+}
+
+
+def _backend_lookup_greynoise(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Look up an IP's GreyNoise classification (noise / benign /
+    malicious / unknown). Tries the community API if a key is set;
+    otherwise returns the offline cache or unknown."""
+    ip = args.get("ip", "").strip()
+    if not ip:
+        return {"error": "missing required arg 'ip'"}
+
+    api_key = os.environ.get("GREYNOISE_API_KEY", "")
+    if (api_key and
+            os.environ.get("GHOST_AGENT_OFFLINE", "0") != "1"):
+        try:
+            url = f"https://api.greynoise.io/v3/community/{ip}"
+            req = urllib.request.Request(
+                url, headers={
+                    "key": api_key,
+                    "User-Agent": "ghostlm-agent/0.1",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+            return {
+                "ip": data.get("ip", ip),
+                "classification": data.get("classification"),
+                "name": data.get("name"),
+                "noise": data.get("noise"),
+                "riot": data.get("riot"),
+                "last_seen": data.get("last_seen"),
+                "source": "greynoise_api",
+            }
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+            pass
+
+    if ip in _GREYNOISE_OFFLINE_CACHE:
+        return _GREYNOISE_OFFLINE_CACHE[ip]
+    return {"ip": ip, "classification": "unknown",
+            "found": False, "source": "offline_cache"}
+
+
+# ---------------------------------------------------------------------------
+# VirusTotal file hash lookup (offline-first)
+#
+# Real VT API requires an API key; we expose the integration shape but
+# default to the offline cache. Hand-curated entries below cover the
+# canonical demo / test cases (EICAR test file, well-known historical
+# malware family hashes from public reports).
+# ---------------------------------------------------------------------------
+
+
+_VT_HASH_OFFLINE_CACHE: Dict[str, Dict[str, Any]] = {
+    # EICAR antivirus test file (intentionally non-malicious).
+    "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f": {
+        "sha256": "275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
+        "type": "EICAR test file", "malicious": 0, "suspicious": 0,
+        "harmless": 70, "undetected": 0,
+        "popular_threat_classification": "test/eicar",
+        "note": "Intentional AV test file, not real malware.",
+        "source": "offline_cache",
+    },
+    # WannaCry SMB worm canonical hash (public, in many reports).
+    "ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa": {
+        "sha256": "ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa",
+        "type": "WannaCry / WCry ransomware loader",
+        "malicious": 64, "suspicious": 2,
+        "popular_threat_classification": "trojan.wannacry/wcry",
+        "first_seen": "2017-05-12",
+        "source": "offline_cache",
+    },
+}
+
+
+def _backend_lookup_virustotal_hash(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Look up a file hash's VirusTotal reputation. Real VT lookups
+    require a paid API key; without one this returns the offline cache
+    or unknown."""
+    h = args.get("hash", "").strip().lower()
+    if not h:
+        return {"error": "missing required arg 'hash'"}
+    if not re.match(r"^[a-f0-9]{32,64}$", h):
+        return {"error": f"invalid hash format: {h!r} "
+                          f"(expected MD5/SHA1/SHA256 hex)"}
+
+    api_key = os.environ.get("VIRUSTOTAL_API_KEY", "")
+    if (api_key and
+            os.environ.get("GHOST_AGENT_OFFLINE", "0") != "1"):
+        try:
+            url = f"https://www.virustotal.com/api/v3/files/{h}"
+            req = urllib.request.Request(
+                url, headers={
+                    "x-apikey": api_key,
+                    "User-Agent": "ghostlm-agent/0.1",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read())
+            attr = data.get("data", {}).get("attributes", {})
+            stats = attr.get("last_analysis_stats", {}) or {}
+            return {
+                "sha256": attr.get("sha256", h),
+                "type": attr.get("type_description"),
+                "malicious": stats.get("malicious"),
+                "suspicious": stats.get("suspicious"),
+                "harmless": stats.get("harmless"),
+                "undetected": stats.get("undetected"),
+                "popular_threat_classification":
+                    (attr.get("popular_threat_classification", {}) or {})
+                    .get("suggested_threat_label"),
+                "source": "virustotal_api",
+            }
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+            pass
+
+    if h in _VT_HASH_OFFLINE_CACHE:
+        return _VT_HASH_OFFLINE_CACHE[h]
+    return {"sha256": h, "found": False, "source": "offline_cache"}
+
+
+# ---------------------------------------------------------------------------
+# Shodan service enumeration (offline-only)
+#
+# Real Shodan needs a paid API key; we ship a tiny offline cache that
+# documents the response shape so the agent can be tested end-to-end
+# without network. Production deployments wire SHODAN_API_KEY and
+# replace _backend_lookup_shodan with the live path.
+# ---------------------------------------------------------------------------
+
+
+_SHODAN_OFFLINE_CACHE: Dict[str, Dict[str, Any]] = {
+    "8.8.8.8": {
+        "ip": "8.8.8.8",
+        "hostnames": ["dns.google"],
+        "country": "US",
+        "org": "Google LLC",
+        "ports": [53, 443],
+        "services": [
+            {"port": 53, "transport": "udp",
+             "module": "dns", "product": "Google DNS"},
+            {"port": 443, "transport": "tcp",
+             "module": "https", "product": "GFE"},
+        ],
+        "source": "offline_cache",
+    },
+    "1.1.1.1": {
+        "ip": "1.1.1.1",
+        "hostnames": ["one.one.one.one"],
+        "country": "AU", "org": "Cloudflare, Inc.",
+        "ports": [53, 80, 443],
+        "services": [
+            {"port": 53, "transport": "udp", "module": "dns"},
+            {"port": 443, "transport": "tcp",
+             "module": "https", "product": "Cloudflare"},
+        ],
+        "source": "offline_cache",
+    },
+}
+
+
+def _backend_lookup_shodan(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Look up an IP's Shodan service profile (open ports, banners).
+
+    Real Shodan requires a paid SHODAN_API_KEY. Without one (and in
+    offline mode) returns the offline cache or unknown. The response
+    shape mirrors Shodan's JSON output so a model trained on this
+    tool can read either source."""
+    ip = args.get("ip", "").strip()
+    if not ip:
+        return {"error": "missing required arg 'ip'"}
+
+    api_key = os.environ.get("SHODAN_API_KEY", "")
+    if (api_key and
+            os.environ.get("GHOST_AGENT_OFFLINE", "0") != "1"):
+        try:
+            url = f"https://api.shodan.io/shodan/host/{ip}?key={api_key}"
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "ghostlm-agent/0.1"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read())
+            return {
+                "ip": data.get("ip_str", ip),
+                "hostnames": data.get("hostnames", []),
+                "country": data.get("country_code"),
+                "org": data.get("org"),
+                "ports": data.get("ports", []),
+                "services": [
+                    {"port": s.get("port"),
+                     "transport": s.get("transport"),
+                     "module": s.get("_shodan", {}).get("module"),
+                     "product": s.get("product")}
+                    for s in data.get("data", []) or []
+                ],
+                "source": "shodan_api",
+            }
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+            pass
+
+    if ip in _SHODAN_OFFLINE_CACHE:
+        return _SHODAN_OFFLINE_CACHE[ip]
+    return {"ip": ip, "found": False, "source": "offline_cache"}
+
+
+# ---------------------------------------------------------------------------
+# AlienVault OTX IOC pulse search (offline-only)
+#
+# OTX requires a free API key for live lookups. We ship a small offline
+# cache of public APT-group pulse summaries so the tool's response
+# shape is exercised in tests + demos. Production wires OTX_API_KEY.
+# ---------------------------------------------------------------------------
+
+
+_OTX_OFFLINE_CACHE: Dict[str, Dict[str, Any]] = {
+    "lazarus": {
+        "indicator": "lazarus",
+        "pulse_count": 50,
+        "summaries": [
+            {"name": "Lazarus Group: Operation North Star",
+             "tags": ["apt", "north-korea", "financial"],
+             "tlp": "white"},
+            {"name": "Lazarus Group: 3CX Supply Chain",
+             "tags": ["supply-chain", "apt38"],
+             "tlp": "white"},
+        ],
+        "source": "offline_cache",
+    },
+    "apt28": {
+        "indicator": "apt28",
+        "pulse_count": 35,
+        "summaries": [
+            {"name": "APT28 / Fancy Bear: GRU 26165 activity",
+             "tags": ["apt", "russia", "espionage"],
+             "tlp": "white"},
+        ],
+        "source": "offline_cache",
+    },
+}
+
+
+def _backend_lookup_alienvault_otx(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Search AlienVault OTX for IOC pulses matching a given indicator
+    (IP, domain, hash, APT name).
+
+    Real OTX requires OTX_API_KEY for live lookups. Without one returns
+    the offline cache or not_found."""
+    indicator = args.get("indicator", "").strip().lower()
+    if not indicator:
+        return {"error": "missing required arg 'indicator'"}
+
+    api_key = os.environ.get("OTX_API_KEY", "")
+    if (api_key and
+            os.environ.get("GHOST_AGENT_OFFLINE", "0") != "1"):
+        try:
+            url = (f"https://otx.alienvault.com/api/v1/search/pulses"
+                   f"?q={urllib.parse.quote(indicator)}")
+            req = urllib.request.Request(
+                url, headers={
+                    "X-OTX-API-KEY": api_key,
+                    "User-Agent": "ghostlm-agent/0.1",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read())
+            results = data.get("results", []) or []
+            return {
+                "indicator": indicator,
+                "pulse_count": data.get("count", len(results)),
+                "summaries": [
+                    {"name": p.get("name"),
+                     "tags": p.get("tags", []),
+                     "tlp": p.get("TLP")}
+                    for p in results[:5]
+                ],
+                "source": "otx_api",
+            }
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+            pass
+
+    if indicator in _OTX_OFFLINE_CACHE:
+        return _OTX_OFFLINE_CACHE[indicator]
+    return {"indicator": indicator, "found": False, "source": "offline_cache"}
+
+
+# ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
 
@@ -398,6 +813,50 @@ TOOLS_REGISTRY: Dict[str, Tool] = {
                       "k": "number of passages (default 4)"},
         required_args=["query"],
         fn=_backend_rag_retrieve,
+    ),
+    "lookup_cisa_kev": Tool(
+        name="lookup_cisa_kev",
+        description="Check whether a CVE is on CISA's Known Exploited "
+                    "Vulnerabilities list. Returns required-action and "
+                    "ransomware-use status when present.",
+        args_schema={"cve_id": "CVE identifier (e.g. CVE-2021-44228)"},
+        required_args=["cve_id"],
+        fn=_backend_lookup_cisa_kev,
+    ),
+    "lookup_greynoise": Tool(
+        name="lookup_greynoise",
+        description="Look up an IP address's GreyNoise classification "
+                    "(noise / benign / malicious / unknown). "
+                    "Distinguishes internet-wide scanners from "
+                    "targeted threats.",
+        args_schema={"ip": "IPv4 or IPv6 address"},
+        required_args=["ip"],
+        fn=_backend_lookup_greynoise,
+    ),
+    "lookup_virustotal_hash": Tool(
+        name="lookup_virustotal_hash",
+        description="Look up a file hash's VirusTotal reputation "
+                    "(MD5/SHA1/SHA256). Returns malicious/suspicious/"
+                    "harmless detection counts and threat label.",
+        args_schema={"hash": "file hash in hex (32, 40, or 64 chars)"},
+        required_args=["hash"],
+        fn=_backend_lookup_virustotal_hash,
+    ),
+    "lookup_shodan": Tool(
+        name="lookup_shodan",
+        description="Look up an IP address's Shodan service profile "
+                    "(open ports, hostnames, organization, banners).",
+        args_schema={"ip": "IPv4 address"},
+        required_args=["ip"],
+        fn=_backend_lookup_shodan,
+    ),
+    "lookup_alienvault_otx": Tool(
+        name="lookup_alienvault_otx",
+        description="Search AlienVault OTX for IOC pulses matching an "
+                    "indicator (IP, domain, hash, or APT name).",
+        args_schema={"indicator": "IOC string or APT group name"},
+        required_args=["indicator"],
+        fn=_backend_lookup_alienvault_otx,
     ),
 }
 

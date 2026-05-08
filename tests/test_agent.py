@@ -113,12 +113,15 @@ class TestParser:
 
 class TestTools:
     def test_registry_has_four_canonical_tools(self):
-        assert set(TOOLS_REGISTRY.keys()) == {
+        """The four bet-1 canonical tools must always be registered.
+        Additional tools may be present (v0.9.15 added 5 more)."""
+        canonical = {
             "search_cve_nvd",
             "lookup_mitre_technique",
             "lookup_cwe",
             "rag_retrieve",
         }
+        assert canonical.issubset(set(TOOLS_REGISTRY.keys()))
 
     def test_search_cve_offline_hit(self):
         result = dispatch("search_cve_nvd", {"q": "CVE-2017-0144"})
@@ -169,6 +172,110 @@ class TestTools:
         result = dispatch("crash", {}, registry=reg)
         assert result.error == "ValueError: boom"
         assert result.response is None
+
+
+# ---------------------------------------------------------------------------
+# New tools (v0.9.15): CISA KEV, GreyNoise, VirusTotal, Shodan, OTX
+# ---------------------------------------------------------------------------
+
+
+class TestNewTools:
+    def test_registry_includes_new_tools(self):
+        for name in ("lookup_cisa_kev", "lookup_greynoise",
+                     "lookup_virustotal_hash", "lookup_shodan",
+                     "lookup_alienvault_otx"):
+            assert name in TOOLS_REGISTRY
+
+    def test_cisa_kev_offline_hit(self):
+        r = dispatch("lookup_cisa_kev", {"cve_id": "CVE-2021-44228"})
+        assert r.error is None
+        assert r.response["cve"] == "CVE-2021-44228"
+        assert "Log4Shell" in r.response["vulnerabilityName"]
+        assert r.response["source"] == "offline_cache"
+
+    def test_cisa_kev_not_found(self):
+        r = dispatch("lookup_cisa_kev", {"cve_id": "CVE-9999-99999"})
+        assert r.error is None
+        assert r.response.get("found") is False
+
+    def test_cisa_kev_missing_arg(self):
+        r = dispatch("lookup_cisa_kev", {})
+        assert r.error is not None
+        assert "missing required arg" in r.error
+
+    def test_greynoise_known_benign(self):
+        r = dispatch("lookup_greynoise", {"ip": "8.8.8.8"})
+        assert r.error is None
+        assert r.response["classification"] == "benign"
+        assert r.response.get("riot") is True
+
+    def test_greynoise_unknown_ip(self):
+        r = dispatch("lookup_greynoise", {"ip": "10.20.30.40"})
+        assert r.error is None
+        assert r.response.get("classification") == "unknown"
+
+    def test_virustotal_hash_eicar(self):
+        eicar = ("275a021bbfb6489e54d471899f7db9d1663fc695"
+                  "ec2fe2a2c4538aabf651fd0f")
+        r = dispatch("lookup_virustotal_hash", {"hash": eicar})
+        assert r.error is None
+        assert "EICAR" in r.response["type"]
+        assert r.response["malicious"] == 0
+
+    def test_virustotal_hash_invalid_format(self):
+        r = dispatch("lookup_virustotal_hash", {"hash": "deadbeef"})
+        # Backend returns an error blob (not a dispatch error), so
+        # ToolResult.error stays None but response carries the error.
+        assert r.error is None
+        assert "error" in r.response
+        assert "invalid hash format" in r.response["error"]
+
+    def test_virustotal_hash_uppercase_normalised(self):
+        eicar_upper = ("275A021BBFB6489E54D471899F7DB9D1663FC695"
+                        "EC2FE2A2C4538AABF651FD0F")
+        r = dispatch("lookup_virustotal_hash", {"hash": eicar_upper})
+        assert r.error is None
+        # Backend lowercases for lookup, so the EICAR cache hits.
+        assert "EICAR" in r.response["type"]
+
+    def test_shodan_known_ip(self):
+        r = dispatch("lookup_shodan", {"ip": "8.8.8.8"})
+        assert r.error is None
+        assert "dns.google" in r.response["hostnames"]
+        assert 53 in r.response["ports"]
+
+    def test_shodan_unknown_ip(self):
+        r = dispatch("lookup_shodan", {"ip": "192.0.2.99"})
+        assert r.error is None
+        assert r.response.get("found") is False
+
+    def test_otx_known_apt(self):
+        r = dispatch("lookup_alienvault_otx", {"indicator": "lazarus"})
+        assert r.error is None
+        assert r.response["pulse_count"] >= 1
+        assert "Lazarus" in r.response["summaries"][0]["name"]
+
+    def test_otx_case_insensitive(self):
+        # Indicator is lowercased internally so any casing matches.
+        r = dispatch("lookup_alienvault_otx", {"indicator": "LAZARUS"})
+        assert r.error is None
+        assert r.response["pulse_count"] >= 1
+
+    def test_otx_unknown_indicator(self):
+        r = dispatch("lookup_alienvault_otx",
+                      {"indicator": "totally-unknown-actor"})
+        assert r.error is None
+        assert r.response.get("found") is False
+
+    def test_offline_env_var_skips_real_apis(self, monkeypatch):
+        """With GHOST_AGENT_OFFLINE=1 (default in this test suite),
+        no live HTTP request should be attempted. We verify by
+        asserting an unreachable upstream URL doesn't matter."""
+        # Already set in module scope; just verify the cached path
+        # succeeded above without timing-out on a real fetch.
+        r = dispatch("lookup_cisa_kev", {"cve_id": "CVE-2021-44228"})
+        assert r.response["source"] == "offline_cache"
+        assert r.latency_ms < 100  # purely in-memory, sub-100ms
 
 
 # ---------------------------------------------------------------------------
