@@ -1360,6 +1360,69 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.26] — 2026-05-09 — code-write phase 2: 80 patterns / 243 SFT records
+
+Doubles the v0.9.24 code-write bank from 40 to 80 patterns covering
+database ops, testing + mocking, concurrency primitives, file system
+ops, string manipulation, math + numbers, date/time, hashing +
+encoding, web/HTTP, OOP patterns, more algorithms, and broader
+language coverage. The existing scripts/synth_code_write.py reuses
+unchanged; output goes from 123 to 243 records.
+
+### scripts/expand_code_write_bank.py
+
+Idempotent expansion mirroring v0.9.17/19/22/25.
+
+### data/raw/code_write_patterns.jsonl
+
+40 new patterns (CW-041 through CW-080):
+
+  Database (2):  SQLite parameterised insert, SQLAlchemy core update
+  Testing (3):   pytest with parametrize, Go table-driven test,
+                  unittest.mock @patch with assert_called_once_with
+  Concurrency (2): asyncio.Semaphore-bounded fetches, Go WaitGroup
+  File system (3): rglob with is_file filter, shutil.move with
+                    makedirs, Go filepath.WalkDir
+  String (3):    zfill / format-spec padding, regex sub with word
+                  boundary, JS quote-aware CSV split
+  Math + numbers (2): statistics module mean/median/stdev,
+                      decimal.Decimal banker's rounding
+  Date / time (3): ISO 8601 parse, days between dates, format
+                    duration as 1h 23m 45s
+  Hashing + encoding (3): SHA-256 file hash chunked, URL-safe
+                           base64, HMAC-SHA256 with compare_digest
+  Web / HTTP (2): JSON POST via urllib, build URL with urlencode
+  Patterns / OOP (2): context manager class, @dataclass with
+                      field(default_factory=list)
+  Algorithms (4): LRU cache via OrderedDict, recursive quicksort,
+                   BFS shortest path with parent reconstruction,
+                   directed-graph cycle detection (3-color DFS)
+  Multi-language (11):  Rust HashMap iteration, Rust file write,
+                        Go worker pool, JS event emitter, Python
+                        SIGALRM timeout, Python streaming chunks,
+                        Python TTL cache decorator, Python
+                        jsonschema, gzip write, env var coercion,
+                        UUID4 generation
+
+Languages now: Python (heavy), JavaScript, Go, Rust.
+
+### tests/test_code_write_synth.py
+
+Tightened: bank size >= 78 (was 40), synth output >= 235 records
+(was 115). Total tests still 276, all green.
+
+### Code SFT progress
+
+  before v0.9.26  941 records
+  v0.9.26         +120 (code-write doubled)
+  after           1,061 records
+  cybersec        ~1,940
+  remaining gap   ~879
+
+55% of cybersec target. Continuing.
+
+---
+
 ## [0.9.25] — 2026-05-09 — code-explain bank phase 2: 80 patterns / 400 SFT records
 
 Doubles the v0.9.23 code-explain bank from 40 to 80 patterns
