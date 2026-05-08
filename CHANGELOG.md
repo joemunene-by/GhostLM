@@ -1360,6 +1360,139 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.12] — 2026-05-09 — multi-vendor HTTP server: OpenAI + Anthropic + Gemini + Ollama
+
+GhostAgent now speaks the request/response shapes of every major
+LLM provider API, so any client that already targets OpenAI,
+Anthropic, Google, or Ollama can point at the GhostLM URL unchanged
+and get a compatible response back. The agent loop runs server-side:
+tool calls happen behind the API and the model's final cite-tagged
+answer comes back in whatever shape the caller's SDK expects.
+
+### Endpoint matrix
+
+  POST /v1/chat/completions
+       OpenAI Chat Completions API. Returns `chat.completion`
+       objects with `tool_calls` populated when the loop dispatched
+       any tool. `stream=true` produces SSE chunks (one delta per
+       agent iteration plus a closing chunk with the final answer
+       and `[DONE]` sentinel). Many other providers (Mistral, xAI,
+       vLLM, TGI, Together, Groq) re-implement this same shape, so
+       the OpenAI endpoint is also a Mistral / xAI / vLLM endpoint.
+
+  POST /v1/messages
+       Anthropic Messages API. Accepts both string and content-
+       block content (`{"type": "text", "text": "..."}` and
+       `{"type": "tool_result", ...}`), surfaces tool calls as
+       `tool_use` blocks in the response content array, and maps
+       termination reasons (`answer_emitted` -> `end_turn`,
+       `max_iterations` -> `max_tokens`).
+
+  POST /v1beta/models/{model}:generateContent
+       Google Gemini API. Accepts the `contents/parts/role` shape
+       and returns `candidates[].content.parts` plus `usageMetadata`.
+
+  POST /api/chat
+  POST /api/generate
+  GET  /api/tags
+       Ollama API. Local-first clients (Open WebUI, LobeChat,
+       continue.dev, llama.cpp's web UI) typically default to this.
+
+  POST /v1/agent/run    Native: full AgentTrace as JSON for clients
+                         that want loop visibility.
+  GET  /v1/models       OpenAI-compat model list.
+  GET  /healthz         Readiness probe with registered tools.
+
+### Architecture
+
+The server is a factory: `create_app(generator, config, model_name,
+tools)` returns a FastAPI app wired around a supplied generator,
+which makes test injection trivial. Pydantic request models live
+at module level (Pydantic v2 forward-ref resolution requires this)
+so the same shape definitions feed both runtime validation and
+OpenAPI schema generation. Vendor-specific shape conversion lives
+in module-level helpers (`_anthropic_extract_query`,
+`_trace_to_anthropic_content`, `_gemini_extract_query`, etc.) so
+the per-endpoint handlers stay terse and the conversion logic is
+unit-testable.
+
+The streaming OpenAI endpoint emits one SSE delta per assistant
+iteration plus a closing chunk with the final answer. Token-level
+streaming would require generator-callback hooks the runtime does
+not yet expose; iteration-level is what the current generator
+abstraction allows without re-architecture.
+
+### Tests
+
+[`tests/test_agent_server.py`](tests/test_agent_server.py) covers
+22 cases:
+
+  - **Introspection** (3): `/healthz`, `/v1/models`, `/api/tags`.
+  - **Native /v1/agent/run** (3): trace + metadata, max_iters
+    override, include_trace=False.
+  - **OpenAI** (5): basic completion, tool_calls surfaced with
+    JSON arguments, no tool_calls when plain answer, 400 on
+    missing user message, streaming yields `[DONE]` sentinel.
+  - **Anthropic** (5): string content, content-block format,
+    tool_use blocks in content array, text block, 400 on missing
+    user message.
+  - **Gemini** (3): basic generateContent, 400 on missing user
+    content, usageMetadata shape.
+  - **Ollama** (3): `/api/chat`, `/api/generate`, 400 on missing
+    user message.
+
+Total tests now 181, all green.
+
+### CLI
+
+```
+python -m ghostlm.agent.server \\
+    --checkpoint runs/v09chat/best.pt --port 8000 --offline
+```
+
+Without `--checkpoint`, spins up random ghost-tiny so the wiring
+can be smoke-tested without a model. Once a real checkpoint is
+loaded, ANY of these clients work against the same URL:
+
+```python
+# OpenAI SDK
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="anything")
+client.chat.completions.create(model="ghostlm",
+    messages=[{"role": "user", "content": "What is CVE-2017-0144?"}])
+
+# Anthropic SDK
+from anthropic import Anthropic
+client = Anthropic(base_url="http://localhost:8000", api_key="anything")
+client.messages.create(model="ghostlm", max_tokens=512,
+    messages=[{"role": "user", "content": "..."}])
+
+# Ollama Python client
+import ollama
+ollama.Client(host="http://localhost:8000").chat(model="ghostlm",
+    messages=[{"role": "user", "content": "..."}])
+```
+
+Plus curl, LangChain, LlamaIndex, Open WebUI, continue.dev, anything
+that talks one of the four shapes.
+
+### Why this matters
+
+Before today, GhostLM was a CLI tool. After today, it is a service
+with the broadest possible client surface. Any team that already has
+an OpenAI / Anthropic / Gemini / Ollama integration in their stack
+can point it at GhostLM by changing a base_url. This collapses the
+"how do I use this model in my product" friction to zero, which is
+exactly what a small-cybersec-LM project needs to be useful in real
+SOC environments.
+
+The server also unblocks evaluation against external benchmark
+harnesses that target these APIs (LMSYS Chat Arena, OpenAI evals,
+Anthropic's stress tests). When ghost-base lands, those harnesses
+become available without any glue code.
+
+---
+
 ## [0.9.11] — 2026-05-09 — GhostBench agent runner: every bet now scores end-to-end through the agent loop
 
 The piece that turns the agent runtime into a real research artifact.

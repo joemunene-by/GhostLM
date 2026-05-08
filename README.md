@@ -134,6 +134,17 @@ parses `<|tool_call|>` and `<|cite|>` tags, and emits a JSON-
 serialisable trace. See `ghostlm/agent/` for the runtime and
 `tests/test_agent.py` for the 31-case test suite.
 
+### Serve as an HTTP API (OpenAI / Anthropic / Gemini / Ollama compatible)
+```bash
+python -m ghostlm.agent.server --checkpoint runs/v09chat/best.pt --port 8000
+```
+Exposes the agent loop over five vendor-compatible endpoint
+families plus a native `/v1/agent/run`. Any client that already
+targets OpenAI, Anthropic, Google Gemini, or Ollama can point at
+the server unchanged. Tool calls happen server-side; the final
+cite-tagged answer comes back in whatever shape the SDK expects.
+Test suite at `tests/test_agent_server.py` (22 cases).
+
 ### Run Web Demo
 ```bash
 pip install gradio
@@ -381,7 +392,8 @@ GhostLM/
 │   ├── parser.py # bet 1 tool-call + bet 9 cite-tag parser
 │   ├── tools.py # CVE / MITRE / CWE / RAG tool registry
 │   ├── messages.py # AgentMessage + AgentTrace primitives
-│   └── runner.py # CLI: python -m ghostlm.agent --query ...
+│   ├── runner.py # CLI: python -m ghostlm.agent --query ...
+│   └── server.py # HTTP API: OpenAI / Anthropic / Gemini / Ollama
 ├── scripts/ # CLI tools
 │ ├── train.py # Training entry point
 │ ├── generate.py # Text generation
@@ -397,7 +409,7 @@ GhostLM/
 │ └── resume_train.sh # Resume an interrupted training run
 ├── data/ # Data pipeline
 ├── demo/ # Gradio web demo (demo/app.py)
-├── tests/ # 159 unit tests (incl. 31 agent runtime + 24 SFT pipeline + 10 GhostBench agent + bet 1-12 differentiation)
+├── tests/ # 181 unit tests (incl. 31 agent runtime + 24 SFT pipeline + 10 GhostBench agent + 22 HTTP server + bet 1-12 differentiation)
 └── Makefile # One-command workflow
 ```
 

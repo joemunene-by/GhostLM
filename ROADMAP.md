@@ -70,6 +70,10 @@ PYTHONPATH=. python3 scripts/train_ghost_base.py \
 
 `scripts/ghostbench_agent_run.py` composes GhostAgent with GhostBench: for every bet's held-out eval (bet 6 format-aware, bet 7 code-security, bet 8 binary-literacy, bet 9 provenance, bet 10 log-analysis, bet 11 IaC-security, bet 12 protocol-fields), runs the agent loop on every prompt and writes JSONL predictions that the existing `python -m ghostbench summary` and `python -m ghostbench compare` commands consume directly. A `--baseline` flag forces `max_iters=1` for the no-tools control, which produces the paired comparison via existing GhostBench machinery (Wilson CIs, McNemar p-values, Cohen's h). Until today, the agent runtime was unfalsifiable infrastructure; now every bet measures it with statistical rigor. When ghost-base lands, the same one-line invocation produces a publishable-shape per-bet table comparing ghost-base-with-tools vs ghost-base-baseline vs v0.9-chat-with-tools.
 
+### Multi-vendor HTTP server shipped (v0.9.12)
+
+`ghostlm/agent/server.py` exposes the agent loop over OpenAI Chat Completions (`/v1/chat/completions`), Anthropic Messages (`/v1/messages`), Google Gemini (`/v1beta/models/{model}:generateContent`), and Ollama (`/api/chat`, `/api/generate`, `/api/tags`). Tool calls happen server-side; final answers come back in the SDK's expected shape. Any team that already has an OpenAI / Anthropic / Gemini / Ollama integration in their stack can point it at GhostLM by changing one base_url. The server is a factory (`create_app(generator, config, model_name, tools)`) that takes any callable as the model abstraction, so tests inject stub generators while the CLI wires a real checkpoint. CLI: `python -m ghostlm.agent.server --checkpoint X --port 8000`. 22-case test suite at [`tests/test_agent_server.py`](tests/test_agent_server.py).
+
 ### Canonical models on disk
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
 - **Chat (best ghost-small):** `checkpoints/phase19_chat_v09/best_model.pt` (v0.9, wins all three MCQ benches on apples-to-apples scoring).
