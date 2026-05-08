@@ -1,0 +1,15 @@
+{"format": "code_write", "prompt": "Write a Python function that reverses a string.", "required_substrings": ["[::-1]", "def"]}
+{"format": "code_write", "prompt": "Write a Python function that checks whether a string is a palindrome (case-insensitive, ignoring punctuation).", "required_substrings": ["palindrome", "lower", "isalnum"]}
+{"format": "code_write", "prompt": "Write a Python function that counts the occurrences of each word in a string.", "required_substrings": ["Counter", "split"]}
+{"format": "code_write", "prompt": "Write a Python function that reads a CSV into a list of dicts.", "required_substrings": ["DictReader", "csv"]}
+{"format": "code_write", "prompt": "Write a Go function that reads a file line by line.", "required_substrings": ["bufio.Scanner", "scanner.Scan"]}
+{"format": "code_write", "prompt": "Write a Rust function that parses a string to int and propagates errors with `?`.", "required_substrings": ["parse", "Result", "?"]}
+{"format": "code_write", "prompt": "Write a JavaScript function that fetches JSON from a URL with a 5-second timeout.", "required_substrings": ["fetch", "AbortSignal", "json"]}
+{"format": "code_write", "prompt": "What's the idiomatic Python way to sort a list of dicts by a key?", "required_substrings": ["sorted", "key", "lambda"]}
+{"format": "code_write", "prompt": "Write a Python function for two-sum: given an array and target, return indices of two numbers that sum to target.", "required_substrings": ["two_sum", "dict", "complement"]}
+{"format": "code_write", "prompt": "Write a Python function that detects a cycle in a singly-linked list.", "required_substrings": ["slow", "fast", "Floyd"]}
+{"format": "code_write", "prompt": "Write Python code to atomically write a file (no partial-write visibility for a concurrent reader).", "required_substrings": ["mkstemp", "os.replace", "atomic"]}
+{"format": "code_write", "prompt": "Write a Python decorator that retries a flaky function with exponential backoff and jitter.", "required_substrings": ["retry", "exponential", "jitter"]}
+{"format": "code_write", "prompt": "What's the idiomatic Go way to spawn a goroutine that sends 5 values on a channel and closes it?", "required_substrings": ["goroutine", "close", "chan"]}
+{"format": "code_write", "prompt": "Write a Python function that fetches multiple URLs concurrently with asyncio.", "required_substrings": ["asyncio.gather", "ClientSession", "async"]}
+{"format": "code_write", "prompt": "Write a JavaScript debounce function that delays a callback by N ms after the most recent call.", "required_substrings": ["debounce", "setTimeout", "clearTimeout"]}

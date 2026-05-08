@@ -44,6 +44,8 @@ data/rag/
 !data/raw/protocol_fields_eval.jsonl
 !data/raw/code_explain_patterns.jsonl
 !data/raw/code_explain_eval.jsonl
+!data/raw/code_write_patterns.jsonl
+!data/raw/code_write_eval.jsonl
 !data/raw/chat/
 !data/raw/chat/general_knowledge.jsonl
 !data/raw/chat/programming_qa.jsonl
