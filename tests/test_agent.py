@@ -26,6 +26,7 @@ from ghostlm.agent import (
     parse_tool_calls,
 )
 from ghostlm.agent.parser import normalise_tags, strip_tool_call_blocks
+from ghostlm.agent.runner import make_generator_from_loaded
 from ghostlm.agent.tools import dispatch
 
 
@@ -297,3 +298,37 @@ class TestRuntime:
         s = trace.to_json()
         assert '"query"' in s
         assert '"final_answer": "answer"' in s
+
+
+# ---------------------------------------------------------------------------
+# make_generator_from_loaded (the MCP-server building block)
+# ---------------------------------------------------------------------------
+
+
+class TestMakeGeneratorFromLoaded:
+    def test_drives_agent_loop_against_random_weights(self):
+        """The refactored builder should produce a callable that the
+        GhostAgent runtime can drive against an already-loaded model
+        (mirrors how scripts/mcp_server.py wires the agent without
+        loading the checkpoint twice)."""
+        from ghostlm.config import GhostLMConfig
+        from ghostlm.model import GhostLM
+        from ghostlm.tokenizer import GhostTokenizer
+
+        cfg = GhostLMConfig.from_preset("ghost-tiny")
+        cfg.vocab_size = 50264
+        cfg.context_length = 64
+        model = GhostLM(cfg).eval()
+        tokenizer = GhostTokenizer()
+
+        gen = make_generator_from_loaded(
+            model, cfg, tokenizer, device="cpu",
+            max_new_tokens=8, temperature=1.0,
+            top_p=1.0, top_k=0, repetition_penalty=1.0,
+        )
+        assert callable(gen)
+        agent = GhostAgent(gen, RuntimeConfig(max_iters=1))
+        trace = agent.run("test")
+        assert trace.terminated_reason in (
+            "answer_emitted", "max_iterations", "model_error",
+        )

@@ -7,9 +7,17 @@ users register the server with::
     claude mcp add ghostlm -- python3 /path/to/GhostLM/scripts/mcp_server.py \\
         --checkpoint /path/to/checkpoints/phase5_chat/best_model.pt
 
-After that, six tools become available inside any Claude conversation:
+After that, seven tools become available inside any Claude conversation:
 
-Model-backed (chat-tuned GhostLM, subject to hallucination at 81M scale):
+Agent loop (full GhostAgent runtime with bet-1 tool dispatch + bet-9 cite tags):
+
+- ``ghostlm_agent(query, max_iters)``   run the full agent loop. The model
+  sees the cybersec system prompt, may emit <|tool_call|> blocks that the
+  runtime dispatches against the canonical CVE / MITRE / CWE / RAG tools,
+  and produces a cite-tagged final answer. Use this when you want the
+  model to do tool-grounded reasoning, not just direct chat.
+
+Direct model invocation (subject to 81M-scale hallucination):
 
 - ``ghostlm_query(question)``      free-form security Q&A.
 - ``ghostlm_explain_cve(cve_id)``  explain a specific CVE.
@@ -38,6 +46,8 @@ import torch
 # Allow running from any cwd by adding the repo root to sys.path.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from ghostlm.agent import GhostAgent, RuntimeConfig
+from ghostlm.agent.runner import make_generator_from_loaded
 from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM
 from ghostlm.tokenizer import GhostTokenizer
@@ -92,6 +102,24 @@ class GhostLMRuntime:
 
         self.tokenizer = GhostTokenizer()
         self.end_id = self.tokenizer._special_tokens[self.tokenizer.END]
+        self._agent: GhostAgent | None = None
+
+    def agent(self, max_iters: int = 6) -> GhostAgent:
+        """Lazily-built GhostAgent that reuses this runtime's loaded
+        model + tokenizer. Cached after first call; subsequent calls
+        with a different ``max_iters`` build a fresh agent on the same
+        underlying model so the cap is honoured per-request."""
+        if self._agent is not None and self._agent.config.max_iters == max_iters:
+            return self._agent
+        gen = make_generator_from_loaded(
+            self.model, self.config, self.tokenizer, self.device,
+            max_new_tokens=384, temperature=0.6,
+            top_p=0.9, top_k=0, repetition_penalty=1.15,
+        )
+        cfg = RuntimeConfig(max_iters=max_iters, max_new_tokens=384,
+                              temperature=0.6, top_p=0.9)
+        self._agent = GhostAgent(gen, cfg)
+        return self._agent
 
     def chat(
         self,
@@ -139,6 +167,45 @@ def runtime() -> GhostLMRuntime:
             "GhostLM runtime not initialized; start the server via main()"
         )
     return _runtime
+
+
+@mcp.tool()
+def ghostlm_agent(query: str, max_iters: int = 6,
+                    include_trace: bool = False) -> str:
+    """Run the full GhostAgent loop: tool-using agent over the cybersec model.
+
+    The model sees the GhostAgent system prompt and may emit
+    <|tool_call|>{json}<|/tool_call|> blocks. The runtime parses those,
+    dispatches them against the canonical tool registry (search_cve_nvd,
+    lookup_mitre_technique, lookup_cwe, rag_retrieve), feeds the responses
+    back, and lets the model produce a cite-tagged final answer.
+
+    Use this when you want the model to do tool-grounded reasoning over
+    structured cybersec data, not just direct chat. v0.9 chat may not
+    produce reliable tool calls (it predates the bet-1 SFT corpus); the
+    agent loop terminates safely on max_iters in that case.
+
+    Args:
+        query: A natural-language security question.
+        max_iters: Cap on model -> tool round-trips. Default 6.
+        include_trace: If True, prepend a JSON-serialised trace
+            (every message, every tool call, every cite tag) before
+            the final answer. Useful for debugging the loop.
+
+    Returns:
+        The cite-tagged final answer, optionally preceded by a JSON
+        trace block.
+    """
+    import json as _json
+    agent = runtime().agent(max_iters=max(1, max_iters))
+    trace = agent.run(query)
+    if include_trace:
+        trace_block = ("```json\n"
+                        + _json.dumps(trace.to_dict(), ensure_ascii=False,
+                                       indent=2)
+                        + "\n```\n\n")
+        return trace_block + (trace.final_answer or "")
+    return trace.final_answer or ""
 
 
 @mcp.tool()

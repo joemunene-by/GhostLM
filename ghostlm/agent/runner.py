@@ -129,14 +129,48 @@ def make_generator(
     top_k: int,
     repetition_penalty: float,
 ):
-    """Build a Generator callable wrapping a real GhostLM checkpoint."""
-    import torch
-    import torch.nn.functional as F
-    from ghostlm.tokenizer import GhostTokenizer
+    """Build a Generator callable wrapping a real GhostLM checkpoint.
 
+    Loads the checkpoint and constructs a fresh tokenizer, then
+    returns a closure that the GhostAgent runtime can drive. Returns
+    ``(generator, is_random_weights)``. Use this from the CLI runner.
+
+    For callers that already have a model + tokenizer in memory (e.g.
+    the MCP server, which keeps the model loaded for non-agent
+    direct-chat tools), use ``make_generator_from_loaded`` instead to
+    avoid a second checkpoint load.
+    """
     device = _resolve_device(device_arg)
     model, config, is_random = load_model(checkpoint_path, device)
+    from ghostlm.tokenizer import GhostTokenizer
     tokenizer = GhostTokenizer()
+    return make_generator_from_loaded(
+        model, config, tokenizer, device,
+        max_new_tokens, temperature, top_p, top_k, repetition_penalty,
+    ), is_random
+
+
+def make_generator_from_loaded(
+    model,
+    config,
+    tokenizer,
+    device: str,
+    max_new_tokens: int = 384,
+    temperature: float = 0.6,
+    top_p: float = 0.9,
+    top_k: int = 0,
+    repetition_penalty: float = 1.15,
+):
+    """Build a Generator callable from an already-loaded model.
+
+    Same body as ``make_generator`` but accepts the model / tokenizer /
+    device that the caller has already loaded. Useful for the MCP
+    server, tests, or any other place where the model is shared
+    between the agent loop and other code paths.
+    """
+    import torch
+    import torch.nn.functional as F
+
     end_id = tokenizer._special_tokens[tokenizer.END]
 
     def _sample_next(logits: torch.Tensor, prev_ids: list) -> int:
@@ -200,7 +234,7 @@ def make_generator(
 
         return tokenizer.decode(new_ids).strip()
 
-    return generate, is_random
+    return generate
 
 
 # ---------------------------------------------------------------------------
