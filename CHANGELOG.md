@@ -1360,6 +1360,91 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.24] — 2026-05-09 — code-write synth: 123 records from 40 patterns
+
+Companion to v0.9.23's code-explain. Where code-explain shows a
+snippet and asks the model to interpret it, code-write shows a
+description and asks the model to produce the implementation.
+Same templated-synth pattern, same 40-pattern bank size.
+
+### scripts/synth_code_write.py
+
+Variants per pattern:
+
+  pretrain_prose     markdown article: how to do X in Y.
+  write_function     USER: "write a function that...";
+                      ASSISTANT: implementation + short note.
+  write_idiomatic    USER: "what is the idiomatic Y way to X?";
+                      ASSISTANT: explanation + implementation.
+  compare            For patterns with alternative_implementations,
+                      USER asks for two ways with tradeoffs;
+                      ASSISTANT shows both with notes. Skipped
+                      otherwise.
+
+40 patterns × 3 reliable variants + 3 patterns × compare = **123
+records**.
+
+### data/raw/code_write_patterns.jsonl
+
+40 hand-curated patterns covering everyday code-writing tasks:
+
+  String / collections (10):  reverse, palindrome, max in list,
+                                word counts, sort by key, group by
+                                key, filter, map, sort dict by
+                                value, count vowels.
+  Algorithms / data structures (8): Fibonacci sequence, prime
+                                     check, recursive factorial,
+                                     BST insert, BFS, linked-list
+                                     reverse, cycle detection,
+                                     two-sum.
+  I/O + parsing (8):  read lines, HTTP GET, atomic write, parse
+                       args, read JSON, read CSV, validate email,
+                       parse query string.
+  Concurrency + retry (3):  retry with exponential backoff +
+                             jitter, asyncio.gather, debounce
+                             callback.
+  Multi-language coverage (11):  Go (reverse slice, HTTP GET,
+                                  goroutine + channel, read lines),
+                                  Rust (read file, parse to int,
+                                  sort by key), JavaScript
+                                  (fetch JSON, debounce, deep clone),
+                                  Python (sort dict, anagram check,
+                                  duplicates).
+
+Languages: Python, JavaScript, Go, Rust.
+
+### data/raw/code_write_eval.jsonl
+
+15 held-out eval prompts asking for specific implementations
+across Python / Go / Rust / JS. Required-substring scoring uses
+canonical tokens that any correct implementation contains
+(`Counter`, `bufio.Scanner`, `AbortSignal`, `mkstemp`,
+`asyncio.gather`, etc).
+
+### .gitignore
+
+Add code_write_patterns + code_write_eval to re-include list.
+
+### tests/test_code_write_synth.py
+
+8 cases: bank loads + size + record shape + 4 languages + unique
+ids (4), eval loads + shape (2), end-to-end synth produces ≥ 115
+records covering 3 reliable variant types (1), record format
+correct (1). Total tests now 276, all green where runnable.
+
+### Code SFT progress
+
+  before v0.9.23  bet 7 (243) + binary-literacy (109)
+                  + programming-qa (66) = 418
+  v0.9.23         + code-explain (200) = 618
+  v0.9.24         + code-write (123) = 741  <- this release
+  cybersec target ~1,940
+  remaining gap   ~1,199 records
+
+5-6 more templated-synth releases at this pace surpass cybersec.
+
+---
+
 ## [0.9.23] — 2026-05-09 — code-explain synth: 200 records from 40 patterns, code SFT push to surpass cybersec
 
 The user's stated target: "expand the code till it surpasses the
