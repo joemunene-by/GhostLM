@@ -1360,6 +1360,66 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.25] — 2026-05-09 — code-explain bank phase 2: 80 patterns / 400 SFT records
+
+Doubles the v0.9.23 code-explain bank from 40 to 80 patterns
+covering web frameworks, databases, testing, advanced concurrency,
+build systems, advanced algorithms, and language-specific advanced
+idioms. Each new pattern produces 5 variants, so the SFT corpus
+grows from 200 to 400 records (+200).
+
+### scripts/expand_code_explain_bank.py
+
+Idempotent expansion script analogous to v0.9.17/.19/.22. Loads
+existing bank, checks IDs, appends only the missing patterns
+(CE-041 through CE-080).
+
+### data/raw/code_explain_patterns.jsonl
+
+40 new patterns added on top of the v0.9.23 40 (now 80 total):
+
+  Web frameworks (4): Flask REST, FastAPI + Pydantic, Express
+                       POST handler, Go net/http JSON service
+  Databases (3): SQLAlchemy ORM, sqlite3 raw SQL, node-postgres
+                  pool with parameterised query
+  Testing (3): pytest fixtures + parametrize, Jest test.each, Go
+                table-driven test
+  Concurrency primitives (4): Python Lock, Go Mutex, Python
+                               Semaphore, Rust Arc + Mutex + thread
+  Patterns + algorithms (4): state machine via transition table,
+                              union-find with path compression,
+                              KMP string search, Dijkstra
+  Build / shell (2): bash safety flags, build-and-deploy script
+  Advanced idioms (4): Python ABC, sliding window via deque,
+                       contextlib.suppress, Rust higher-order fn
+  More algorithms (2): merge-k-sorted via heap, LIS via patience
+                       sorting
+  Language features (3): JS generators, Object.freeze, Rust derive
+  Web async + queues (2): asyncio.Queue producer/consumer, logging
+                          basicConfig
+  File system + OS (2): pathlib.rglob, subprocess.run with argv
+  Functional + data (2): functools.reduce, itertools.groupby
+  Errors + edge cases (2): Python custom exceptions + chaining,
+                            Go errors.As + custom error
+  Performance (3): sys.getsizeof, cProfile, Performance API
+
+Languages now: Python, JavaScript, TypeScript, Go, Rust, Java,
+shell, with broader coverage in each.
+
+### Code SFT progress
+
+  before v0.9.25  741 records
+  v0.9.25         +200 (code-explain bank doubled to 80 patterns)
+  after           941 records
+  cybersec        ~1,940
+  remaining gap   ~999
+
+Halfway to surpassing cybersec. Next planned: bet 7 phase 3
+(+120), code-write phase 2 (+150), then debug/refactor/programming-
+qa expansions to close the rest.
+
+---
+
 ## [0.9.24] — 2026-05-09 — code-write synth: 123 records from 40 patterns
 
 Companion to v0.9.23's code-explain. Where code-explain shows a

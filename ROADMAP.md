@@ -122,6 +122,10 @@ The original bet 7 bank (v0.9.5) had 12 code-security patterns, heavily Python-b
 
 `scripts/synth_code_write.py` is the companion to code-explain: where code-explain shows a snippet and asks the model to interpret it, code-write shows a description and asks the model to produce the implementation. 40 hand-curated patterns covering string / collection ops (10), algorithms + data structures (8), I/O and parsing (8), concurrency + retry (3), and multi-language coverage in Go / Rust / JavaScript (11). 4 variants per pattern (pretrain_prose, write_function, write_idiomatic, compare-when-alternatives-exist) produce **123 records**. 15 held-out eval prompts. 8 new test cases bringing the suite to 276, all green. Code SFT total now **741 records**, ~38% of the cybersec target, with several more templated-synth releases on the path to surpass.
 
+### Code-explain phase 2 shipped (v0.9.25)
+
+`data/raw/code_explain_patterns.jsonl` doubled from 40 to 80 patterns via `scripts/expand_code_explain_bank.py`, adding web frameworks (Flask, FastAPI, Express, Go net/http), databases (SQLAlchemy, sqlite3, node-postgres), testing (pytest, Jest, Go testing), concurrency primitives (Python Lock, Go Mutex, Semaphore, Arc+Mutex), advanced patterns (state machine, union-find, KMP, Dijkstra), build/shell scripts, advanced idioms (ABCs, sliding window, contextlib.suppress, Rust higher-order fns), language features (JS generators, Object.freeze, Rust derive), file system / OS (pathlib, subprocess), functional + data (reduce, groupby), errors + edge cases (custom exceptions, errors.As), and performance (cProfile, Performance API). 5 variants per pattern keeps the synth output at 5x the bank size, producing **400 records** (was 200). Code SFT total now **941 records**, ~48% of cybersec target.
+
 ### Canonical models on disk
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
 - **Chat (best ghost-small):** `checkpoints/phase19_chat_v09/best_model.pt` (v0.9, wins all three MCQ benches on apples-to-apples scoring).
