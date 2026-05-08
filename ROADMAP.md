@@ -90,6 +90,10 @@ The agent went from 4 demo-grade tools (CVE / MITRE / CWE / RAG) to 9 tools that
 
 `ghostlm/agent/web_ui.py` exports a single-page HTML chat UI; `ghostlm/agent/server.py` serves it at `GET /`. No build step, no JS framework, no external dependencies, vanilla JS hitting the existing `/v1/agent/run` and `/healthz` endpoints. Tool calls render as inline panels with the tool name + args, tool responses appear as separate messages with the wrapping tags stripped, cite tags become coloured chips. Six canned example queries exercise different tools. Combined with the HTTP server (v0.9.12), the demo experience is now: clone the repo, run `python -m ghostlm.agent.server --offline`, open localhost in a browser. Three commands, zero configuration. 2 new test cases bringing the suite to 212, all green.
 
+### Bet 7 expansion shipped (v0.9.17)
+
+The original bet 7 bank (v0.9.5) had 12 code-security patterns, heavily Python-biased (10/12). v0.9.17 expands to 32 patterns covering Python, JavaScript, Java, Go, C, Ruby, and PHP, adding new CWE classes (1321 prototype pollution, 1333 ReDoS, 134 format string, 190 integer overflow, 285 missing authz, 326 weak crypto, 915 mass assignment, 98 LFI). The existing `scripts/synth_code_security.py` reuses unchanged; the SFT corpus grows from 48 to 128 records. Held-out eval extended from 20 to 32 prompts covering the new languages. 9 new test cases, total tests 221, all green. This is the first half of "is code at similar level as cybersec?": the SFT answer goes from 48 records to 128, comparable to bets 1/6/9 sizes.
+
 ### Canonical models on disk
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
 - **Chat (best ghost-small):** `checkpoints/phase19_chat_v09/best_model.pt` (v0.9, wins all three MCQ benches on apples-to-apples scoring).

@@ -1360,6 +1360,79 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.17] — 2026-05-09 — bet 7 expansion: 32 patterns across 7 languages
+
+The original bet 7 bank (v0.9.5) had 12 code-security patterns,
+heavily Python-biased (10/12). This release expands the bank to 32
+patterns covering Python, JavaScript, Java, Go, C, Ruby, and PHP,
+adding new CWE classes (1321 prototype pollution, 1333 ReDoS,
+134 format string, 190 integer overflow, 285 missing authz, 326
+weak crypto, 915 mass assignment, 98 LFI). The existing
+`scripts/synth_code_security.py` produces 4 record variants per
+pattern, so the SFT corpus grows from 48 to **128 records** with
+no new templating code required.
+
+### data/raw/code_security_patterns.jsonl
+
+20 new patterns appended to the existing bank (PAT-013 through
+PAT-032). Each follows the established shape: id, cwe, name,
+language, vulnerable code, patched code, explanation,
+cve_examples. Languages by count:
+
+  python      14 (was 10; 4 new: yaml.load, MD5 password, ReDoS, missing authz)
+  javascript   4 (was 1; 3 new: prototype pollution, child_process exec, ReDoS)
+  java         3 (new: SQL Statement, ObjectInputStream, XXE)
+  go           3 (new: SQL Sprintf, math/rand, path traversal)
+  c            4 (was 1; 3 new: format string, integer overflow, UAF)
+  ruby         2 (new: YAML.load, mass assignment)
+  php          2 (new: mysql_query concat, LFI via include)
+
+### scripts/expand_code_security_bank.py
+
+One-shot idempotent expansion script. Loads the existing bank,
+checks which IDs are present, appends only the missing patterns
+from a hard-coded `NEW_PATTERNS` list. Re-running is a no-op. Joe
+runs this once on the Mac, then re-runs `synth_code_security.py`
+to produce the expanded SFT corpus.
+
+### data/raw/code_security_eval.jsonl
+
+Held-out eval expanded from 20 to 32 prompts. The 12 new prompts
+exercise the new languages (JavaScript prototype pollution, Java
+deserialization, Go path traversal, Go math/rand, C format string,
+C integer overflow, Ruby mass assignment, Ruby YAML.load, PHP LFI,
+Python MD5 password, Python ReDoS, Python missing authz). Required
+substrings keep the bet 7 quality bar: each prompt asserts the
+correct CWE label plus a specific term from the fix recipe.
+
+### tests/test_code_security_expansion.py
+
+9 cases covering: bank loads as valid JSONL, all 7 languages
+present, every pattern has the required fields and non-empty
+vulnerable / patched code, IDs are unique, the new CWE classes
+are present, eval loads with valid record shape, eval covers all
+7 languages, end-to-end synth integration produces ≥100 records
+from the expanded bank. Total tests now 221, all green.
+
+### Why this matters
+
+A SOC analyst doing code review reads more than Python. Java
+deserialization, Go SQL injection, JavaScript prototype pollution,
+C buffer overflows, PHP LFI: these are real CWE classes that hit
+real codebases. Before today, GhostLM saw 10 Python examples plus
+1 JS plus 1 C. After today the SFT corpus covers 7 languages with
+explicit cross-language CWE coverage, and the held-out eval scores
+the model on every one.
+
+This is the first half of the v0.9.x answer to "is code at the same
+level as cybersec?". The corpus answer is in v1.0 (code is 2.4% of
+tokens), but the SFT answer is now 128 records, comparable to bet
+6 (560), bet 9 (429), bet 1 (424). Still below cybersec parity but
+closing fast. v0.9.18 plans the general-knowledge SFT bank for the
+"general knowledge to be there" half of the same question.
+
+---
+
 ## [0.9.16] — 2026-05-09 — static demo UI: chat with GhostAgent in a browser
 
 `python -m ghostlm.agent.server --checkpoint X` now serves a single-
