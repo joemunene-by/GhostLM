@@ -393,7 +393,8 @@ GhostLM/
 │   ├── tools.py # CVE / MITRE / CWE / RAG tool registry
 │   ├── messages.py # AgentMessage + AgentTrace primitives
 │   ├── runner.py # CLI: python -m ghostlm.agent --query ...
-│   └── server.py # HTTP API: OpenAI / Anthropic / Gemini / Ollama
+│   ├── server.py # HTTP API: OpenAI / Anthropic / Gemini / Ollama
+│   └── teacher.py # OpenAI-compat client: any teacher as a Generator
 ├── scripts/ # CLI tools
 │ ├── train.py # Training entry point
 │ ├── generate.py # Text generation
@@ -409,7 +410,7 @@ GhostLM/
 │ └── resume_train.sh # Resume an interrupted training run
 ├── data/ # Data pipeline
 ├── demo/ # Gradio web demo (demo/app.py)
-├── tests/ # 181 unit tests (incl. 31 agent runtime + 24 SFT pipeline + 10 GhostBench agent + 22 HTTP server + bet 1-12 differentiation)
+├── tests/ # 194 unit tests (incl. 31 agent runtime + 24 SFT prep + 10 GhostBench agent + 22 HTTP server + 13 distillation + bet 1-12 differentiation)
 └── Makefile # One-command workflow
 ```
 

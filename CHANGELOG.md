@@ -1360,6 +1360,112 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.13] — 2026-05-09 — agent-trace distillation: bet 1 + bet 9 traces from any OpenAI-compatible teacher
+
+The 850 templated bet 1 + bet 9 traces produced by
+`scripts/synth_tool_use*.py` are structurally correct but come from
+a fixed template bank: every `search_cve_nvd` trace asks "What is
+{cve} about?" and every `lookup_cwe` trace asks "Explain CWE-{id}".
+A model trained only on those will overfit the templates. v0.9.13
+adds the pipeline that generates fresh, varied, real-teacher traces
+by driving any OpenAI-compatible teacher (Ollama, vLLM, OpenAI,
+Anthropic via a translator, anything that speaks the OpenAI wire
+format) through the GhostAgent runtime.
+
+### ghostlm/agent/teacher.py
+
+`OpenAICompatGenerator` is a Generator (a callable
+`(history) -> str`) that proxies to any OpenAI-compatible chat-
+completions endpoint. The constructor takes a base_url, api_key,
+and model identifier; the call wraps the agent's message history
+into the OpenAI request shape (TOOL role maps to user, with the
+existing `<|tool_response|>...<|/tool_response|>` wrapping inline)
+and returns the assistant's content verbatim. The runtime parses
+the tool-call blocks the same way it does for any other generator.
+
+The teacher is constructed once per distillation run and reused
+across all prompts. An `httpx.Client` is used for the actual HTTP
+calls so the same generator is testable via `httpx.MockTransport`
+without ever touching the network.
+
+### scripts/distill_agent_traces.py
+
+CLI that drives a teacher through GhostAgent across a prompts
+JSONL and writes the resulting traces in the bet-1 4-message text
+format (USER / ASSISTANT / TOOL / ASSISTANT) that
+`scripts/prep_tool_use_sft.py` already consumes. The output is
+drop-in compatible with the SFT pipeline:
+
+```
+PYTHONPATH=. python3 scripts/distill_agent_traces.py \
+  --teacher-base-url http://localhost:11434/v1 \
+  --teacher-model qwen2.5:14b \
+  --teacher-api-key ollama \
+  --prompts data/raw/curated_prompts.jsonl \
+  --out data/processed/distilled_tool_use.jsonl \
+  --require-cite
+
+PYTHONPATH=. python3 scripts/prep_tool_use_sft.py \
+  --in-tool-use data/processed/distilled_tool_use.jsonl \
+  --in-provenance data/processed/synth_tool_use_provenance.jsonl \
+  --base-train data/processed/chat_train.jsonl \
+  --out-train data/processed/chat_train_distilled.jsonl \
+  --out-val data/processed/chat_val_distilled.jsonl
+```
+
+Quality gates:
+  - `trace_to_bet1_text` only writes traces that fit the canonical
+    USER / ASSISTANT / TOOL / ASSISTANT shape; multi-tool-call
+    traces and traces missing a final answer are skipped.
+  - `--require-cite` skips traces without parseable cite tags
+    (the bet 9 quality bar). Use this when distilling for SFT.
+  - Stats line at end-of-run reports total / kept / skipped-shape
+    / skipped-no-cite / errors.
+
+### Why this matters
+
+Until today, the bet 1 + bet 9 SFT corpus was bounded by what the
+synth scripts could template. The templates produce 850 records;
+beyond that you get diminishing returns from variation. With this
+release, anyone can:
+
+  - Run Ollama with Qwen-14B locally and generate thousands more
+    high-quality bet-1 + bet-9 traces overnight, on M4 hardware.
+  - Mix templated + distilled corpora to get both structural
+    correctness AND natural variation.
+  - Distill from genuinely strong teachers (frontier APIs) when
+    creds are available, raising the upper bound on what GhostLM
+    can learn from SFT.
+
+Combined with v0.9.10's prep pipeline and v0.9.9's runtime, this
+closes the data-quality loop: stronger teachers -> more varied
+traces -> better SFT -> measurably better agent (now scorable
+through v0.9.11's GhostBench agent runner).
+
+### Tests
+
+[`tests/test_agent_distill.py`](tests/test_agent_distill.py)
+covers 13 cases:
+
+  - **OpenAICompatGenerator** (5): request body shape, role mapping
+    (TOOL -> user), non-200 raises, malformed response raises,
+    no-api-key omits Authorization header. All using
+    `httpx.MockTransport` so no network is needed.
+  - **trace_to_bet1_text** (3): valid 4-message trace produces
+    correct format, no-tool-call returns None, no-final-answer
+    returns None.
+  - **trace_has_cite_tag** (3): present in assistant counts,
+    absent does not, present only in user does not count.
+  - **End-to-end** (1): a stub-handler teacher emitting a perfect
+    bet-1 + bet-9 trace through the agent loop produces a valid
+    distilled record.
+  - **CLI subprocess** (1): `--teacher-base-url` pointed at an
+    unreachable port logs errors gracefully and exits 0.
+
+Total tests now 194, all green.
+
+---
+
 ## [0.9.12] — 2026-05-09 — multi-vendor HTTP server: OpenAI + Anthropic + Gemini + Ollama
 
 GhostAgent now speaks the request/response shapes of every major
