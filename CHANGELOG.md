@@ -1360,7 +1360,132 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
-## [0.9.5] — 2026-05-08 — nine differentiation bets, multi-modal-in-security, 1,505 templated training records
+## [0.9.6] — 2026-05-08 — GhostBench: a packaged eval suite turns the project into a research artifact
+
+The release that converts the v0.9.5 in-script eval scaffolding
+into a properly-packaged, statistically-rigorous, reusable
+benchmark suite anyone can pip-install (eventually) and point at
+any small open LM. Eight commits since v0.9.5; 80 new ghostbench
+tests on top of the existing 94 GhostLM tests = 174 green.
+
+### `ghostbench/` v0.1 + v0.2: new package
+
+Module layout:
+
+  - **`ghostbench/__init__.py`**: public API: `Bench`, `Suite`,
+    `EvalRecord`, `Prediction`, `Score`, `RunReport`, `wilson_ci`,
+    `mcnemar_test`, `cohen_h`, `paired_diff_ci`.
+  - **`ghostbench/stats.py`**: Wilson 95% CI, exact two-sided
+    McNemar's binomial test, Cohen's h effect size with arcsine
+    transform, Wilson-shifted paired-difference CI. Stdlib only,
+    pickle-safe, json-portable.
+  - **`ghostbench/scoring.py`**: `Score` data class with multi-tier
+    pass/fail (parse / fields / substrings / reserved semantic +
+    behavioural). `Score.passed` is strict-AND across the
+    *requested* tiers, not all possible ones. `score_record()` is
+    the operator-facing entry point.
+  - **`ghostbench/parsers.py`**: `DEFAULT_PARSERS` for the five
+    bets that have a structural validator (STIX / YARA / Sigma /
+    MISP / provenance). Bets 7 + 8 deliberately have no parser;
+    the scorer treats parse as vacuously True for them and the
+    substring tier carries the score.
+  - **`ghostbench/bench.py`**: `Bench` (one bet) + `Suite`
+    (collection) + `EvalRecord` / `Prediction` data classes.
+    `Suite.from_dir(eval_dir, parsers)` discovers benches by the
+    canonical filename convention.
+  - **`ghostbench/reports.py`**: `render_run_report`,
+    `render_per_format_breakdown`, `render_paired_comparison`
+    (with McNemar p / Cohen h / paired-diff CI / honest
+    interpretation paragraph), `render_suite_summary`,
+    `render_suite_paired_comparison` (one-row-per-bench with
+    significance markers).
+  - **`ghostbench/plot.py`**: matplotlib visualisations:
+    `plot_run_report`, `plot_suite_summary`,
+    `plot_paired_comparison` (per-tier bars + significance
+    markers + Cohen-h size labels), `plot_suite_paired_comparison`
+    (forest plot with accent on significant rows),
+    `plot_projections` (per-bench projection chart with two
+    distinct uncertainty layers). Lazy-imported so the package
+    is import-safe without matplotlib installed.
+  - **`ghostbench/projections.py`**: scaling-law-based forecasts:
+    exposure curve `asymptote * (1 - exp(-records / saturation_n))`
+    with per-bench priors, +/-30% asymptote credibility band, and
+    Wilson 95% statistical CI at the eval n. Output is a
+    `Projection` dataclass; `render_projection_table()` produces
+    the markdown table.
+  - **`ghostbench/__main__.py`**: CLI entry: `python -m ghostbench
+    [score | summary | compare | suite-compare]`.
+  - **`ghostbench/tests/`**: 80 unit tests covering Wilson CI /
+    Cohen's h / McNemar / paired-diff CI / multi-tier scoring /
+    suite discovery / paired comparison / suite paired
+    comparison / projections / plotting (skipped cleanly if
+    matplotlib missing).
+  - **`ghostbench/examples/`**: five PNG plots showing the full
+    visualisation toolkit on synthetic data.
+
+### Statistical rigour beyond the v0.9.5 in-script eval
+
+  - Wilson CI for binomial proportions (right at small n, doesn't
+    blow up at p near 0/1, less conservative than Clopper-Pearson).
+  - Cohen's h with the standard small/medium/large cuts. Keeps
+    the interpretation honest when a 6x relative lift at p=0.01
+    is actually a "small" effect.
+  - Exact two-sided McNemar's binomial test for paired comparisons
+    (n_discordant <= 25 typical). Right tool when the same eval
+    prompts are scored under two checkpoints.
+  - Newcombe-style paired-difference Wilson-shifted CI on the
+    proportion delta. Tighter than two independent Wilson intervals
+    when the data are paired.
+
+### `scripts/build_v15_combined_synth.py` + `scripts/run_all_baselines.py`
+
+Two infrastructure scripts shipped earlier in the v0.9.6 cycle:
+
+  - `build_v15_combined_synth.py` merges the five templated-synth
+    JSONL outputs into one corpus tagged by training-time use
+    (587 pretrain + 918 SFT = 1,505 total). The output is what
+    the ghost-base trainer will read.
+  - `run_all_baselines.py` is a one-command reproducer: runs all
+    four held-out evals (bet 6 / 7 / 8 / 9) against any checkpoint
+    and writes per-bet scoring reports plus a combined summary.
+    Verified to reproduce the v0.9.5 0/87 baseline exactly.
+
+### `docs/ghost_base_projections.md`
+
+A standalone doc that pulls the v0.9.5 record counts through
+`ghostbench.projections.project_suite()` and renders both the
+markdown table and the chart. Sets calibrated expectations for
+the GPU run:
+
+  - bet 6 (well-resourced, 560 records): projected 61% [42.7-79.4]
+  - bet 7 (under-resourced, 36 records):  projected  6% [4.4-8.1]
+  - bet 8 (under-resourced, 29 records):  projected  3% [2.0-3.6]
+  - bet 9 (well-resourced, 429 records):  projected 75% [52.8-98.0]
+
+The doc explicitly calls out what the projections do NOT claim
+(they're projections, not predictions; assumptions about training-
+quality may not hold; the actual ghost-base measurement could fall
+outside the band, in which case the gap itself is a finding worth
+investigating). Two recommended pre-GPU interventions for bet 7
+and bet 8 are documented.
+
+### Why v0.9.6 matters
+
+Before this release, GhostLM was a credible small-model project
+with eval scaffolding embedded in scripts. After this release, the
+eval layer is a properly-packaged, model-agnostic, statistically-
+rigorous benchmark suite. The same `Suite` machinery that scores
+GhostLM checkpoints can score SmolLM2, Qwen2.5-0.5B, Llama-3.2-1B
+side-by-side; the `compare` and `suite-compare` CLI commands
+produce the publication-grade artifact for "did the new
+checkpoint actually beat the baseline at p<0.05."
+
+That converts the project from "interesting work" to "reusable
+research infrastructure." Reviewers / researchers / companies
+landing on GhostLM see a benchmark they could adopt for their
+own small-LM work, not just a model they can download.
+
+---
 
 The release that converts "six bets, three measured" into "nine
 bets, all shipped, 1,505 deterministic templated SFT records ready
