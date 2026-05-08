@@ -3,9 +3,12 @@
 These are the publication-grade visuals: forest plots with Wilson 95%
 CI error bars, per-bench bar charts, suite paired-comparison forest
 plots showing which bets a new checkpoint won on with statistical
-significance. All plots are designed to drop straight into a paper
-or blog post; the styling is intentionally restrained (single
-colour family, no chartjunk) so the data carries the visual weight.
+significance, and projection charts showing expected ghost-base
+scores with both methodological and statistical uncertainty layers.
+
+All plots are designed to drop straight into a paper or blog post;
+the styling is intentionally restrained (single colour family, no
+chartjunk) so the data carries the visual weight.
 
 Module is import-safe without matplotlib installed: every public
 function does a lazy import and emits a clear error if the user
@@ -29,6 +32,12 @@ Public API:
     plot_suite_paired_comparison(a_reports, b_reports, out_path=None, ...)
         One row per bench, paired difference with CI, highlighted
         rows for statistically-significant lifts.
+
+    plot_projections(projections, out_path=None, ...)
+        Per-bench projection chart showing point estimate +
+        methodological credibility band + Wilson 95% statistical CI.
+        The visualisation that says 'here's what ghost-base is
+        likely to score, with uncertainty.'
 
 All functions return the matplotlib Figure so callers can add
 custom annotations or save in any format.
@@ -330,6 +339,85 @@ def plot_paired_comparison(a_report: RunReport, b_report: RunReport,
 # ---------------------------------------------------------------------------
 # Suite paired comparison (forest plot)
 # ---------------------------------------------------------------------------
+
+
+def plot_projections(projections, out_path: Optional[str] = None,
+                       title: Optional[str] = None,
+                       figsize: Tuple[float, float] = (9.0, 5.0)):
+    """Per-bench projection chart with two uncertainty layers.
+
+    Each bench gets:
+      - point estimate: a coloured marker at the projected pass rate
+      - methodological band: a wide light bar on the +/-30%-asymptote
+        credibility interval (the "we're guessing the asymptote"
+        uncertainty)
+      - Wilson 95% CI: a narrower error bar overlaid on the marker
+        (the "small-n statistical" uncertainty at the eval set's n)
+
+    Right plot for the 'expected results' section of the ghost-base
+    spec doc: communicates two distinct sources of uncertainty
+    without conflating them.
+
+    Args:
+        projections: Iterable of Projection objects from
+                     ``ghostbench.projections.project_suite()``.
+    """
+    plt = _require_matplotlib()
+
+    projs = list(projections)
+    if not projs:
+        raise ValueError("no projections to plot")
+
+    fig, ax = plt.subplots(figsize=figsize)
+    y_positions = list(range(len(projs)))
+
+    for i, p in enumerate(projs):
+        # Wide band: methodological credibility interval (asymptote +/- 30%).
+        ax.plot(
+            [p.methodological_lo, p.methodological_hi],
+            [i, i],
+            color=_PALETTE["fill"], linewidth=14, solid_capstyle="round",
+        )
+        # Narrower band: Wilson statistical CI at projected score.
+        ax.plot(
+            [p.wilson_lo, p.wilson_hi],
+            [i, i],
+            color=_PALETTE["b"], linewidth=4, solid_capstyle="round",
+        )
+        # Point estimate marker.
+        ax.scatter([p.point_estimate], [i],
+                    color=_PALETTE["sig"], s=80, zorder=4,
+                    edgecolor=_PALETTE["sig"])
+        # Right-margin annotation with the records-seen number.
+        ax.text(
+            105, i,
+            f"  records: {p.records_seen}, "
+            f"asymptote: {100 * p.asymptote:.0f}%",
+            va="center", ha="left", fontsize=9, color=_PALETTE["text"],
+        )
+
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels([p.bench_name for p in projs], fontsize=10)
+    ax.invert_yaxis()
+    ax.set_xlim(-5, 200)
+    ax.set_xlabel("Projected pass rate (%)")
+    ax.set_title(
+        title or "Ghost-base projections (point + methodological band + Wilson 95% CI)"
+    )
+    ax.set_axisbelow(True)
+    ax.xaxis.grid(True, color=_PALETTE["grid"], linewidth=0.6)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    ax.text(
+        0.5, -0.15,
+        "Light wide band: methodological credibility (asymptote ± 30%).   "
+        "Solid narrow band: Wilson 95% CI at eval n.   "
+        "Marker: point estimate.",
+        transform=ax.transAxes, ha="center", va="top",
+        fontsize=8, color=_PALETTE["text"],
+    )
+    fig.tight_layout()
+    return _save_or_return(fig, out_path)
 
 
 def plot_suite_paired_comparison(a_reports: List[RunReport],
