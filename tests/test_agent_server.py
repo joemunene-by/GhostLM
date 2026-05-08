@@ -65,6 +65,22 @@ def plain_client():
 # ---------------------------------------------------------------------------
 
 
+class TestStaticUI:
+    def test_index_serves_html(self, two_step_client):
+        r = two_step_client.get("/")
+        assert r.status_code == 200
+        assert "text/html" in r.headers.get("content-type", "")
+        body = r.text
+        assert "<html" in body and "</html>" in body
+        assert "<form" in body
+        assert "/v1/agent/run" in body  # JS calls into the native API
+
+    def test_index_lists_tool_examples(self, two_step_client):
+        r = two_step_client.get("/")
+        # The UI ships canned example queries; spot-check one.
+        assert "CVE-2017-0144" in r.text
+
+
 class TestIntrospection:
     def test_healthz(self, two_step_client):
         r = two_step_client.get("/healthz")

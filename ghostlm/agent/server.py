@@ -70,13 +70,15 @@ from typing import Any, Callable, Dict, List, Optional
 try:
     from fastapi import Body, FastAPI, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import StreamingResponse
+    from fastapi.responses import HTMLResponse, StreamingResponse
     from pydantic import BaseModel, Field
     _FASTAPI_AVAILABLE = True
 except ImportError:  # pragma: no cover
     _FASTAPI_AVAILABLE = False
     BaseModel = object  # type: ignore
     Field = lambda *a, **k: None  # type: ignore
+
+from .web_ui import INDEX_HTML
 
 from .messages import AgentMessage, AgentTrace, MessageRole
 from .runtime import GhostAgent, RuntimeConfig
@@ -341,6 +343,11 @@ def create_app(
     # ------------------------------------------------------------------
     # Health + introspection
     # ------------------------------------------------------------------
+
+    @app.get("/", response_class=HTMLResponse)
+    def index() -> str:
+        """Static demo UI: minimal HTML chat that hits /v1/agent/run."""
+        return INDEX_HTML
 
     @app.get("/healthz")
     def healthz() -> Dict[str, Any]:
