@@ -479,6 +479,19 @@ def parse_args() -> argparse.Namespace:
                         "of training pairs.")
     p.add_argument("--programming-qa-val-frac", type=float, default=0.1,
                    help="Held-out fraction of programming_qa for val.")
+    p.add_argument("--math-reasoning",
+                   default="data/raw/chat/math_reasoning.jsonl",
+                   help="Hand-written math + reasoning bank "
+                        "(arithmetic, algebra, geometry, word "
+                        "problems, probability, statistics, logic, "
+                        "proofs). Set to '' to skip.")
+    p.add_argument("--math-reasoning-multiplier", type=int, default=4,
+                   help="Copies of math_reasoning to inject. Default "
+                        "4x; the math corpus already has open-web-"
+                        "math at 6 percent of pretrain, so the SFT "
+                        "bank is a thinner topping.")
+    p.add_argument("--math-reasoning-val-frac", type=float, default=0.1,
+                   help="Held-out fraction of math_reasoning for val.")
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
@@ -611,6 +624,27 @@ def main() -> None:
               f"{len(pq_train_over):,})")
         train_pairs.extend(pq_train_over)
         val_pairs.extend(pq_val)
+
+    # Math + reasoning seed (arithmetic, algebra, geometry, word
+    # problems, probability, statistics, logic, proofs). Default 4x
+    # multiplier; the math pretrain corpus already covers open-web-
+    # math at 6 percent, so the SFT topping is thinner.
+    if args.math_reasoning and Path(args.math_reasoning).exists():
+        mr_all = load_jsonl(Path(args.math_reasoning))
+        rng.shuffle(mr_all)
+        n_mr_val = max(1, int(len(mr_all)
+                                * args.math_reasoning_val_frac))
+        mr_val = mr_all[:n_mr_val]
+        mr_train_unique = mr_all[n_mr_val:]
+        mr_train_over = (mr_train_unique
+                          * args.math_reasoning_multiplier)
+        print(f"  math_reasoning: unique={len(mr_all):,} "
+              f"(val={len(mr_val):,}, train_unique="
+              f"{len(mr_train_unique):,}, train_after_"
+              f"×{args.math_reasoning_multiplier}="
+              f"{len(mr_train_over):,})")
+        train_pairs.extend(mr_train_over)
+        val_pairs.extend(mr_val)
 
     rng.shuffle(train_pairs)
     rng.shuffle(val_pairs)

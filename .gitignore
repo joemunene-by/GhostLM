@@ -45,6 +45,7 @@ data/rag/
 !data/raw/chat/
 !data/raw/chat/general_knowledge.jsonl
 !data/raw/chat/programming_qa.jsonl
+!data/raw/chat/math_reasoning.jsonl
 !data/processed/.gitkeep
 
 # Model checkpoints
