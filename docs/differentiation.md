@@ -320,11 +320,14 @@ no other small cybersec LM trains on this distribution.
     a credential-stealer's HTTP-POST routine, etc.) paired with
     natural-language explanation.
 
-**Scaffold (planned).** Pattern bank at
+**Scaffold.** Pattern bank at
 [`data/raw/binary_literacy_patterns.jsonl`](../data/raw/binary_literacy_patterns.jsonl)
-plus a synthesis script following the same template-emit pattern
-as bets 6 and 7. The corpus contribution mixes into ghost-base
-pretrain at single-digit-percent of tokens.
+(15 patterns spanning file_magic / packer / shellcode / pe_field /
+disassembly) plus
+[`scripts/synth_binary_literacy.py`](../scripts/synth_binary_literacy.py)
+that emits 44 records (15 pretrain prose + 15 hex-identification
+Q&A + 14 show-magic Q&A) at 100% parser-pass. Detail in
+[`docs/binary_literacy_synth.md`](binary_literacy_synth.md).
 
 **Why it's the differentiator.** This is the bet that reaches the
 "papers + research-community attention" altitude. Reading a hex
@@ -359,12 +362,15 @@ makes a factual claim without an inline cite. SFT loss masks the
 cite tags so the model learns when to emit them, not just to
 copy them.
 
-**Scaffold (planned).** Extension to
-[`scripts/synth_tool_use.py`](../scripts/synth_tool_use.py) that
-emits cite-augmented traces from the same corpus seeds, plus an
-update to `trace_quality_ok` that requires at least one cite tag
-per assistant turn. ~500 cite-augmented templated traces stack on
-top of the existing 424 plain tool-use traces.
+**Scaffold.**
+[`scripts/synth_tool_use_provenance.py`](../scripts/synth_tool_use_provenance.py)
+emits cite-augmented traces over the same seeds as bet 1's
+synth_tool_use.py. New filter `trace_with_cites_quality_ok` requires
+at least one valid `<|cite|>{source_type}:{source_id}<|/cite|>` tag
+in the final answer. First run (2026-05-08) produced **429 records,
+99.8% acceptance**, stacked on top of bet 1's 424 plain traces for
+an ~853-record SFT corpus. Detail in
+[`docs/provenance_synth.md`](provenance_synth.md).
 
 **Why it's the differentiator.** "Show your work" is the
 property security operators want most and current LMs fail
@@ -446,11 +452,31 @@ The nine scaffolds collectively shift GhostLM from "another point
 on the small-cybersec-LM benchmark plot" to "an artifact with a
 recognizable shape: tool-grounded, continuously updated, cybersec-
 tokenized, long-context, sparsely-activated, structurally literate,
-code-aware, binary-aware, and provenance-aware". Each scaffold is
-already in the repo (or, for bets 8 and 9, framed with the same
-template-emit pattern that bets 6 and 7 use, so the implementation
-is a known shape). The strategic claim isn't that any one bet
-definitely works; it's that the **combination** of nine reasonable
-bets gives GhostLM a defensible identity at the analyst-workflow
-altitude that parameter-scale-only roadmaps and big-model-leaderboard
-roadmaps both fail to occupy.
+code-aware, binary-aware, and provenance-aware". **All nine are
+shipped as runnable scaffolds in the repo as of 2026-05-08.**
+
+Combined templated-synth corpus on the bench:
+
+| Bet | Records | Acceptance |
+|---|---:|---:|
+| 1 (tool-use, plain) | 424 | 98.6% |
+| 6 (format-aware: STIX / YARA / Sigma / MISP) | 560 | 99.8% |
+| 7 (code-for-security) | 48 | 100.0% |
+| 8 (binary / hex literacy) | 44 | 100.0% |
+| 9 (tool-use with provenance cites) | 429 | 99.8% |
+| **TOTAL** | **1,505** | **99.4%** |
+
+That's the deterministic floor. LLM-distilled records on top
+(bets 1 + 6 production runs at ~$200 + $50-100 budget) provide
+idiomatic variety, bringing the realistic ghost-base SFT-data mix
+to ~10K records.
+
+The strategic claim isn't that any one bet definitely works; it's
+that the **combination** of nine reasonable bets gives GhostLM a
+defensible identity at the analyst-workflow altitude that
+parameter-scale-only roadmaps and big-model-leaderboard roadmaps
+both fail to occupy. Bets 7-9 are the additions that move the
+project from "narrow cybersec specialist" to "exceptional within
+the security-analyst workflow envelope, beyond what general-purpose
+small LMs can offer." That is the response to "what would make
+GhostLM exceptional, not just narrow?"
