@@ -147,7 +147,10 @@ families plus a native `/v1/agent/run`. Any client that already
 targets OpenAI, Anthropic, Google Gemini, or Ollama can point at
 the server unchanged. Tool calls happen server-side; the final
 cite-tagged answer comes back in whatever shape the SDK expects.
-Test suite at `tests/test_agent_server.py` (22 cases).
+Open `http://localhost:8000/` in a browser for the built-in chat
+demo UI (single-page, no JS framework, hits `/v1/agent/run` and
+renders the trace inline). Test suite at
+`tests/test_agent_server.py` (24 cases).
 
 ### Run Web Demo
 ```bash
@@ -398,7 +401,8 @@ GhostLM/
 │   ├── messages.py # AgentMessage + AgentTrace primitives
 │   ├── runner.py # CLI: python -m ghostlm.agent --query ...
 │   ├── server.py # HTTP API: OpenAI / Anthropic / Gemini / Ollama
-│   └── teacher.py # OpenAI-compat client: any teacher as a Generator
+│   ├── teacher.py # OpenAI-compat client: any teacher as a Generator
+│   └── web_ui.py # Static HTML demo UI served at GET /
 ├── scripts/ # CLI tools
 │ ├── train.py # Training entry point
 │ ├── generate.py # Text generation
@@ -414,7 +418,7 @@ GhostLM/
 │ └── resume_train.sh # Resume an interrupted training run
 ├── data/ # Data pipeline
 ├── demo/ # Gradio web demo (demo/app.py)
-├── tests/ # 210 unit tests (incl. 47 agent runtime + 24 SFT prep + 10 GhostBench agent + 22 HTTP server + 13 distillation + 5 MCP agent + bet 1-12 differentiation)
+├── tests/ # 212 unit tests (incl. 47 agent runtime + 24 SFT prep + 10 GhostBench agent + 24 HTTP server + 13 distillation + 5 MCP agent + bet 1-12 differentiation)
 └── Makefile # One-command workflow
 ```
 

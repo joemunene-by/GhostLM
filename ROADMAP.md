@@ -86,6 +86,10 @@ PYTHONPATH=. python3 scripts/train_ghost_base.py \
 
 The agent went from 4 demo-grade tools (CVE / MITRE / CWE / RAG) to 9 tools that correspond to a SOC analyst's actual investigative loop: `lookup_cisa_kev` (Known Exploited Vulnerabilities, public CISA feed, no API key), `lookup_greynoise` (IP scanner / benign / malicious classification, GREYNOISE_API_KEY), `lookup_virustotal_hash` (file-hash reputation, VIRUSTOTAL_API_KEY), `lookup_shodan` (IP service profile, SHODAN_API_KEY), `lookup_alienvault_otx` (IOC pulse search, OTX_API_KEY). Each follows the same try-real-then-cache pattern: live API when keys are set, offline cache fallback otherwise, structured `not_found` response when neither matches. Default system prompt updated to surface all 9 tools to the model. 15 new test cases bringing the suite to 210, all green.
 
+### Static demo UI shipped (v0.9.16)
+
+`ghostlm/agent/web_ui.py` exports a single-page HTML chat UI; `ghostlm/agent/server.py` serves it at `GET /`. No build step, no JS framework, no external dependencies, vanilla JS hitting the existing `/v1/agent/run` and `/healthz` endpoints. Tool calls render as inline panels with the tool name + args, tool responses appear as separate messages with the wrapping tags stripped, cite tags become coloured chips. Six canned example queries exercise different tools. Combined with the HTTP server (v0.9.12), the demo experience is now: clone the repo, run `python -m ghostlm.agent.server --offline`, open localhost in a browser. Three commands, zero configuration. 2 new test cases bringing the suite to 212, all green.
+
 ### Canonical models on disk
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
 - **Chat (best ghost-small):** `checkpoints/phase19_chat_v09/best_model.pt` (v0.9, wins all three MCQ benches on apples-to-apples scoring).

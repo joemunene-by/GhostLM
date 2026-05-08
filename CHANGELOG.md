@@ -1360,6 +1360,69 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.16] — 2026-05-09 — static demo UI: chat with GhostAgent in a browser
+
+`python -m ghostlm.agent.server --checkpoint X` now serves a single-
+page HTML demo at `GET /` with no build step, no JS framework, no
+external dependencies. Open the URL in a browser, ask a question,
+watch the agent loop dispatch tools and emit a cite-tagged answer
+inline. The point is to make the GhostLM demo experience three
+commands and zero configuration: clone, start server, open browser.
+
+### ghostlm/agent/web_ui.py
+
+A single Python module exporting `INDEX_HTML`, the full demo UI as
+a string. The HTML embeds CSS and vanilla JS, hits the existing
+`/healthz` endpoint to discover the model name and registered
+tools, then `POST /v1/agent/run` for each user query with
+`include_trace: true`. The trace is rendered inline:
+
+  - Assistant prose with `<|cite|>type:id<|/cite|>` tags converted
+    to coloured chips.
+  - Tool calls broken out into `tool-block` panels showing the
+    tool name + args.
+  - Tool responses shown as separate messages with the
+    `<|tool_response|>` wrapper stripped.
+  - A trace-meta line per assistant turn showing termination
+    reason, iteration count, and total latency.
+
+The header shows the loaded model and the full list of registered
+tools, so visitors can see at a glance what the agent has access to
+(9 tools as of v0.9.15: CVE / MITRE / CWE / RAG / CISA KEV /
+GreyNoise / VirusTotal / Shodan / OTX).
+
+Six canned example queries below the header give a one-click way
+to exercise different tools.
+
+### ghostlm/agent/server.py
+
+New `GET /` route returns the demo UI as `HTMLResponse`. No other
+endpoints affected; the API surface (OpenAI / Anthropic / Gemini /
+Ollama / native) is unchanged.
+
+### Tests
+
+[`tests/test_agent_server.py`](tests/test_agent_server.py) gains 2
+cases: index serves valid HTML with the form + fetch wiring, and
+the canned example queries are present. Total tests now 212, all
+green.
+
+### Why this matters
+
+The HTTP server (v0.9.12) made GhostLM reachable from any OpenAI /
+Anthropic / Gemini / Ollama client. The demo UI makes it reachable
+from a browser with zero setup. Combined: visitors to the GitHub
+README can run `python -m ghostlm.agent.server --offline` and have
+a working chat interface in seconds. That collapses the
+"how do I see this work?" friction to a single line.
+
+The UI is intentionally minimal: no build step, no framework, no
+package.json, no node_modules. Vanilla JS hitting a JSON API. The
+whole UI is one Python module so there's no static-asset
+deployment story either.
+
+---
+
 ## [0.9.15] — 2026-05-09 — five new real-world cybersec tools (CISA KEV + GreyNoise + VirusTotal + Shodan + OTX)
 
 The agent went from 4 demo-grade tools (CVE / MITRE / CWE / RAG) to
