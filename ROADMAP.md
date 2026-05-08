@@ -62,6 +62,10 @@ PYTHONPATH=. python3 scripts/train_ghost_base.py \
 
 `ghostlm/agent/` is a production-shaped tool-using agent runtime that wraps any GhostLM checkpoint. It exercises bets 1 (`<|tool_call|>` traces) and 9 (`<|cite|>` tags) end-to-end: parser, tools registry (CVE / MITRE / CWE / RAG with offline caches), loop, JSON-serialisable trace. Works against any GhostLM checkpoint today (v0.9 chat will produce poor tool calls; the loop terminates safely via `answer_emitted` or the max-iterations cap). When ghost-base trains on `synth_v1.jsonl`, the runtime is already wrapped around it. CLI: `python -m ghostlm.agent --query "..."`. 31-case test suite at [`tests/test_agent.py`](tests/test_agent.py).
 
+### Tool-use SFT pipeline shipped (v0.9.10)
+
+`scripts/prep_tool_use_sft.py` converts the bet 1 + bet 9 synth traces (~850 records) into chat-format SFT records, with optional mixing into the existing chat data so v0.9's small-talk + identity SFT survives. `scripts/eval_agent.py` runs the agent loop against held-out provenance eval (n=15), scores on `required_substrings` with Wilson 95% CI, and supports a `--baseline` mode (max_iters=1) for paired comparison vs no-tool-use. The pipeline is M4-runnable in a few hours: synth -> prep -> SFT on v0.9 -> agent eval, with every step reproducible from one CLI line. Format compliance is the kind of narrow signal small models *can* learn even when fact recall floors at 81M params, so v0.9-chat-with-tools could plausibly produce a working agent demo before GPU compute lands.
+
 ### Canonical models on disk
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
 - **Chat (best ghost-small):** `checkpoints/phase19_chat_v09/best_model.pt` (v0.9, wins all three MCQ benches on apples-to-apples scoring).

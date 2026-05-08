@@ -397,7 +397,7 @@ GhostLM/
 │ └── resume_train.sh # Resume an interrupted training run
 ├── data/ # Data pipeline
 ├── demo/ # Gradio web demo (demo/app.py)
-├── tests/ # 125 unit tests (incl. 31 agent runtime + bet 1-12 differentiation)
+├── tests/ # 149 unit tests (incl. 31 agent runtime + 24 SFT pipeline + bet 1-12 differentiation)
 └── Makefile # One-command workflow
 ```
 

@@ -1360,6 +1360,137 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.10] — 2026-05-08 — tool-use SFT pipeline + agent eval harness
+
+The bridge between v0.9.9's runtime and a v0.9 chat checkpoint that
+can actually use it. Three pieces: a prep script that converts the
+existing bet 1 + bet 9 synth traces into chat-format SFT records, a
+held-out-eval runner that scores agent traces with strict + soft
+pass rates and Wilson CI, and 24 unit tests covering the pipeline.
+
+### scripts/prep_tool_use_sft.py
+
+Converts the bet-1 four-message trace string (USER / ASSISTANT /
+TOOL / ASSISTANT) into the two-role chat shape the existing
+`ChatDataset` expects. The TOOL response maps to the next USER turn
+(carrying its `<|tool_response|>...` wrapping verbatim), so the
+model sees the bet-1 wire format inline in conversation. Loss is
+auto-masked to assistant tokens by `ChatDataset`, which means the
+model learns BOTH "when to emit a tool call" (assistant turn 2) and
+"how to synthesize cite-tagged answers from tool responses"
+(assistant turn 4). The script also takes optional `--base-train` /
+`--base-val` flags so the converted records mix into the existing
+chat SFT corpus, preserving v0.9's small-talk + identity behaviour
+instead of overwriting it.
+
+A deterministic 95/5 train/val split keyed on a stable hash of
+each record (`source` + `seed_id` + first-100-chars of user content)
+guarantees the same record always lands in the same split across
+runs, which matters when comparing multiple SFT runs.
+
+### scripts/eval_agent.py
+
+Runs the agent loop against a held-out eval set
+([`data/raw/provenance_eval.jsonl`](data/raw/provenance_eval.jsonl),
+n=15) and scores each trace by `required_substrings` presence:
+strict pass-rate (all substrings present, with Wilson 95% CI) and
+soft pass-rate (mean fraction present). Crucially the scorer
+**excludes USER and SYSTEM messages**: many provenance eval prompts
+mention the entity ("What is CVE-2017-0144?"), so naive
+concatenation would credit substrings already in the question. The
+scored content is ASSISTANT messages plus TOOL responses, which
+honestly measures what the model produced or grounded through tool
+dispatch.
+
+A `--baseline` flag forces `max_iters=1` so the model emits one
+message and the loop terminates without dispatching tools. This is
+the no-tools control for paired comparison: same prompt, same
+generation params, same agent runtime, but no chance for the model
+to see tool responses. Comparing tools-on vs tools-off scores tells
+you whether the SFT actually changed tool-use behaviour.
+
+### Tests
+
+[`tests/test_agent_sft.py`](tests/test_agent_sft.py) covers 24
+cases:
+
+  - **parse_trace** (6): happy path, missing roles, wrong first
+    role, empty input, non-string input, outer whitespace.
+  - **trace_to_chat_record** (5): four turns alternating roles,
+    tool call in assistant 1, tool response in user 2, answer in
+    assistant 2, metadata preserved.
+  - **hash_for_split** (2): deterministic, distinguishes records.
+  - **prep CLI** (1): subprocess-invokes the script and asserts
+    train/val files are written.
+  - **eval scoring** (4): full text concats only assistant + tool,
+    all-required present, partial match, user substring excluded.
+  - **wilson_ci** (4): n=0 edge, full-pass upper bound, zero-pass
+    lower bound, half-centred symmetry.
+  - **stub-generator end-to-end** (1): a perfect bet-1+9 trace
+    scores 100% strict pass on a provenance-style eval prompt.
+
+Total tests are now 149, all green.
+
+### M4 invocation (no GPU dependency)
+
+```bash
+# 1. Convert synth traces into chat-SFT records, mixed with v0.9's
+#    existing chat data so small-talk + identity SFT survives.
+PYTHONPATH=. python3 scripts/prep_tool_use_sft.py \
+  --in-tool-use data/processed/synth_tool_use.jsonl \
+  --in-provenance data/processed/synth_tool_use_provenance.jsonl \
+  --base-train data/processed/chat_train.jsonl \
+  --base-val data/processed/chat_val.jsonl \
+  --out-train data/processed/chat_train_with_tools.jsonl \
+  --out-val data/processed/chat_val_with_tools.jsonl
+
+# 2. Fine-tune on top of v0.9 chat. Smaller LR than pretrain,
+#    fewer steps because the SFT data is narrow.
+PYTHONPATH=. python3 scripts/finetune_chat.py \
+  --checkpoint checkpoints/phase19_chat_v09/best_model.pt \
+  --train-data data/processed/chat_train_with_tools.jsonl \
+  --val-data data/processed/chat_val_with_tools.jsonl \
+  --run-name phase20_chat_v09_tools \
+  --learning-rate 1e-5 \
+  --max-steps 2000 \
+  --warmup-steps 100
+
+# 3. Eval the new checkpoint on the provenance held-out set.
+PYTHONPATH=. python3 scripts/eval_agent.py \
+  --checkpoint checkpoints/phase20_chat_v09_tools/best_model.pt \
+  --eval data/raw/provenance_eval.jsonl
+
+# 4. Paired comparison: same checkpoint with tools off.
+PYTHONPATH=. python3 scripts/eval_agent.py \
+  --checkpoint checkpoints/phase20_chat_v09_tools/best_model.pt \
+  --eval data/raw/provenance_eval.jsonl --baseline
+
+# 5. Reference: pre-SFT v0.9 chat with the agent runtime.
+PYTHONPATH=. python3 scripts/eval_agent.py \
+  --checkpoint checkpoints/phase19_chat_v09/best_model.pt \
+  --eval data/raw/provenance_eval.jsonl
+```
+
+The expected result is steps 3 > 4 (tools help if SFT worked) and
+3 > 5 (SFT improves over the pre-SFT v0.9 chat). M4 wall time for
+the full pipeline (n~850 records, 2000 steps): a few hours.
+
+### Why this matters
+
+Up to v0.9.9 the runtime existed but had no checkpoint that could
+exercise it. After this change the path is:
+
+  synth_v1.jsonl  ->  prep  ->  SFT on v0.9 chat  ->  agent eval
+
+with every step reproducible from a single CLI line. Format
+compliance is the kind of narrow signal small models *can* learn
+at 81M params even when fact recall floors at this scale, so v0.9-
+chat-with-tools could plausibly produce an actually-working agent
+demo before GPU compute lands. The held-out eval will quantify
+whether that's true.
+
+---
+
 ## [0.9.9] — 2026-05-08 — GhostAgent: the runtime that turns the checkpoint into a deployed assistant
 
 A production-shaped agent runtime that exercises bets 1 (tool-use
