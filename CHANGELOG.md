@@ -1360,6 +1360,110 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.20] — 2026-05-09 — programming Q&A SFT bank: 66 records, broader-than-security code chat
+
+The general-knowledge bank (v0.9.18, 98 records, 13 programming
+records mixed in) covered "programming as a topic" but not "programming
+as a working chat skill". v0.9.20 ships a dedicated 66-record
+programming Q&A bank covering how-to, code-explain, debug-help,
+refactor, and language concepts across Python, JavaScript, Go, Rust,
+Java. This is non-security programming chat: the SFT signal that
+teaches the model to be useful for everyday coding questions, not
+just CVE / MITRE / OWASP.
+
+### data/raw/chat/programming_qa.jsonl
+
+66 hand-written 2-turn conversations across 12 topics:
+
+  python_basics    20  read/write file, HTTP request, argparse, venv,
+                        pip, classes, sort, exceptions, dicts, list
+                        comprehensions, json read, decorators, async,
+                        nested-json access, type checks, == vs is,
+                        glob, __name__, run a file, virtualenv
+  concepts         16  closures, stack vs queue, big O, dependency
+                        injection, generators, context managers,
+                        process vs thread, type inference, FP, REST,
+                        GraphQL, hash collision, GIL, async/await,
+                        Python 2 vs 3, duck typing
+  javascript_basics 5  fetch, JSON.parse, JSX, npm, npm install
+  tooling           5  project structure, Docker image, Dockerfile,
+                        git rebase vs merge, undo last commit
+  rust_basics       4  read file, ownership, String vs &str, lifetimes
+  code_explain      4  fib with memoization, takewhile, Go channels,
+                        Rust iterator chain
+  go_basics         3  read file, goroutines, channels
+  debug_help        3  mutable default args, lambda capture, var-vs-let
+  refactor          2  loop -> list comprehension, isinstance + len
+  testing           2  pytest, unittest.mock
+  performance       1  speeding up Python (profile + algorithm + numpy)
+  java_basics       1  == vs equals()
+
+### scripts/build_chat_dataset.py
+
+Three new flags mirror the v0.9.18 small-talk and general-knowledge
+patterns:
+
+  --programming-qa             path
+                                (default data/raw/chat/programming_qa.jsonl)
+  --programming-qa-multiplier  copies (default 5; ~5% of train mix)
+  --programming-qa-val-frac    held-out fraction (default 0.1)
+
+Loaded after small-talk and general-knowledge in the same fashion:
+shuffle, split val, oversample train. The 5x default brings
+programming-Q&A to roughly 5% of training pairs.
+
+### .gitignore
+
+Add the new bank to the re-include list (default ignore is
+`data/raw/*`).
+
+### tests/test_programming_qa_bank.py
+
+8 cases: file loads + size (2), record shape + alternating roles
++ non-empty content (1), topic coverage spans Python/JS/Go/Rust/
+debug/refactor/concepts/tooling (1), Python well-represented (1),
+multiple languages mentioned (1), CLI advertises the new flags (1),
+default path in script source (1). Total tests now 240, all green.
+
+### SFT mass tally after v0.9.20
+
+  cybersec bets (1, 6, 7, 8, 9, 10, 11, 12)        ~1,940 records
+    (bet 7 is now 243 after v0.9.19 phase 2)
+  small-talk seed                                     153 records
+  general-knowledge seed                               98 records
+  programming-qa seed                                  66 records
+  ───────────────────────────────────────────────────────────────
+  cybersec SFT                                       ~1,940
+  non-cybersec / cross-domain SFT                       317
+
+Cross-domain floor is now ~14% of unique SFT records (up from 8.4%
+before v0.9.18 and 0% before small-talk/general-knowledge). Still
+cybersec-heavy as designed, but the model now has explicit
+supervision on broad coding chat, refusals, identity, and general
+factual Q&A.
+
+### What this answers
+
+The user's "expand on everything mostly the code" framing. After
+v0.9.17 (bet 7 to 32 patterns), v0.9.18 (general-knowledge, 98
+records), v0.9.19 (bet 7 to 62 patterns / 11 languages / 243 SFT
+records), and now v0.9.20 (programming Q&A, 66 records covering
+broader code chat), the SFT corpus has:
+
+  - Code-security: 243 records, 11 languages, deep CWE coverage
+  - General programming chat: 66+13 = 79 records covering basics,
+    concepts, debug help, refactoring across Python / JS / Go /
+    Rust / Java
+  - General factual + reasoning chat: 85 records (98 minus 13
+    programming-overlap)
+  - Cybersec specialty: 1,940 records, 12 differentiation bets
+
+That is a defensibly balanced SFT corpus for an 81M-param cybersec-
+specialty model. Next: v0.9.21 ships a math + reasoning bank for
+the last "everything" piece.
+
+---
+
 ## [0.9.19] — 2026-05-09 — bet 7 phase 2: 62 patterns across 11 languages, 243 SFT records
 
 Continued expansion of the bet 7 code-security bank. v0.9.5 shipped
