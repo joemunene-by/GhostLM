@@ -1360,6 +1360,73 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.22] — 2026-05-09 — bet 8 expansion: 40 binary-literacy patterns, 109 SFT records
+
+The original bet 8 bank (v0.9.5) was thin at 15 patterns. This
+release brings it to **40 patterns / 109 SFT records**, on par
+with the v0.9.17 bet 7 phase-1 expansion. New categories beyond
+the original (file_magic, packer, shellcode, pe_field, disassembly):
+**elf_field**, **encoding**, **hash**.
+
+### data/raw/binary_literacy_patterns.jsonl
+
+25 new patterns (BIN-016 through BIN-040). Coverage:
+
+  More file magics (8): JPEG (FF D8 FF), GIF89a, MP4 ftyp atom,
+    Java class CAFEBABE, WebAssembly 0x00 'asm' v1, GZIP 1F 8B
+    08, SQLite 'SQLite format 3', Android DEX 'dex\\n035'.
+
+  More shellcode + asm (5): x86 Linux execve('/bin/sh') 23-byte
+    classic stub, ARM64 function prologue (stp x29, x30 + mov
+    x29, sp), x64 function epilogue, x64 ROP gadget pop rdi+ret,
+    x64 reverse-shell connect-stub start.
+
+  ELF + PE fields (4): PE Import Address Table signature
+    recognition, ELF PT_LOAD segment, ELF PT_INTERP dynamic
+    interpreter, PE .text section characteristics.
+
+  Encoding (3): Base64 (URL-safe variant noted), hex string
+    (multiple notations), UTF-8 BOM (EF BB BF).
+
+  Hash recognition (3): MD5 32-hex, SHA-256 64-hex, bcrypt
+    $2b$cost$22-char-salt-31-char-hash format.
+
+  Disassembly (2): x64 indirect call (FF Dr family), x64
+    syscall instruction (0F 05) with the Linux ABI table.
+
+### data/raw/binary_literacy_eval.jsonl
+
+15 new prompts (20 -> 35) covering JPEG/EXIF, WASM, Java class,
+SQLite, GIF, GZIP, DEX, ROP gadget recognition, x64 syscall,
+SHA-256 length recognition, bcrypt format, UTF-8 BOM, base64
+decoding, ARM64 prologue, suspicious PE imports.
+
+### scripts/expand_binary_literacy_bank.py
+
+Idempotent expansion script (re-running is no-op). Joe runs once
+on the Mac, then re-runs synth_binary_literacy.py.
+
+### tests/test_binary_literacy_expansion.py
+
+11 cases: bank size >= 38, 7 categories present, required fields,
+unique IDs, new file-magic names present (jpeg/gif/mp4/java/wasm/
+gzip/sqlite/dex), new disassembly names present (syscall/indirect/
+rop/epilogue/arm64), hash patterns present (md5/sha-256/bcrypt),
+eval size + shape, eval covers new terms via prompts OR required
+substrings, end-to-end synth integration produces >= 95 records.
+Total tests now 260, all green where runnable.
+
+### SFT mass tally after v0.9.22
+
+  bet 8 v0.9.5 (15 patterns):    44 records
+  bet 8 v0.9.22 (40 patterns):  109 records  <- this release
+
+bet 8 is now comparable to bet 12 protocol (60 patterns / 240
+records when synth runs), bet 11 IaC (60), and bet 10 logs (120).
+The previously-thin bets are catching up.
+
+---
+
 ## [0.9.21] — 2026-05-09 — math + reasoning SFT bank: 58 records, 10 topics
 
 The last "everything" piece. v0.9.18 shipped general-knowledge,
