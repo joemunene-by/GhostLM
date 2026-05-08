@@ -1360,7 +1360,109 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
-## [0.9.4] — 2026-05-08 — six differentiation bets, each scaffolded, three with measured results
+## [0.9.5] — 2026-05-08 — nine differentiation bets, multi-modal-in-security, 1,505 templated training records
+
+The release that converts "six bets, three measured" into "nine
+bets, all shipped, 1,505 deterministic templated SFT records ready
+for the v1.0 GPU run." 11 commits since v0.9.4. The new bets answer
+a strategic question: not "what makes GhostLM narrowly competent?"
+but **"what makes GhostLM exceptional, beyond what general-purpose
+small LMs offer?"**
+
+### What's new vs v0.9.4
+
+**Bet 1 (tool-use SFT) now has training data**, not just a
+distillation pipeline. [`scripts/synth_tool_use.py`](scripts/synth_tool_use.py)
+emits 424 parser-valid four-message traces (`USER -> ASSISTANT
+tool_call -> TOOL response -> ASSISTANT answer`) seeded from the
+existing CVE / MITRE / CWE / RAG corpus. 98.6% acceptance on the
+same `trace_quality_ok` filter the LLM-distilled flow uses; the
+~10% "not found" injection trains the model to acknowledge lookup
+failures rather than confabulate. Detail in
+[docs/tool_use_synth.md](docs/tool_use_synth.md).
+
+**Bet 6 (format-aware) now has a held-out eval set**, not just a
+gold few-shot bank. Eval grew 8 -> 32 records with no overlap
+with the few-shot file, fixing the train-on-test leak.
+[`scripts/eval_format_compliance.py`](scripts/eval_format_compliance.py)
+now emits Wilson 95% CIs for binomial pass rates: at n=32 with 0
+hits the upper bound is **10.7%** (vs 32.4% at n=8), so any
+future ghost-base score above ~11% is statistically separated
+from the v0.9 baseline. Re-baselined v0.9 chat lands at
+**0/32 = 0.0% [0.0-10.7]** on the held-out eval.
+
+**Bet 7 (code-for-security)**, NEW: hand-curated bank of 12
+vulnerability patterns covering OWASP-Top-10-shaped CWE classes
+(CWE-89, CWE-78, CWE-22, CWE-79, CWE-502, CWE-120, CWE-798,
+CWE-330, CWE-327, CWE-347, CWE-611, CWE-918) across Python /
+JavaScript / C. [`scripts/synth_code_security.py`](scripts/synth_code_security.py)
+emits 4 record variants per pattern (pretrain prose / identify-
+and-fix Q&A / explain-the-diff Q&A / CWE-mapping Q&A) = 48
+records, 100% parser-pass. Detail in
+[docs/code_security_synth.md](docs/code_security_synth.md).
+
+**Bet 8 (binary / hex literacy)**, NEW and **the most novel of
+the three**: hand-curated bank of 15 patterns across five
+categories (file_magic / packer / shellcode / pe_field /
+disassembly) covering PE / ELF / Mach-O / ZIP / PDF / OLE2 / PNG
+file magic, UPX and Themida packer signatures, NOP sleds and x64
+syscall patterns, PE Optional Header Magic and Machine fields,
+and a canonical Linux x64 execve('/bin/sh') 28-byte shellcode.
+[`scripts/synth_binary_literacy.py`](scripts/synth_binary_literacy.py)
+emits 44 records (pretrain prose + identify-hex Q&A +
+show-magic Q&A) at 100% parser-pass. **No other small cybersec
+LM trains on this distribution; even GPT-4 fails on real
+obfuscated shellcode without prompt engineering.** Detail in
+[docs/binary_literacy_synth.md](docs/binary_literacy_synth.md).
+
+**Bet 9 (provenance / cite tags)**, NEW: trains ghost-base to
+emit `<|cite|>{source_type}:{source_id}#field<|/cite|>` tags
+inline in tool-use answers, attaching every factual claim to the
+specific tool-response field that justifies it.
+[`scripts/synth_tool_use_provenance.py`](scripts/synth_tool_use_provenance.py)
+emits 429 cite-augmented traces over the same seeds as bet 1,
+99.8% acceptance under the new `trace_with_cites_quality_ok`
+filter (requires a valid cite tag in the assistant's final
+answer). Stacks on top of bet 1's 424 plain traces for an
+~853-record SFT corpus that teaches both the four-message
+tool-use rhythm AND the citation discipline. Detail in
+[docs/provenance_synth.md](docs/provenance_synth.md).
+
+### Combined templated-synth corpus (deterministic floor)
+
+| Bet | Records | Acceptance | Doc |
+|---|---:|---:|---|
+| 1 (tool-use, plain) | 424 | 98.6% | [tool_use_synth.md](docs/tool_use_synth.md) |
+| 6 (STIX / YARA / Sigma / MISP) | 560 | 99.8% | [format_synth.md](docs/format_synth.md) |
+| 7 (code-for-security) | 48 | 100.0% | [code_security_synth.md](docs/code_security_synth.md) |
+| 8 (binary / hex literacy) | 44 | 100.0% | [binary_literacy_synth.md](docs/binary_literacy_synth.md) |
+| 9 (cite-augmented tool-use) | 429 | 99.8% | [provenance_synth.md](docs/provenance_synth.md) |
+| **TOTAL** | **1,505** | **99.4%** | |
+
+That's the deterministic floor. LLM-distilled records on top
+(bet 1 production at ~$200, bet 6 production at ~$50-100 on
+Anthropic) bring the realistic ghost-base SFT mix to ~10K records
+for a few hundred dollars, with no GPU spend until the actual
+pretrain run.
+
+### Strategic frame: nine bets, multi-modal-in-security
+
+The first six bets ([0.9.4]) made GhostLM tool-grounded,
+continuously updated, cybersec-tokenized, long-context, sparsely-
+activated, structurally literate. Bets 7-9 add: code-aware,
+binary-aware, provenance-aware. The combined nine-bet identity is
+**"the only small open-source LM designed end-to-end for the
+security analyst workflow,"** which is a defensible position big
+general-purpose small LMs structurally cannot occupy because
+their pretrain mix dilutes these signals and their RLHF removes
+exploit-shaped content. Bet 8 specifically (hex / PE / ELF
+reading) is genuinely first-of-kind; reading a hex dump is a
+clean eval and no other small cybersec LM does this natively.
+
+Strategic frame in full at
+[docs/differentiation.md](docs/differentiation.md).
+
+---
 
 The release that converts "v0.9.3 saturated at the small-model
 plateau" into "here are six concrete, code-backed bets to be
