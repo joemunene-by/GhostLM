@@ -1355,12 +1355,47 @@ The Unreleased section below tracks both.
 
 ## [Unreleased]
 
-The next release will close out whatever follow-ups land before the
-ghost-base v1.0 GPU run. Current contents: differentiation strategy
-(six concrete bets to make GhostLM not-another-point-on-the-plot),
-each with a runnable scaffold in the repo.
+The next release will land whatever follow-ups arrive before the
+ghost-base v1.0 GPU run. Currently empty.
 
-### 2026-05-08, six differentiation bets
+---
+
+## [0.9.4] — 2026-05-08 — six differentiation bets, each scaffolded, three with measured results
+
+The release that converts "v0.9.3 saturated at the small-model
+plateau" into "here are six concrete, code-backed bets to be
+genuinely different from the from-scratch-cybersec-LM crowd, three
+of them already measured, the other three waiting on GPU." 24 commits
+since v0.9.3, 94 tests in the suite (71 pre-existing + 23 new for
+the differentiation artifacts), all green.
+
+### Headline measurements
+
+| Result | Number | Doc |
+|---|---|---|
+| Bet 3: v1 BPE compression on mixed corpus, vs GPT-2 BPE | **+1.6%** | [docs/differentiation.md](docs/differentiation.md) |
+| Bet 3: v1 BPE on cybersec-only subset, vs GPT-2 BPE | **+4.0%** | [docs/bpe_corpus_ablation.md](docs/bpe_corpus_ablation.md) |
+| Bet 3: v1_cyber BPE on cybersec subset, vs GPT-2 BPE | **+4.3%** (general regresses to -7.6%) | [docs/bpe_corpus_ablation.md](docs/bpe_corpus_ablation.md) |
+| Bet 5: MoE 100-step smoke, all 4 pass criteria | **PASS** | [docs/moe_training_smoke.md](docs/moe_training_smoke.md) |
+| Bet 6: v0.9 chat structural-compliance baseline (held-out) | **0/8 = 0%** | [docs/format_baseline_v09.md](docs/format_baseline_v09.md) |
+
+The three measured bets all moved from "hypothesis" to "quantified
+fact." Bet 3's +25-35% target is falsified; the real cap is around
++4% on cybersec text and the recommendation is GPT-2 BPE default,
+v1 mixed as opt-in. Bet 5's MoE wiring trains under real backprop,
+not just compiles. Bet 6's baseline is locked at 0%, so the lift
+from any future format-aware training will be a real measurement
+on unseen prompts.
+
+### The six bets
+
+Doc: [docs/differentiation.md](docs/differentiation.md). Strategic
+frame: the v0.9.3 RAG diagnostic identified a real bottleneck (81M
+extracts from supplied context 1% of the time), the parameter-count
+escape hatch is expensive, and the more interesting moves are
+architectural / training-recipe / ecosystem-level changes that other
+from-scratch projects aren't attempting. Six bets, each with code
+already in the repo:
 
 Doc: [docs/differentiation.md](docs/differentiation.md). Strategic
 frame: the v0.9.3 RAG diagnostic identified a real bottleneck (81M
@@ -1385,14 +1420,17 @@ already in the repo:
    ~1-2 GPU hours per day.
 
 3. **Custom 32K BPE (bet 3).** [scripts/train_v1_bpe.py](scripts/train_v1_bpe.py).
-   **Result: +1.6% vs GPT-2 BPE on a 99-record sample**, well
-   below the +25-35% projection. Per-record distribution shows
-   cybersec-heavy text wins 5-10% but FineWeb-Edu samples
-   sometimes regress 0.5-5%. Artifact at `data/tokenizer/v1/`,
-   wired into [ghostlm/tokenizer.py](ghostlm/tokenizer.py) as the
-   `GhostTokenizerV1` opt-in backend; ghost-base default stays
-   GPT-2 BPE pending a downstream eval that proves cybersec
-   specialization translates to benchmark gains.
+   **Settled at +4.0% on cyber text, -2.5% on general text** (vs
+   GPT-2 BPE 50K), measured on 500-record subsets via
+   [scripts/score_tokenizer.py](scripts/score_tokenizer.py). A
+   followup retrain on cyber-only corpus pushes cyber to +4.3% but
+   regresses general to -7.6%; per-domain ablation in
+   [docs/bpe_corpus_ablation.md](docs/bpe_corpus_ablation.md). The
+   bet 3 hypothesis ("+25-35% on cybersec text") is falsified at
+   the magnitude claimed; the real cap is around +4%. Recommendation:
+   ghost-base default to GPT-2 BPE; v1 mixed BPE stays on the shelf
+   as `GhostTokenizerV1` opt-in for cyber-only inference paths;
+   v1_cyber not productised.
 
 4. **Long context via RoPE NTK rebase (bet 4).** [scripts/extend_context_ntk.py](scripts/extend_context_ntk.py).
    Code Llama-style non-linear scaling so high-frequency RoPE
@@ -1404,12 +1442,16 @@ already in the repo:
    [ghostlm/model.py](ghostlm/model.py), config flags in
    [ghostlm/config.py](ghostlm/config.py). 4 experts top-2 routing,
    parallel SwiGLU experts, Switch-Transformer load-balancing aux
-   loss now wired into `GhostLM.forward()` (trainer stays
-   architecture-agnostic). Smoke-validated: aux ~2.0 per layer with
-   uniform routing, gradients flow to gate weights. Two new presets
-   in `from_preset()`: `ghost-1b` (1536d / 24L / 24h / 4 experts =
-   2.1B total / ~1.2B active) and `ghost-3b` (2048d / 32L / 32h /
-   4 experts = 6.0B total / ~3.3B active).
+   loss wired into `GhostLM.forward()` (trainer stays
+   architecture-agnostic). Two new presets in `from_preset()`:
+   `ghost-1b` (1536d / 24L / 24h / 4 experts = 2.1B total /
+   ~1.2B active) and `ghost-3b` (2048d / 32L / 32h / 4 experts =
+   6.0B total / ~3.3B active). **100-step training smoke PASS**
+   ([docs/moe_training_smoke.md](docs/moe_training_smoke.md)): CE
+   drops 5.55 -> 0.76, aux loss stays glued to 2.0 (uniform-routing
+   equilibrium for n=4 K=2), gate gradients grow 10x as the
+   optimizer shapes the router. The wiring is correct end-to-end,
+   not just compiles.
 
 6. **Format-aware pretrain (bet 6).** [scripts/distill_format_aware.py](scripts/distill_format_aware.py).
    Synthesize (natural_language to structured_artifact and back)
@@ -1420,7 +1462,18 @@ already in the repo:
    filtered before write. The structural lever (different *kinds*
    of text the model sees) is complementary to the bet 3
    token-density lever. ~$50-100 on Sonnet for 1K clean traces;
-   free Ollama smoke-test path.
+   free Ollama smoke-test path. **End-to-end measurable**: 8-record
+   gold few-shot bank ([data/raw/format_aware_seeds.jsonl](data/raw/format_aware_seeds.jsonl)),
+   8-record held-out eval set
+   ([data/raw/format_aware_eval.jsonl](data/raw/format_aware_eval.jsonl),
+   no overlap with the few-shot bank),
+   [scripts/eval_format_compliance.py](scripts/eval_format_compliance.py)
+   for scoring, [scripts/run_format_baseline.py](scripts/run_format_baseline.py)
+   for one-shot inference over a checkpoint. **v0.9 chat baseline:
+   0/8 parse, 0/8 fields = 0.0%**
+   ([docs/format_baseline_v09.md](docs/format_baseline_v09.md)). The
+   floor is 0%; any non-zero number after bet 6 lands is measured
+   differentiation no other small from-scratch cybersec LM reports.
 
 The strategic claim isn't that any one bet definitely works; it's
 that the **combination** of six reasonable bets gives GhostLM a
