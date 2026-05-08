@@ -58,6 +58,10 @@ PYTHONPATH=. python3 scripts/train_ghost_base.py \
   --learning-rate 2e-4 --dtype bfloat16
 ```
 
+### GhostAgent runtime shipped (v0.9.9)
+
+`ghostlm/agent/` is a production-shaped tool-using agent runtime that wraps any GhostLM checkpoint. It exercises bets 1 (`<|tool_call|>` traces) and 9 (`<|cite|>` tags) end-to-end: parser, tools registry (CVE / MITRE / CWE / RAG with offline caches), loop, JSON-serialisable trace. Works against any GhostLM checkpoint today (v0.9 chat will produce poor tool calls; the loop terminates safely via `answer_emitted` or the max-iterations cap). When ghost-base trains on `synth_v1.jsonl`, the runtime is already wrapped around it. CLI: `python -m ghostlm.agent --query "..."`. 31-case test suite at [`tests/test_agent.py`](tests/test_agent.py).
+
 ### Canonical models on disk
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
 - **Chat (best ghost-small):** `checkpoints/phase19_chat_v09/best_model.pt` (v0.9, wins all three MCQ benches on apples-to-apples scoring).

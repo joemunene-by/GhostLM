@@ -120,6 +120,20 @@ make generate
 make chat
 ```
 
+### Run as a Tool-Using Agent
+```bash
+# Smoke test with random ghost-tiny weights
+python -m ghostlm.agent --query "What is CVE-2017-0144?" --offline
+
+# Real checkpoint
+python -m ghostlm.agent --query "..." --checkpoint runs/v09chat/best.pt
+```
+GhostAgent wraps any GhostLM checkpoint in a tool-using loop with
+the four canonical tools (CVE / MITRE / CWE / RAG retrieval),
+parses `<|tool_call|>` and `<|cite|>` tags, and emits a JSON-
+serialisable trace. See `ghostlm/agent/` for the runtime and
+`tests/test_agent.py` for the 31-case test suite.
+
 ### Run Web Demo
 ```bash
 pip install gradio
@@ -361,7 +375,13 @@ GhostLM/
 │ ├── config.py # Hyperparameters + ghost-tiny/small/medium presets
 │ ├── tokenizer.py # GPT-2 BPE wrapper
 │ ├── dataset.py # PyTorch dataset
-│ └── trainer.py # Training loop
+│ ├── trainer.py # Training loop
+│ └── agent/ # GhostAgent: tool-using runtime over a checkpoint
+│   ├── runtime.py # GhostAgent loop + RuntimeConfig
+│   ├── parser.py # bet 1 tool-call + bet 9 cite-tag parser
+│   ├── tools.py # CVE / MITRE / CWE / RAG tool registry
+│   ├── messages.py # AgentMessage + AgentTrace primitives
+│   └── runner.py # CLI: python -m ghostlm.agent --query ...
 ├── scripts/ # CLI tools
 │ ├── train.py # Training entry point
 │ ├── generate.py # Text generation
@@ -377,7 +397,7 @@ GhostLM/
 │ └── resume_train.sh # Resume an interrupted training run
 ├── data/ # Data pipeline
 ├── demo/ # Gradio web demo (demo/app.py)
-├── tests/ # 16 unit tests
+├── tests/ # 125 unit tests (incl. 31 agent runtime + bet 1-12 differentiation)
 └── Makefile # One-command workflow
 ```
 

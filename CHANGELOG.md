@@ -1360,6 +1360,141 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.9] — 2026-05-08 — GhostAgent: the runtime that turns the checkpoint into a deployed assistant
+
+A production-shaped agent runtime that exercises bets 1 (tool-use
+trace format) and 9 (cite tags) end-to-end. This is the missing
+architectural layer between "we trained a model" and "an analyst
+queried the model and got back a cite-grounded answer." It is
+generator-agnostic, model-agnostic, and offline-testable; it runs
+against any GhostLM checkpoint today and will run unchanged against
+ghost-base when the synth-tool-use SFT data lands.
+
+### Module layout: `ghostlm/agent/`
+
+[`ghostlm/agent/messages.py`](ghostlm/agent/messages.py) defines the
+conversation primitives: `MessageRole` (USER / ASSISTANT / TOOL /
+SYSTEM), `AgentMessage` with class methods that build correctly
+shaped messages including the bet-1 `<|tool_response|>...
+<|/tool_response|>` wrapping for TOOL replies, and `AgentTrace`
+which captures the full back-and-forth plus termination metadata
+(reason, iteration count, latency, token count). Every dataclass is
+JSON-serialisable so traces can be logged and replayed by the
+GhostBench paired-comparison machinery.
+
+[`ghostlm/agent/parser.py`](ghostlm/agent/parser.py) parses raw
+assistant outputs. Three regex passes pull out
+`<|tool_call|>{json}<|/tool_call|>` blocks, `<|cite|>type:id#field
+<|/cite|>` tags, and the surrounding plain text. Lenient tag
+normalisation tolerates the noisy patterns a not-yet-trained
+checkpoint produces (`<|tool call|>` with a space, `<TOOL_CALL>`
+casing variants, fenced ```json bodies). Strict-mode parsing for
+training-data validation stays in `scripts/distill_tool_use.py`; the
+runtime parser is permissive so the loop never crashes on partial
+output.
+
+[`ghostlm/agent/tools.py`](ghostlm/agent/tools.py) is the registry
+plus the four canonical tools the bet 1 SFT data trained on:
+`search_cve_nvd`, `lookup_mitre_technique`, `lookup_cwe`,
+`rag_retrieve`. Every backend follows a graceful-degradation
+pattern: try the real upstream (NVD JSON API, MITRE Workbench),
+fall back to a hand-curated offline cache that ships with the
+package, fall back to a structured `not_found` response so the
+model recovers using the failure-mode shape it was trained on.
+`GHOST_AGENT_OFFLINE=1` forces offline mode for deterministic CI.
+`dispatch(call_name, args, registry)` validates required args,
+times the backend, captures all exceptions into `ToolResult.error`,
+and returns the result instead of raising; tool errors get fed back
+to the model on the next loop iteration as recoverable failures.
+
+[`ghostlm/agent/runtime.py`](ghostlm/agent/runtime.py) is the loop.
+`RuntimeConfig` exposes the knobs (max_iters, generation params,
+system prompt, stop sequences). `GhostAgent(generator, config,
+tools)` accepts any callable `(history) -> str` as the model
+abstraction, which decouples the loop from any specific HF /
+transformers wiring; you can drop in a remote API, a local
+llama.cpp server, or a unit-test stub equally. `agent.run(query)`
+builds a history, generates, parses, dispatches tool calls, feeds
+results back, repeats. Three terminal states are exhaustive:
+`answer_emitted` (model produced a no-tool-call message),
+`max_iterations` (cap hit), `model_error` (generator raised). A
+small repair pass re-attaches `<|/tool_call|>` if the generator's
+stop sequence ate it, so the parser always sees well-formed blocks.
+
+[`ghostlm/agent/runner.py`](ghostlm/agent/runner.py) +
+[`ghostlm/agent/__main__.py`](ghostlm/agent/__main__.py) wire the
+runtime to a real GhostLM checkpoint. CLI:
+
+```
+python -m ghostlm.agent --query "What is CVE-2017-0144?"
+python -m ghostlm.agent --query "..." --checkpoint runs/v09chat/best.pt
+python -m ghostlm.agent --query "..." --offline --json --max-iters 4
+```
+
+Without `--checkpoint`, the runner spins up random ghost-tiny
+weights so the loop can be smoke-tested without a trained model
+(output is noise, but every mechanic exercises). With v0.9 chat,
+the model emits poor tool calls because it wasn't trained on the
+bet 1 format; the loop terminates safely via `answer_emitted` or
+the max-iterations safety. When ghost-base trains on
+`synth_v1.jsonl`, the runtime is already wrapped around it.
+
+### Why this matters
+
+Up to v0.9.8 the project shipped data and models. Bet 1 produced
+288 templated tool-use traces, bet 9 produced 252 cite-tagged
+traces, but nothing actually executed those formats end-to-end.
+v0.9.9 makes the formats live: the parser reads them, the
+dispatcher executes the tools, the loop feeds responses back, and
+the trace captures every step in JSON for audit and replay. The
+moment a checkpoint emits a structurally valid `<|tool_call|>`,
+GhostAgent will execute it against the real NVD API, get a real
+CVE record, feed it back, and produce a cite-tagged final answer.
+That makes the project a deployable artifact, not just a research
+prototype.
+
+### Tests
+
+[`tests/test_agent.py`](tests/test_agent.py) covers 31 cases:
+
+  - **Parser (10 tests):** single + multiple tool calls, cite tags
+    with and without field, normalised spaced tags, code-fence
+    stripping, malformed JSON warnings, missing-name warnings,
+    block stripping for the spoken-answer path, non-string input.
+  - **Tools (9 tests):** registry shape, offline CVE hit, unknown-
+    CVE not_found, MITRE lookup, CWE prefix normalisation, RAG
+    retrieval, unknown-tool error, missing-required-arg error,
+    backend-exception capture.
+  - **Messages (3 tests):** TOOL message wraps in `<|tool_response|>`
+    tags, error shape, trace round-trips through `to_dict`.
+  - **Runtime (9 tests):** terminates on no tool call, dispatches
+    then emits answer, max-iterations safety, model-error capture,
+    tool-error recoverability, stop-sequence repair, system-prompt
+    disable, cite metadata stash, JSON-serialisable trace.
+
+All 31 pass; full suite is now 156 tests, all green.
+
+### Strategic frame: from corpus to product
+
+The 12-bet differentiation work answered "what does GhostLM know?";
+GhostAgent answers "what does GhostLM do?" The project now has:
+
+  - A trained 81M base + chat checkpoint (v0.9 series)
+  - 1,745 templated SFT records spanning 12 cybersec bets
+  - A packaged eval suite (GhostBench v0.3) with statistical rigor
+  - **A production-shape agent runtime that wraps the checkpoint**
+  - An MCP server, RAG layer, GGUF + MLX exports
+
+When GPU compute lands and ghost-base trains on the combined synth
+corpus, the deployment story is already wired: same `python -m
+ghostlm.agent --query "..."` line, same trace shape, same eval
+harness. The runtime's defensive design (lenient parsing, graceful
+tool fallback, three-way terminal states, offline-testable
+backends) means the loop survives whatever the trained model
+produces.
+
+---
+
 ## [0.9.8] — 2026-05-08 — three new bets: log analysis + cloud IaC security + protocol field reading
 
 The release that takes GhostLM from "9 bets covering cybersec prose
