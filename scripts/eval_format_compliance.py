@@ -173,6 +173,27 @@ def evaluate_record(rec: Dict[str, Any], pred_field: str) -> Dict[str, Any]:
     }
 
 
+def wilson_ci(k: int, n: int, z: float = 1.96) -> Tuple[float, float]:
+    """Wilson 95%-CI for a binomial proportion, returned as percentages.
+
+    Right interval to use here because the Clopper-Pearson CI is too
+    conservative at small n and the normal-approximation CI breaks
+    down at p near 0 or 1 (which is exactly the regime we're in:
+    v0.9 sits at 0%, ghost-base may sit at low double digits). For
+    n=32 k=0, this returns roughly (0%, 10.7%); for n=8 k=0, it
+    returns (0%, 36.9%). The tightening is the reason the eval set
+    grew from 8 to 32 records."""
+    if n == 0:
+        return (0.0, 0.0)
+    p = k / n
+    denom = 1 + z * z / n
+    center = (p + z * z / (2 * n)) / denom
+    spread = z * ((p * (1 - p) + z * z / (4 * n)) / n) ** 0.5 / denom
+    lo = max(0.0, center - spread)
+    hi = min(1.0, center + spread)
+    return (100 * lo, 100 * hi)
+
+
 def render_report(results: List[Tuple[Dict, Dict]]) -> str:
     """Build the markdown report. Per-format table + overall summary."""
     by_fmt: Dict[str, List[Dict]] = defaultdict(list)
@@ -181,8 +202,11 @@ def render_report(results: List[Tuple[Dict, Dict]]) -> str:
 
     lines = ["# Format compliance report", ""]
     lines.append(f"Total predictions: **{len(results)}**\n")
-    lines.append("| Format | n | parse-pass | fields-pass | parse % | fields % |")
-    lines.append("|---|---:|---:|---:|---:|---:|")
+    lines.append("Pass rates with Wilson 95% CIs (right CI for binomial "
+                 "proportions at small n).\n")
+    lines.append("| Format | n | parse-pass | parse % (95% CI) | "
+                 "fields-pass | fields % (95% CI) |")
+    lines.append("|---|---:|---:|---|---:|---|")
     total_n = total_parse = total_fields = 0
     for fmt in sorted(by_fmt.keys()):
         evs = by_fmt[fmt]
@@ -194,16 +218,21 @@ def render_report(results: List[Tuple[Dict, Dict]]) -> str:
         total_fields += fields_n
         pct_parse = 100 * parse_n / n if n else 0.0
         pct_fields = 100 * fields_n / n if n else 0.0
+        plo, phi = wilson_ci(parse_n, n)
+        flo, fhi = wilson_ci(fields_n, n)
         lines.append(
-            f"| {fmt} | {n} | {parse_n} | {fields_n} | "
-            f"{pct_parse:.1f}% | {pct_fields:.1f}% |"
+            f"| {fmt} | {n} | {parse_n} | "
+            f"{pct_parse:.1f}% [{plo:.1f}-{phi:.1f}] | {fields_n} | "
+            f"{pct_fields:.1f}% [{flo:.1f}-{fhi:.1f}] |"
         )
     if total_n:
+        plo, phi = wilson_ci(total_parse, total_n)
+        flo, fhi = wilson_ci(total_fields, total_n)
         lines.append(
             f"| **OVERALL** | **{total_n}** | **{total_parse}** | "
+            f"**{100*total_parse/total_n:.1f}% [{plo:.1f}-{phi:.1f}]** | "
             f"**{total_fields}** | "
-            f"**{100*total_parse/total_n:.1f}%** | "
-            f"**{100*total_fields/total_n:.1f}%** |"
+            f"**{100*total_fields/total_n:.1f}% [{flo:.1f}-{fhi:.1f}]** |"
         )
 
     # Optional miss enumeration so failures are debuggable from the
