@@ -1360,6 +1360,134 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.8] — 2026-05-08 — three new bets: log analysis + cloud IaC security + protocol field reading
+
+The release that takes GhostLM from "9 bets covering cybersec prose
++ code + binary + structured CTI + tool use + provenance" to **"12
+bets covering the full security analyst workflow surface"**: the
+SOC analyst's daily log review (bet 10), the DevSecOps engineer's
+PR review of cloud IaC (bet 11), and the network forensicist's
+protocol field decoding (bet 12).
+
+### Bet 10: log analysis & event reasoning
+
+[`scripts/synth_log_analysis.py`](scripts/synth_log_analysis.py)
+templates 4 record variants per pattern (pretrain prose +
+identify-technique Q&A + explain-detection Q&A + field-citation
+Q&A) from a 30-pattern bank covering Windows Sysmon / Windows
+Security / Linux auditbeat / network proxy / network webserver /
+network DNS / email gateway logs across 30 unique ATT&CK technique
+ids. **120 records** at 100% parser-pass.
+
+Held-out eval at [`data/raw/log_analysis_eval.jsonl`](data/raw/log_analysis_eval.jsonl)
+covers 25 prompts spanning T1078 (Valid Accounts), T1071 (Web
+Protocols C2), T1565 (hosts file modification), T1053 (scheduled
+tasks), T1003 variants (LSASS / SAM / NTDS dump), T1204 (User
+Execution from temp), T1197 (BITS abuse), T1566.002 (link-based
+phishing), T1098.001 (cloud IAM access-key creation), T1556
+(Modify Authentication Process / DNS hijack), T1003.008 (/etc/
+shadow read), T1567 (cloud bucket exfiltration), T1562.004
+(firewall disable), T1490 (VSS shadow delete), TA0010 (DNS
+exfiltration tunneling), T1059.001 (PowerShell Mimikatz),
+T1053.003 (cron persistence), T1218 / T1218.007 (InstallUtil /
+msiexec proxy execution), T1047 (wmic remote exec).
+
+### Bet 11: cloud IaC security
+
+[`scripts/synth_iac_security.py`](scripts/synth_iac_security.py)
+templates 4 record variants per pattern (pretrain prose +
+identify-and-fix Q&A + explain-the-diff Q&A + severity-mapping
+Q&A with CWE) from a 15-pattern bank covering Terraform/AWS (S3
+ACL, IAM trust, security groups, RDS encryption, IAM wildcard
+actions, S3 logging, CloudFront HTTPS, EBS encryption, IAM MFA,
+ALB+WAF) and Kubernetes (Pod privileged, NetworkPolicy default-
+deny, Secret stored plaintext, RBAC cluster-admin, hostNetwork).
+**60 records** at 100% parser-pass.
+
+Held-out eval covers 15 prompts on Lambda secrets in env vars,
+K8s dangerous capabilities, S3 bucket-policy wildcard, RDS
+publicly_accessible + plaintext password, K8s automount + latest
+tag, public LoadBalancer to DB port, IAM s3:* wildcard,
+CloudTrail disabled, EKS public endpoint with 0.0.0.0/0,
+hostPath mount of /, port range 0-65535, RBAC system:authenticated
+secret reader, Lambda Function URL with no auth, Ingress without
+TLS, KMS key with rotation off and wildcard policy.
+
+### Bet 12: network protocol field reading
+
+[`scripts/synth_protocol_fields.py`](scripts/synth_protocol_fields.py)
+templates 3 record variants per pattern (pretrain prose +
+identify-protocol Q&A + read-field Q&A walkthrough) from a 20-
+pattern bank spanning every layer: datalink (Ethernet, ARP),
+network (IPv4, ICMP), transport (TCP, QUIC), application (TLS
+1.3 ClientHello, TLS Application Data, TLS SNI, TLS Certificate,
+DNS query, DNS response, HTTP/2 frame header, BGP UPDATE, DHCP
+Discover, SMB2 Negotiate, Kerberos AS-REQ, MQTT CONNECT, RDP
+X.224 Connection Request), plus the JA3 fingerprint derivation.
+**60 records** at 100% parser-pass.
+
+Held-out eval covers 20 prompts including TLS ServerHello
+identification, IPv4+UDP decoding, TCP destination port reading,
+HTTP/2 SETTINGS frame, DNS response flags, ARP reply, ICMP Time
+Exceeded (traceroute), TCP flag 0x14 (RST+ACK), IPv6 EtherType,
+SMB2 TREE_CONNECT, TLS 1.3 version detection via supported_versions
+extension, DNS QType 0x000F (MX), IPv4 protocol field 0x32 (ESP),
+DHCP OFFER message type, BGP marker semantics, MQTT PUBLISH
+opcode, QUIC long-header Initial type, RDP cleartext mstshash
+cookie, Kerberos AP-REQ message-type 14.
+
+### Total templated-synth corpus
+
+**1,745 records** ready for ghost-base SFT mixing once GPU lands:
+
+| Bet | Records | Acceptance |
+|---|---:|---:|
+| 1 (tool-use, plain) | 424 | 98.6% |
+| 6 (STIX / YARA / Sigma / MISP) | 560 | 99.8% |
+| 7 (code-for-security) | 48 | 100.0% |
+| 8 (binary / hex literacy) | 44 | 100.0% |
+| 9 (cite-augmented tool-use) | 429 | 99.8% |
+| **10 (log analysis)** | **120** | **100.0%** |
+| **11 (cloud IaC security)** | **60** | **100.0%** |
+| **12 (protocol field reading)** | **60** | **100.0%** |
+| **TOTAL** | **1,745** | **99.5%** |
+
+`scripts/build_v15_combined_synth.py` extended with the three new
+synth pipelines and updated CATEGORY_RULES so the unified
+combined-corpus output now includes all eight pipelines, tagged by
+training-time use (pretrain vs SFT).
+
+### GhostBench Suite auto-discovery
+
+`ghostbench.bench.Suite.from_dir` extended to discover the three
+new eval files (bet10_log_analysis, bet11_iac_security,
+bet12_protocol_fields) by their canonical filenames, with proper
+descriptions. `python -m ghostbench summary --eval-dir data/raw`
+will now produce a 7-row table covering all measurable bets the
+moment ghost-base trains.
+
+### Strategic frame: full analyst-workflow coverage
+
+The bet sequence is now complete across the security-analyst-
+workflow envelope:
+
+  - **Threat-intel analyst** (bet 6): STIX / YARA / Sigma / MISP
+  - **SOC analyst** (bet 10 + bet 9): logs + cite-tagged answers
+  - **DevSecOps engineer** (bet 11 + bet 7): IaC + code review
+  - **Reverse engineer / forensicist** (bet 8 + bet 12): binary +
+    protocol fields
+  - **Operator / auditor** (bet 1 + bet 9): tool-grounded + cite-
+    backed answers
+  - **Plus**: bet 3 tokenizer, bet 4 long context, bet 5 MoE
+    architecture for ghost-1B+
+
+12 bets, ~1,745 deterministic records, 7 held-out eval sets, all
+reproducible from one CLI command. When ghost-base trains, every
+claim is a `python -m ghostbench suite-compare --behavioral` away
+from being defensibly significant.
+
+---
+
 ## [0.9.7] — 2026-05-08 — GhostBench v0.3: behavioural tier with two-path validators
 
 GhostBench's reserved `behavioral` tier moves from "slot reserved"

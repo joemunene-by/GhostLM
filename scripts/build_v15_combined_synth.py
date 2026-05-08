@@ -92,6 +92,24 @@ CATEGORY_RULES = {
     ("synth_binary_literacy", "pretrain_prose"): "pretrain",
     ("synth_binary_literacy", "identify_hex"):   "sft",
     ("synth_binary_literacy", "show_magic"):     "sft",
+
+    # Bet 10: log analysis. Pretrain prose is pretrain; the three Q&A
+    # variants are SFT.
+    ("synth_log_analysis", "pretrain_prose"):     "pretrain",
+    ("synth_log_analysis", "identify_technique"): "sft",
+    ("synth_log_analysis", "explain_detection"):  "sft",
+    ("synth_log_analysis", "field_citation"):     "sft",
+
+    # Bet 11: cloud IaC security. Same shape as bet 7.
+    ("synth_iac_security", "pretrain_prose"):    "pretrain",
+    ("synth_iac_security", "identify_and_fix"):  "sft",
+    ("synth_iac_security", "explain_the_diff"):  "sft",
+    ("synth_iac_security", "severity_mapping"):  "sft",
+
+    # Bet 12: protocol field reading. Pretrain prose + 2 Q&A variants.
+    ("synth_protocol_fields", "pretrain_prose"):   "pretrain",
+    ("synth_protocol_fields", "identify_protocol"): "sft",
+    ("synth_protocol_fields", "read_field"):       "sft",
 }
 
 
@@ -101,6 +119,9 @@ SYNTH_FILES = [
     "synth_tool_use_provenance.jsonl",
     "synth_code_security.jsonl",
     "synth_binary_literacy.jsonl",
+    "synth_log_analysis.jsonl",
+    "synth_iac_security.jsonl",
+    "synth_protocol_fields.jsonl",
 ]
 
 
