@@ -18,3 +18,18 @@
 {"format": "binary_literacy", "prompt": "Bytes: `37 7A BC AF 27 1C`. What format is this?", "required_substrings": ["7z", "7-Zip"]}
 {"format": "binary_literacy", "prompt": "A PE file has a section named `.themida` and the entry-point routine has 10,000+ instructions of branchy obfuscation. What does this tell me?", "required_substrings": ["Themida", "protector"]}
 {"format": "binary_literacy", "prompt": "I see UTF-16-encoded ASCII strings 'AsyncRAT' and 'Plugin.dll' inside a .NET PE binary. What family is this likely to be?", "required_substrings": ["AsyncRAT", "remote access"]}
+{"format": "binary_literacy", "prompt": "What kind of file starts with the bytes FF D8 FF E1?", "required_substrings": ["JPEG", "EXIF"]}
+{"format": "binary_literacy", "prompt": "A binary starts with `00 61 73 6D 01 00 00 00`. What is it?", "required_substrings": ["WebAssembly", "WASM"]}
+{"format": "binary_literacy", "prompt": "Decode this Java class magic: `CA FE BA BE`. What is it?", "required_substrings": ["Java", "class"]}
+{"format": "binary_literacy", "prompt": "What's the magic for a SQLite database file?", "required_substrings": ["SQLite format 3"]}
+{"format": "binary_literacy", "prompt": "I see ASCII string 'GIF89a' at offset 0. What format and version?", "required_substrings": ["GIF", "1989"]}
+{"format": "binary_literacy", "prompt": "Header bytes 1F 8B 08 — what file format?", "required_substrings": ["GZIP", "DEFLATE"]}
+{"format": "binary_literacy", "prompt": "An Android APK contains a file at /classes.dex starting with `dex\\n035\\0`. What is dex.035?", "required_substrings": ["Dalvik", "Android"]}
+{"format": "binary_literacy", "prompt": "What does the x86 instruction sequence `5F C3` do?", "required_substrings": ["pop rdi", "ret", "ROP"]}
+{"format": "binary_literacy", "prompt": "I see `0F 05` in disassembly. What instruction is that on x86_64?", "required_substrings": ["syscall", "Linux"]}
+{"format": "binary_literacy", "prompt": "Given a 64-character lowercase hex string, what hash function likely produced it?", "required_substrings": ["SHA-256", "32"]}
+{"format": "binary_literacy", "prompt": "A password column contains values like `$2b$12$...` (60 chars). What hashing scheme?", "required_substrings": ["bcrypt", "cost"]}
+{"format": "binary_literacy", "prompt": "What's the meaning of 'EF BB BF' at the start of a text file?", "required_substrings": ["UTF-8", "BOM"]}
+{"format": "binary_literacy", "prompt": "A long ASCII string ending in `=` consisting only of [A-Za-z0-9+/]. What encoding and how do I decode?", "required_substrings": ["base64", "decode"]}
+{"format": "binary_literacy", "prompt": "What are the bytes `FD 7B BF A9 FD 03 00 91` doing in an ARM64 binary?", "required_substrings": ["ARM64", "stp", "frame"]}
+{"format": "binary_literacy", "prompt": "I see strings like 'CreateRemoteThread', 'VirtualAllocEx', 'WriteProcessMemory' in a PE binary's import table. What does that suggest?", "required_substrings": ["injection", "process"]}
