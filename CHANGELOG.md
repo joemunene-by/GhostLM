@@ -1360,6 +1360,153 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.11] — 2026-05-09 — GhostBench agent runner: every bet now scores end-to-end through the agent loop
+
+The piece that turns the agent runtime into a real research artifact.
+v0.9.9 shipped GhostAgent. v0.9.10 shipped the SFT pipeline that
+trains a checkpoint to use it. v0.9.11 makes the agent loop scorable
+across every bet GhostBench knows about: bet 6 format-aware, bet 7
+code-security, bet 8 binary-literacy, bet 9 provenance, bet 10
+log-analysis, bet 11 IaC-security, bet 12 protocol-fields. Seven held-
+out evals, one CLI line, full statistical machinery (Wilson CIs,
+McNemar, Cohen's h, paired-difference confidence intervals).
+
+### scripts/ghostbench_agent_run.py
+
+Composes GhostAgent with GhostBench. For every Bench in
+`Suite.from_dir(eval_dir)`, runs the agent loop on every prompt,
+serialises each trace into a `Prediction` record (using the new
+`AgentTrace.to_scored_text` helper), and writes one JSONL per bench
+to `--predictions-dir/<bench>.jsonl`. The output drops cleanly into
+the existing `python -m ghostbench summary` and `python -m
+ghostbench compare` commands; no changes to GhostBench core required.
+
+A `--baseline` flag forces `max_iters=1` so the model emits one
+message and the loop terminates without dispatching tools, the
+no-tools control for paired comparison. Same checkpoint, same
+prompt, same generation params, same agent runtime, same system
+prompt, but the model never sees a tool response. Compare via:
+
+```
+python -m ghostbench compare \
+  --eval data/raw/<eval>.jsonl \
+  --a-predictions logs/<run>/<bench>.jsonl --a-name agent \
+  --b-predictions logs/<run>_baseline/<bench>.jsonl --b-name baseline \
+  --bench-name <bench>
+```
+
+A `--write-traces` flag dumps the full trace structure to a
+sidecar `<bench>.traces.jsonl` for audit and replay, so a
+disagreement between agent and baseline is forensic-recoverable.
+A `--only` flag accepts a comma-separated bench list when you only
+want to re-run a subset.
+
+### AgentTrace.to_scored_text refactor
+
+The `trace_to_full_text` helper that lived in `scripts/eval_agent.py`
+moves onto `AgentTrace` itself as `to_scored_text(include_user=False,
+include_system=False)`. The default kept content is ASSISTANT
+messages plus TOOL responses, the same convention v0.9.10 introduced
+to avoid crediting substrings present in the eval prompt rather than
+substrings the model produced or grounded through tool dispatch. The
+old helper is now a thin shim around the method, so existing call
+sites continue to work.
+
+Opt-in flags expose USER and SYSTEM content for cases where you
+*do* want the full conversation surface (e.g. logging, debugging,
+or evals where the system prompt must show up in the trace text).
+
+### Tests
+
+[`tests/test_ghostbench_agent.py`](tests/test_ghostbench_agent.py)
+covers 10 cases:
+
+  - **AgentTrace.to_scored_text** (4): default excludes user +
+    system, `include_user` opts user back in, `include_system`
+    opts system back in, both flags.
+  - **trace_to_prediction** (3): propagates eval tags
+    (format/prompt/required_substrings/required_fields/seed_id),
+    predicted_artifact correctly excludes user content, the dict
+    is loadable into `Prediction.from_dict`.
+  - **end-to-end** (1): a stub generator that emits a perfect bet-1
+    + bet-9 trace produces a Prediction that `Bench.score` for
+    `bet9_provenance` recognises as passing the substrings tier.
+  - **CLI subprocess** (2): runs against the real
+    `data/raw/provenance_eval.jsonl` (n=15) with random ghost-tiny
+    weights, asserts well-formed Prediction JSONL output, and
+    confirms `--baseline` flag triggers `max_iters=1`.
+
+Total tests now 159, all green.
+
+### M4 invocation: every bet scored through the agent
+
+Once the v0.9.10 SFT lands a checkpoint, this is the one-shot path
+to the headline artifact, a per-bet table of agent vs baseline:
+
+```bash
+PYTHONPATH=. python3 scripts/ghostbench_agent_run.py \
+  --checkpoint checkpoints/phase20_chat_v09_tools/best_model.pt \
+  --eval-dir data/raw \
+  --predictions-dir logs/v09tools_agent \
+  --run-name v09tools_agent \
+  --offline
+
+PYTHONPATH=. python3 scripts/ghostbench_agent_run.py \
+  --checkpoint checkpoints/phase20_chat_v09_tools/best_model.pt \
+  --eval-dir data/raw \
+  --predictions-dir logs/v09tools_baseline \
+  --run-name v09tools_baseline \
+  --baseline --offline
+
+python -m ghostbench summary \
+  --eval-dir data/raw \
+  --predictions-dir logs/v09tools_agent \
+  --run-name v09tools_agent \
+  --out logs/v09tools_agent/suite_summary.md
+
+python -m ghostbench summary \
+  --eval-dir data/raw \
+  --predictions-dir logs/v09tools_baseline \
+  --run-name v09tools_baseline \
+  --out logs/v09tools_baseline/suite_summary.md
+
+# Per-bench paired comparison with McNemar p-values:
+for b in bet9_provenance bet6_format_aware bet7_code_security \
+         bet8_binary_literacy bet10_log_analysis bet11_iac_security \
+         bet12_protocol_fields; do
+  python -m ghostbench compare \
+    --eval data/raw/${b}*.jsonl \
+    --a-predictions logs/v09tools_agent/${b}.jsonl --a-name agent \
+    --b-predictions logs/v09tools_baseline/${b}.jsonl --b-name baseline \
+    --bench-name ${b} \
+    --out logs/comparisons/${b}_agent_vs_baseline.md
+done
+```
+
+The aggregate output is the answer to the falsifiability question:
+on which bets does the agent runtime measurably help, and at what
+significance level? Prior to v0.9.11, the runtime was unfalsifiable
+infrastructure; now it is a measurable component with a real eval
+behind it.
+
+### Why this matters
+
+The 12-bet differentiation work (v0.9.4 through v0.9.8) produced
+seven held-out eval sets. Until today they only measured the model
+directly. The agent runtime (v0.9.9) wrapped the model in a tool-
+using loop. The SFT pipeline (v0.9.10) bridged the runtime back to
+v0.9 chat. This release closes the loop: every bet now scores
+through the agent, with paired comparison against a no-tools control,
+with statistical significance reported.
+
+When ghost-base lands, the same one-line invocation produces a
+publishable-shape table comparing ghost-base-with-tools vs ghost-
+base-baseline vs v0.9-chat-with-tools, with McNemar p-values on
+each bet. That is the kind of result that distinguishes a research
+project from a demo.
+
+---
+
 ## [0.9.10] — 2026-05-08 — tool-use SFT pipeline + agent eval harness
 
 The bridge between v0.9.9's runtime and a v0.9 chat checkpoint that

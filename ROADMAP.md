@@ -66,6 +66,10 @@ PYTHONPATH=. python3 scripts/train_ghost_base.py \
 
 `scripts/prep_tool_use_sft.py` converts the bet 1 + bet 9 synth traces (~850 records) into chat-format SFT records, with optional mixing into the existing chat data so v0.9's small-talk + identity SFT survives. `scripts/eval_agent.py` runs the agent loop against held-out provenance eval (n=15), scores on `required_substrings` with Wilson 95% CI, and supports a `--baseline` mode (max_iters=1) for paired comparison vs no-tool-use. The pipeline is M4-runnable in a few hours: synth -> prep -> SFT on v0.9 -> agent eval, with every step reproducible from one CLI line. Format compliance is the kind of narrow signal small models *can* learn even when fact recall floors at 81M params, so v0.9-chat-with-tools could plausibly produce a working agent demo before GPU compute lands.
 
+### GhostBench agent runner shipped (v0.9.11)
+
+`scripts/ghostbench_agent_run.py` composes GhostAgent with GhostBench: for every bet's held-out eval (bet 6 format-aware, bet 7 code-security, bet 8 binary-literacy, bet 9 provenance, bet 10 log-analysis, bet 11 IaC-security, bet 12 protocol-fields), runs the agent loop on every prompt and writes JSONL predictions that the existing `python -m ghostbench summary` and `python -m ghostbench compare` commands consume directly. A `--baseline` flag forces `max_iters=1` for the no-tools control, which produces the paired comparison via existing GhostBench machinery (Wilson CIs, McNemar p-values, Cohen's h). Until today, the agent runtime was unfalsifiable infrastructure; now every bet measures it with statistical rigor. When ghost-base lands, the same one-line invocation produces a publishable-shape per-bet table comparing ghost-base-with-tools vs ghost-base-baseline vs v0.9-chat-with-tools.
+
 ### Canonical models on disk
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
 - **Chat (best ghost-small):** `checkpoints/phase19_chat_v09/best_model.pt` (v0.9, wins all three MCQ benches on apples-to-apples scoring).
