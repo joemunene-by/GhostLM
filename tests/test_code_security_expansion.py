@@ -36,15 +36,16 @@ def _load_jsonl(path):
 class TestBank:
     def test_bank_loads(self):
         recs = _load_jsonl(PATTERNS_PATH)
-        assert len(recs) >= 32, f"expected >= 32 patterns, got {len(recs)}"
+        assert len(recs) >= 60, f"expected >= 60 patterns, got {len(recs)}"
 
     def test_languages_covered(self):
         recs = _load_jsonl(PATTERNS_PATH)
         langs = {r.get("language") for r in recs}
-        # Original bank had python/javascript/c. Expansion adds java,
-        # go, ruby, php.
+        # Phase 1 (v0.9.17) added java, go, ruby, php.
+        # Phase 2 (v0.9.19) added rust, csharp, swift, kotlin.
         for lang in ("python", "javascript", "java", "go", "c",
-                     "ruby", "php"):
+                     "ruby", "php", "rust", "csharp", "swift",
+                     "kotlin"):
             assert lang in langs, f"language missing: {lang}"
 
     def test_required_fields_present(self):
@@ -70,16 +71,20 @@ class TestBank:
         """Expansion adds CWE classes the original 12 didn't cover."""
         recs = _load_jsonl(PATTERNS_PATH)
         cwes = {r["cwe"] for r in recs}
-        # Sample of CWEs introduced by the expansion.
+        # Phase 1 (v0.9.17) sample.
         for cwe in ("CWE-1321", "CWE-1333", "CWE-134", "CWE-190",
                      "CWE-285", "CWE-326", "CWE-915", "CWE-98"):
             assert cwe in cwes, f"expected CWE {cwe} in expanded bank"
+        # Phase 2 (v0.9.19) sample.
+        for cwe in ("CWE-367", "CWE-362", "CWE-90", "CWE-113",
+                     "CWE-434", "CWE-95", "CWE-209", "CWE-1336"):
+            assert cwe in cwes, f"expected CWE {cwe} in phase-2 bank"
 
 
 class TestEval:
     def test_eval_loads(self):
         recs = _load_jsonl(EVAL_PATH)
-        assert len(recs) >= 32
+        assert len(recs) >= 50
 
     def test_eval_record_shape(self):
         recs = _load_jsonl(EVAL_PATH)
@@ -94,7 +99,9 @@ class TestEval:
         scored on cross-language coverage, not just Python."""
         recs = _load_jsonl(EVAL_PATH)
         all_text = " ".join(r["prompt"] for r in recs).lower()
-        for term in ("javascript", "java ", "go ", "ruby", "php"):
+        # Phase 1 + phase 2 languages must all appear.
+        for term in ("javascript", "java ", "go ", "ruby", "php",
+                     "rust", "c#", "swift", "kotlin"):
             assert term in all_text, (
                 f"eval set missing prompt mentioning {term!r}")
 
@@ -113,9 +120,9 @@ class TestSynthIntegration:
         )
         assert result.returncode == 0, result.stderr
         recs = _load_jsonl(out)
-        # 32 patterns * 4 variants = 128, minus a few that the
-        # cwe_mapping quality filter rejects. Assert at least 100.
-        assert len(recs) >= 100, f"got only {len(recs)} records"
+        # 62 patterns * 4 variants = 248, minus the cwe_mapping
+        # quality-filter rejects. Assert at least 220.
+        assert len(recs) >= 220, f"got only {len(recs)} records"
         # Variants should be distributed.
         sources = {r.get("seed_source") for r in recs}
         assert "pretrain_prose" in sources
