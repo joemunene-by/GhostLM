@@ -82,6 +82,10 @@ PYTHONPATH=. python3 scripts/train_ghost_base.py \
 
 `scripts/mcp_server.py` gains a `ghostlm_agent` tool that runs the full GhostAgent loop and returns the cite-tagged final answer. Claude Desktop / Cursor / any MCP-compatible client can now invoke the cybersec agent loop the same way they invoke any other tool. The retrofit reuses the model the MCP server already loaded (no second checkpoint load) via the new `make_generator_from_loaded(model, config, tokenizer, device, ...)` helper in `ghostlm/agent/runner.py`. `include_trace=True` prepends a JSON-serialised trace block before the final answer, which lets a Claude session inspect the loop's reasoning step-by-step. Combined with v0.9.12's HTTP server, GhostLM is now reachable from OpenAI / Anthropic / Gemini / Ollama / MCP clients with zero glue code; when ghost-base trains, every integration upgrades for free.
 
+### Five new real-world cybersec tools shipped (v0.9.15)
+
+The agent went from 4 demo-grade tools (CVE / MITRE / CWE / RAG) to 9 tools that correspond to a SOC analyst's actual investigative loop: `lookup_cisa_kev` (Known Exploited Vulnerabilities, public CISA feed, no API key), `lookup_greynoise` (IP scanner / benign / malicious classification, GREYNOISE_API_KEY), `lookup_virustotal_hash` (file-hash reputation, VIRUSTOTAL_API_KEY), `lookup_shodan` (IP service profile, SHODAN_API_KEY), `lookup_alienvault_otx` (IOC pulse search, OTX_API_KEY). Each follows the same try-real-then-cache pattern: live API when keys are set, offline cache fallback otherwise, structured `not_found` response when neither matches. Default system prompt updated to surface all 9 tools to the model. 15 new test cases bringing the suite to 210, all green.
+
 ### Canonical models on disk
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
 - **Chat (best ghost-small):** `checkpoints/phase19_chat_v09/best_model.pt` (v0.9, wins all three MCQ benches on apples-to-apples scoring).

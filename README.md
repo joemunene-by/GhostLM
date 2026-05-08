@@ -129,10 +129,14 @@ python -m ghostlm.agent --query "What is CVE-2017-0144?" --offline
 python -m ghostlm.agent --query "..." --checkpoint runs/v09chat/best.pt
 ```
 GhostAgent wraps any GhostLM checkpoint in a tool-using loop with
-the four canonical tools (CVE / MITRE / CWE / RAG retrieval),
-parses `<|tool_call|>` and `<|cite|>` tags, and emits a JSON-
-serialisable trace. See `ghostlm/agent/` for the runtime and
-`tests/test_agent.py` for the 31-case test suite.
+nine cybersec tools (CVE / MITRE / CWE / RAG / CISA KEV /
+GreyNoise / VirusTotal / Shodan / OTX), parses `<|tool_call|>` and
+`<|cite|>` tags, and emits a JSON-serialisable trace. Each tool
+tries its real upstream API when keys are set
+(GREYNOISE_API_KEY, VIRUSTOTAL_API_KEY, SHODAN_API_KEY, OTX_API_KEY)
+and falls back to an in-package offline cache otherwise. See
+`ghostlm/agent/` for the runtime and `tests/test_agent.py` for the
+47-case test suite.
 
 ### Serve as an HTTP API (OpenAI / Anthropic / Gemini / Ollama compatible)
 ```bash
@@ -410,7 +414,7 @@ GhostLM/
 │ └── resume_train.sh # Resume an interrupted training run
 ├── data/ # Data pipeline
 ├── demo/ # Gradio web demo (demo/app.py)
-├── tests/ # 195 unit tests (incl. 32 agent runtime + 24 SFT prep + 10 GhostBench agent + 22 HTTP server + 13 distillation + 5 MCP agent + bet 1-12 differentiation)
+├── tests/ # 210 unit tests (incl. 47 agent runtime + 24 SFT prep + 10 GhostBench agent + 22 HTTP server + 13 distillation + 5 MCP agent + bet 1-12 differentiation)
 └── Makefile # One-command workflow
 ```
 

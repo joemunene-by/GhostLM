@@ -1360,6 +1360,122 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.15] — 2026-05-09 — five new real-world cybersec tools (CISA KEV + GreyNoise + VirusTotal + Shodan + OTX)
+
+The agent went from 4 demo-grade tools (CVE / MITRE / CWE / RAG) to
+9 tools that correspond to the actual lookups a SOC analyst does
+during an investigation. Three of them have live API paths
+(GREYNOISE_API_KEY / VIRUSTOTAL_API_KEY / SHODAN_API_KEY / OTX_API_KEY
+trigger the real upstream); CISA KEV is keyless and tries the public
+CISA feed by default. All five ship with hand-curated offline caches
+so tests are deterministic and the agent works without network egress.
+
+### New tools
+
+  lookup_cisa_kev(cve_id)
+       Is this CVE on CISA's Known Exploited Vulnerabilities list?
+       Returns the KEV entry with vendor, product,
+       vulnerability name, required-action text, due date, and
+       known-ransomware-use status. Tries the public CISA JSON feed
+       at https://www.cisa.gov/sites/default/files/feeds/...; falls
+       back to the offline cache (6 well-known KEV entries: Log4Shell,
+       BlueKeep, Zerologon, EternalBlue, xz-utils backdoor, HTTP/2
+       Rapid Reset). No API key required.
+
+  lookup_greynoise(ip)
+       Classify an IP as internet-noise, benign infrastructure (Google
+       DNS, Cloudflare), targeted malicious, or unknown. Reads
+       GREYNOISE_API_KEY for live community-API lookups; falls back
+       to the offline cache (RFC 5737 documentation prefixes + known
+       benign DNS resolvers).
+
+  lookup_virustotal_hash(hash)
+       File-hash reputation (MD5 / SHA1 / SHA256). Returns
+       malicious / suspicious / harmless detection counts plus a
+       threat label. Reads VIRUSTOTAL_API_KEY; falls back to the
+       offline cache (EICAR test file + WannaCry public hash). The
+       backend rejects malformed hex with an error blob.
+
+  lookup_shodan(ip)
+       Service profile for an IP: hostnames, country, org, open
+       ports, banners. Reads SHODAN_API_KEY; falls back to the
+       offline cache (Google + Cloudflare DNS resolvers as
+       reference shape).
+
+  lookup_alienvault_otx(indicator)
+       OTX pulse search for IOCs (IP, domain, hash, APT name).
+       Returns pulse count and short summaries with tags + TLP.
+       Reads OTX_API_KEY; falls back to the offline cache (Lazarus
+       Group, APT28 reference summaries).
+
+### Architecture
+
+Each tool follows the canonical try-real-then-cache pattern that
+v0.9.9 established:
+
+  1. If API key is set AND GHOST_AGENT_OFFLINE != 1, attempt the
+     live upstream HTTP call with a short timeout.
+  2. On any URL/HTTP/OS error, fall through silently.
+  3. Look up the offline cache by the same key.
+  4. If neither matches, return a structured `{found: false}`
+     response so the model can recover via the bet-1 not-found
+     pattern.
+
+Tool errors during dispatch (unknown name, missing required arg,
+backend exception) still get captured into ToolResult.error rather
+than raising, so the agent loop continues and the model can recover.
+
+### Updated default system prompt
+
+`RuntimeConfig.system_prompt` now lists all 9 tools by name so the
+model sees the full catalog when deciding which to call. Previous
+4-tool prompt is replaced; existing checkpoints that were SFT'd on
+the 4-tool prompt continue to work because the new prompt is a
+strict superset.
+
+### Tests
+
+[`tests/test_agent.py`](tests/test_agent.py) gains 15 new cases
+covering the new tools:
+
+  - **Registry** (1): all five new tools registered.
+  - **CISA KEV** (3): offline hit, not-found, missing-arg.
+  - **GreyNoise** (2): known benign IP, unknown IP returns unknown.
+  - **VirusTotal** (3): EICAR cache hit, invalid hex format, case-
+    insensitive lookup (uppercase hash matches lowercase cache).
+  - **Shodan** (2): known IP, unknown IP returns not-found.
+  - **OTX** (3): known APT, case-insensitive, unknown indicator.
+  - **Offline env var** (1): GHOST_AGENT_OFFLINE=1 keeps every
+    request in-memory (sub-100ms latency).
+
+The pre-existing `test_registry_has_four_canonical_tools` is
+relaxed to assert the four canonical tools are a SUBSET (the 9-tool
+registry no longer equals the 4-tool set).
+
+Total tests now 210, all green.
+
+### Why this matters
+
+A SOC analyst's day is dominated by lookups against exactly these
+five services (plus the four bet-1 originals). Before today the
+agent could only do CVE / MITRE / CWE / RAG, which is roughly the
+"intel triage" surface. With CISA KEV + GreyNoise + VirusTotal +
+Shodan + OTX, the agent covers the full investigative loop:
+
+  - "Is this CVE actively exploited?"          (CISA KEV)
+  - "Is this scanning IP background noise?"     (GreyNoise)
+  - "Is this dropped file known-bad?"           (VirusTotal)
+  - "What services does this IP expose?"        (Shodan)
+  - "Has anyone seen this indicator before?"    (OTX)
+
+Each tool has a real public-data path that GhostAgent uses
+automatically when the relevant API key is set. The offline caches
+mean the agent demo runs end-to-end without any creds or network
+egress, which matters for CI, air-gapped environments, and the
+"clone the repo, see it work" first-time experience.
+
+---
+
 ## [0.9.14] — 2026-05-09 — MCP server retrofit: ghostlm_agent tool exposes the full agent loop
 
 The existing MCP server (`scripts/mcp_server.py`) shipped before
