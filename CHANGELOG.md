@@ -1360,6 +1360,109 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.21] — 2026-05-09 — math + reasoning SFT bank: 58 records, 10 topics
+
+The last "everything" piece. v0.9.18 shipped general-knowledge,
+v0.9.20 shipped programming Q&A, this release ships the math
++ reasoning bank. Together with the existing pretrain corpus
+(~21M tokens of open-web-math at 6%), the model now has both
+broad math pretraining AND explicit chat-shape SFT for
+arithmetic, algebra, word problems, probability, statistics,
+logic, and proofs.
+
+### data/raw/chat/math_reasoning.jsonl
+
+58 hand-written 2-turn conversations across 10 topics:
+
+  arithmetic     11   multiplication, division, percentages,
+                       square roots, factorials, fraction
+                       conversion, GCD, primality (incl. 91 = 7×13
+                       gotcha), powers of 2, log base 2
+  word_problems  12   train speed, two-numbers sum, money sum,
+                       compound discount, recipe scaling, doubling
+                       time, profit margin, time-weighted average
+                       speed, bat-and-ball CRT problem,
+                       parallel-machine widget production,
+                       lily-pad doubling
+  algebra         7   linear, two-step, quadratic by factoring,
+                       systems by elimination, substitution,
+                       slope-intercept
+  logic           6   transitive inclusion, falsifiability,
+                       hypothetical syllogism, oldest-youngest,
+                       affirming-the-consequent fallacy, modus
+                       tollens
+  geometry        5   Pythagorean triple, triangle area, cube
+                       volume, circumference, sin(30°)
+  statistics      4   mean, median, mean vs median (outlier
+                       sensitivity), standard deviation
+  proof           4   sum of first n odds, √2 irrational, Euclid's
+                       infinite primes, sum 1..n via pairing
+  probability     3   coin flip union, sum-of-two-dice,
+                       gambler's-fallacy independence
+  combinatorics   3   handshakes (n-choose-2), MISSISSIPPI
+                       permutations, subsets count
+  concepts        3   compound interest, derivative, integral
+
+Mix is intentionally weighted toward arithmetic + word problems
+(the patterns small models can actually learn) over deep proofs.
+
+### scripts/build_chat_dataset.py
+
+Three new flags mirroring the v0.9.18 / v0.9.20 patterns:
+
+  --math-reasoning             default points to the bank
+  --math-reasoning-multiplier  default 4 (slightly lower than the
+                                5x for general-knowledge / programming-
+                                qa because the open-web-math pretrain
+                                already covers math at 6%)
+  --math-reasoning-val-frac    default 0.1
+
+### tests/test_math_reasoning_bank.py
+
+9 cases: file loads + size (2), record shape (1), topic coverage
+spans 9 categories (1), arithmetic + word_problems each have >= 8
+records (2), step-by-step examples present (1), CLI advertises the
+new flags (1), default path in script source (1). Total tests now
+249, all green.
+
+### Cross-domain SFT mass after v0.9.21
+
+  small-talk seed                          153
+  general-knowledge seed                    98
+  programming-qa seed                       66
+  math-reasoning seed                       58
+  ──────────────────────────────────────────────
+  cross-domain SFT total                   375 records (~16% of
+                                                       unique SFT)
+
+  cybersec SFT (12 bets, bet 7 at 243)  ~1,940 records (~84%)
+
+The model now has explicit SFT for: cybersec specialty (12 bets),
+broader code chat (programming Q&A), code security (bet 7 at 243),
+general factual knowledge (geography/science/etymology), refusal
++ uncertainty patterns, math + reasoning, identity + small-talk.
+
+This is the corpus shape ghost-base will train on. The cybersec
+specialty stays sharp (84% of SFT). The cross-domain floor (16%)
+is enough to produce a coherent generalist register without
+diluting the security focus.
+
+### Five releases this push session expanded "everything"
+
+  v0.9.17  bet 7 to 32 patterns / 7 languages / 128 SFT records
+  v0.9.18  general-knowledge bank (98 records / 15 topics)
+  v0.9.19  bet 7 to 62 patterns / 11 languages / 243 SFT records
+  v0.9.20  programming Q&A bank (66 records / 12 topics)
+  v0.9.21  math + reasoning bank (58 records / 10 topics)
+
+The user's "expand on everything mostly the code" framing answered:
+  Code:           48 -> 243 SFT records (5x), plus 66 programming-Q&A
+  General know.:  0  -> 98 records
+  Math + reason:  0  -> 58 records
+  Cybersec:       no change (already comprehensive at ~1,800 records)
+
+---
+
 ## [0.9.20] — 2026-05-09 — programming Q&A SFT bank: 66 records, broader-than-security code chat
 
 The general-knowledge bank (v0.9.18, 98 records, 13 programming
