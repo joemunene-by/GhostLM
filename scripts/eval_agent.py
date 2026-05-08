@@ -50,19 +50,8 @@ from ghostlm.agent.runner import make_generator  # noqa: E402
 
 
 def trace_to_full_text(trace: AgentTrace) -> str:
-    """Concatenate model-output + tool-response message contents.
-
-    Scoring deliberately excludes SYSTEM and USER messages: many eval
-    prompts mention the entity (e.g. "What is CVE-2017-0144?"), so
-    including the user turn would credit substrings that were already
-    in the question rather than substrings the model produced or
-    retrieved through tool dispatch. We keep TOOL responses because
-    they represent successful grounding through a tool the model
-    chose to invoke.
-    """
-    from ghostlm.agent import MessageRole
-    keep = {MessageRole.ASSISTANT, MessageRole.TOOL}
-    return "\n".join(m.content for m in trace.history if m.role in keep)
+    """Compatibility shim around ``AgentTrace.to_scored_text``."""
+    return trace.to_scored_text()
 
 
 def wilson_ci(k: int, n: int, z: float = 1.96) -> tuple:

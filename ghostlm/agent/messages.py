@@ -113,6 +113,24 @@ class AgentTrace:
     def add(self, msg: AgentMessage) -> None:
         self.history.append(msg)
 
+    def to_scored_text(self, include_user: bool = False,
+                        include_system: bool = False) -> str:
+        """Concatenate message contents for substring-based scoring.
+
+        Defaults exclude USER and SYSTEM messages: many eval prompts
+        mention the entity in question, so including the user turn
+        would credit substrings already in the prompt rather than
+        substrings the model produced or grounded through tool
+        dispatch. The kept content is ASSISTANT messages plus TOOL
+        responses, which is what the model actually produced.
+        """
+        keep = {MessageRole.ASSISTANT, MessageRole.TOOL}
+        if include_user:
+            keep.add(MessageRole.USER)
+        if include_system:
+            keep.add(MessageRole.SYSTEM)
+        return "\n".join(m.content for m in self.history if m.role in keep)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "query": self.query,
