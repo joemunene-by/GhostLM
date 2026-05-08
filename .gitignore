@@ -44,6 +44,7 @@ data/rag/
 !data/raw/protocol_fields_eval.jsonl
 !data/raw/chat/
 !data/raw/chat/general_knowledge.jsonl
+!data/raw/chat/programming_qa.jsonl
 !data/processed/.gitkeep
 
 # Model checkpoints

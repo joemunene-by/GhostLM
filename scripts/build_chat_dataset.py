@@ -467,6 +467,18 @@ def parse_args() -> argparse.Namespace:
                         "signal.")
     p.add_argument("--general-knowledge-val-frac", type=float, default=0.1,
                    help="Held-out fraction of general_knowledge for val.")
+    p.add_argument("--programming-qa",
+                   default="data/raw/chat/programming_qa.jsonl",
+                   help="Hand-written programming Q&A bank (how-to, "
+                        "code-explain, debug-help, refactor, language "
+                        "concepts across Python / JS / Go / Rust / "
+                        "Java / etc). Set to '' to skip.")
+    p.add_argument("--programming-qa-multiplier", type=int, default=5,
+                   help="Copies of programming_qa to inject. Default 5x "
+                        "brings programming-Q&A to roughly five percent "
+                        "of training pairs.")
+    p.add_argument("--programming-qa-val-frac", type=float, default=0.1,
+                   help="Held-out fraction of programming_qa for val.")
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
@@ -579,6 +591,26 @@ def main() -> None:
               f"{len(gk_train_over):,})")
         train_pairs.extend(gk_train_over)
         val_pairs.extend(gk_val)
+
+    # Programming Q&A seed (broader than security: how-to, code-explain,
+    # debug-help, refactor, language concepts). Same 5x multiplier as
+    # general_knowledge so programming Q&A gets ~5% of training pairs.
+    if args.programming_qa and Path(args.programming_qa).exists():
+        pq_all = load_jsonl(Path(args.programming_qa))
+        rng.shuffle(pq_all)
+        n_pq_val = max(1, int(len(pq_all)
+                                * args.programming_qa_val_frac))
+        pq_val = pq_all[:n_pq_val]
+        pq_train_unique = pq_all[n_pq_val:]
+        pq_train_over = (pq_train_unique
+                          * args.programming_qa_multiplier)
+        print(f"  programming_qa: unique={len(pq_all):,} "
+              f"(val={len(pq_val):,}, train_unique="
+              f"{len(pq_train_unique):,}, train_after_"
+              f"×{args.programming_qa_multiplier}="
+              f"{len(pq_train_over):,})")
+        train_pairs.extend(pq_train_over)
+        val_pairs.extend(pq_val)
 
     rng.shuffle(train_pairs)
     rng.shuffle(val_pairs)
