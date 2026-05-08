@@ -11,8 +11,10 @@ Usage:
 
     PYTHONPATH=. python3 scripts/run_format_baseline.py \\
         --checkpoint checkpoints/phase19_chat_v09/best_model.pt \\
-        --seeds data/raw/format_aware_seeds.jsonl \\
         --out logs/format_baseline_v09_chat.jsonl
+        # --seeds defaults to data/raw/format_aware_eval.jsonl, the
+        # held-out eval set. Use --seeds data/raw/format_aware_seeds.jsonl
+        # to score against the few-shot bank instead (debug only).
 
     PYTHONPATH=. python3 scripts/eval_format_compliance.py \\
         --predictions logs/format_baseline_v09_chat.jsonl
@@ -20,7 +22,10 @@ Usage:
 The baseline script preserves the original ``required_fields`` and
 ``required_substrings`` tags on each record so the eval harness can
 score the predictions against the same expectations as the gold
-seeds.
+eval set. Note: the eval records have only ``prompt`` and the
+required-content tags; they deliberately do NOT carry a gold
+``artifact`` field, since that lives in the few-shot bank and we
+want to keep the two cleanly separated.
 """
 
 from __future__ import annotations
@@ -49,9 +54,11 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--checkpoint", required=True,
                    help="Path to the .pt checkpoint to evaluate")
-    p.add_argument("--seeds", default="data/raw/format_aware_seeds.jsonl",
-                   help="JSONL with format / prompt / artifact / "
-                        "required_fields / required_substrings entries")
+    p.add_argument("--seeds", default="data/raw/format_aware_eval.jsonl",
+                   help="JSONL with format / prompt / required_fields / "
+                        "required_substrings entries. Default points at "
+                        "the held-out eval set (no overlap with the "
+                        "few-shot bank that distillation reads from).")
     p.add_argument("--out", required=True,
                    help="Output predictions JSONL path")
     p.add_argument("--temperature", type=float, default=0.7)
