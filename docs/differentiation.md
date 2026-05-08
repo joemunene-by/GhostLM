@@ -4,7 +4,7 @@ Most from-scratch cybersec LMs in 2025-2026 follow the same recipe:
 clone SmolLM2 architecture, train on PRIMUS + CTIBench-adjacent web
 text, ship at 28-32% on debiased CTIBench MCQ, declare victory. The
 benchmarks are crowded with near-identical artifacts. This document
-captures GhostLM's six concrete bets to be **genuinely different**
+captures GhostLM's nine concrete bets to be **genuinely different**
 rather than another point in that crowd, with a scaffold per bet
 that's already in the repo.
 
@@ -30,9 +30,19 @@ retrieved context destabilizes the model into mode collapse.**
 
 The obvious fix is parameter scaling (ghost-base, ghost-1B, etc).
 That's the v1.0 GPU spend already planned at
-`docs/ghost_base_spec.md`. The six bets below are different
+`docs/ghost_base_spec.md`. The nine bets below are different
 moves: each is something a parameter-scaled-only roadmap doesn't
 solve.
+
+The first six bets are the original strategic frame (tool grounding,
+freshness, tokenizer, context, MoE, structured-format literacy).
+Bets 7-9 added 2026-05-08 in response to the question "what would
+make GhostLM exceptional, not just narrow?": **multi-modal in
+security**. Real security analysts don't only read prose, they
+read code, hex dumps, binary headers, structured CTI, and they need
+the model's claims to be auditable. Bets 7, 8, 9 cover the code,
+binary, and provenance axes that no general-purpose small LM
+trains on natively.
 
 ## Bet 1: tool-grounded model, not memorization-based
 
@@ -246,18 +256,138 @@ compounds with bet 1 (tool-use SFT): tools that emit STIX or
 YARA in their responses become first-class citizens of the
 training distribution rather than out-of-domain artifacts.
 
+## Bet 7: code-for-security
+
+**Hypothesis.** GhostLM has been trained almost entirely on
+cybersec *prose*. A real analyst spends much of their day looking
+at code: vulnerable functions, patches, exploit POCs, malware
+strings. Generalist small LMs do see code in pretrain but their
+mix dilutes security-relevant code with general-purpose code, and
+their RLHF often filters out exploit-shaped content. A small
+from-scratch LM trained natively on code-in-security-context is
+a different artifact and the right shape for the analyst-facing
+workflow.
+
+**Fix.** Hand-curate a bank of 12-100 vulnerability patterns,
+each with a vulnerable code snippet, a patched code snippet, an
+explanation linking the diff to the vuln class, and CVE examples.
+Emit four record variants per pattern: pretrain prose, "identify
+and fix" Q&A, "explain the diff" Q&A, "CWE mapping" Q&A. Mix into
+ghost-base pretrain at single-digit-percent of the corpus tokens.
+LLM-distillation phase (separate work) mines real GitHub
+commits-that-fix-CVEs and Exploit-DB POCs for variety on top of
+the deterministic floor.
+
+**Scaffold.** [`data/raw/code_security_patterns.jsonl`](../data/raw/code_security_patterns.jsonl)
+(12 patterns covering OWASP-Top-10-shaped CWE classes across
+Python / JavaScript / C, commit `XXX`),
+[`scripts/synth_code_security.py`](../scripts/synth_code_security.py)
+that emits 48 records (12 × 4 variants) at 100% parser-pass.
+Detail in [`docs/code_security_synth.md`](code_security_synth.md).
+
+**Why it's the differentiator.** GPT-4 / Claude / Llama explain
+CWEs *adequately* but not better than a junior security engineer
+would. A small from-scratch LM that does this comparably at 1-3%
+the inference cost AND handles exploit-shaped content without
+RLHF refusals is a genuinely different artifact. The reproducibility
+(every record is a deterministic template + curated JSONL bank)
+means anyone reading the GhostLM paper can re-derive the training
+data exactly, which is the academic-publishing bar closed-model
+recipes can't meet.
+
+## Bet 8: binary-and-hex literacy
+
+**Hypothesis.** Big LMs cannot read a hex dump because their
+pretrain saw vanishingly little of it. They cannot reliably
+interpret a PE / ELF / Mach-O header, a packer signature, or a
+disassembled function block. **A small from-scratch LM trained
+natively on binary-as-text is a fundamentally different artifact**
+and maps to actual reverse-engineering, malware-analysis, and
+forensics workflows. This is the bet most likely to be unique:
+no other small cybersec LM trains on this distribution.
+
+**Fix.** Build a hex / binary literacy corpus by:
+  - PE / ELF / Mach-O header dumps from a curated binary set
+    (Windows system DLLs, common Linux binaries, sample malware
+    where the licence permits redistribution as bytes).
+  - Annotated hex sequences for common packer signatures (UPX,
+    ASPack, Themida) and shellcode patterns (NOP sled, alphanumeric
+    decoder).
+  - File-magic patterns from libmagic / TrID dictionaries, paired
+    with prose explanation of the byte signature.
+  - objdump / radare2 / Ghidra output snippets for a small set of
+    canonical functions (entry point of a ransomware loader,
+    a credential-stealer's HTTP-POST routine, etc.) paired with
+    natural-language explanation.
+
+**Scaffold (planned).** Pattern bank at
+[`data/raw/binary_literacy_patterns.jsonl`](../data/raw/binary_literacy_patterns.jsonl)
+plus a synthesis script following the same template-emit pattern
+as bets 6 and 7. The corpus contribution mixes into ghost-base
+pretrain at single-digit-percent of tokens.
+
+**Why it's the differentiator.** This is the bet that reaches the
+"papers + research-community attention" altitude. Reading a hex
+dump is a measurable capability with a clean eval (provide
+unannotated hex, ask for the byte-signature it matches). No other
+small cybersec LM does this; even GPT-4 fails on real obfuscated
+shellcode without explicit prompt engineering. A small open-source
+LM that handles this natively is a genuine first.
+
+## Bet 9: operator-grade reasoning + provenance
+
+**Hypothesis.** In a SOC context, wrong-but-confident is worse
+than honest-uncertain. The model needs to (a) cite the tool
+response or RAG passage that justifies each claim, and (b)
+acknowledge uncertainty calibrated to data quality. No big model
+does this consistently because their RLHF reward favors fluency
+over auditability. **A small LM trained from day one to cite its
+sources is a different deployment story** for security operators
+who need to defend their analysis to leadership.
+
+**Fix.** Extend the bet 1 tool-use trace format with a
+`<|cite|>{source_id}<|/cite|>` tag, where `{source_id}` is one of
+the seed sources that appeared in the trace's tool response. The
+ASSISTANT's final message contains inline citations after every
+factual claim, e.g.:
+
+  > CVE-2017-0144 is an SMB RCE <|cite|>NVD<|/cite|>. It was
+  > exploited by EternalBlue <|cite|>MITRE-T1210<|/cite|>.
+
+Add a quality filter that rejects traces where the assistant
+makes a factual claim without an inline cite. SFT loss masks the
+cite tags so the model learns when to emit them, not just to
+copy them.
+
+**Scaffold (planned).** Extension to
+[`scripts/synth_tool_use.py`](../scripts/synth_tool_use.py) that
+emits cite-augmented traces from the same corpus seeds, plus an
+update to `trace_quality_ok` that requires at least one cite tag
+per assistant turn. ~500 cite-augmented templated traces stack on
+top of the existing 424 plain tool-use traces.
+
+**Why it's the differentiator.** "Show your work" is the
+property security operators want most and current LMs fail
+hardest at. Big models will not retrofit this because their
+training pipeline is designed around fluency, not provenance.
+A from-scratch LM trained on cite-mandatory traces is a
+demonstrably different deployment artifact.
+
 ## How the bets compose
 
-The six bets are independent but mutually reinforcing:
+The nine bets are independent but mutually reinforcing:
 
 | Bet | Pairs well with | Anti-pairs with |
 |---|---|---|
-| 1 (tool-use SFT) | RAG layer, MCP tools, daily updates, format-aware pretrain (structured tool outputs) | (none) |
+| 1 (tool-use SFT) | RAG, MCP tools, daily updates, format-aware pretrain (structured tool outputs), bet 9 (cite tags inside traces) | (none) |
 | 2 (daily updates) | tool-use SFT (more tools to call), context extension | (none) |
 | 3 (custom BPE) | every other bet (smaller tokens = more budget); +1.6% measured, optional default | (none) |
-| 4 (long context) | tool-use SFT (longer tool responses), MoE (more attention compute amortized) | (none) |
+| 4 (long context) | tool-use SFT (longer tool responses), MoE (more attention compute amortized), bet 8 (long hex dumps) | (none) |
 | 5 (MoE) | scaling beyond 1B; less impact at 360M ghost-base scale | parameter-efficient fine-tunes (LoRA on MoE is finicky) |
-| 6 (format-aware pretrain) | tool-use SFT (tools emit STIX/YARA/Sigma cleanly), daily updates (fresh threat-intel artifacts arrive in these formats) | (none) |
+| 6 (format-aware pretrain) | tool-use SFT (tools emit STIX/YARA/Sigma cleanly), daily updates, bet 7 (vuln descriptions become STIX inputs) | (none) |
+| 7 (code-for-security) | bet 6 (vuln-to-STIX), bet 8 (vuln in compiled form), bet 9 (CWE citation) | (none) |
+| 8 (binary literacy) | bet 4 (long hex), bet 7 (compiled form of source-level patterns), bet 9 (cite the file-magic source) | (none) |
+| 9 (provenance) | bet 1 (tool-use traces), bet 6 (cite STIX external_references), every other bet | (none) |
 
 Recommended sequencing:
 
@@ -312,12 +442,15 @@ Recommended sequencing:
 
 ## Summary
 
-The six scaffolds collectively shift GhostLM from "another point
+The nine scaffolds collectively shift GhostLM from "another point
 on the small-cybersec-LM benchmark plot" to "an artifact with a
 recognizable shape: tool-grounded, continuously updated, cybersec-
-tokenized, long-context, sparsely-activated, structurally
-literate". Each scaffold is already in the repo and runs as soon
-as compute / budget / operator attention are available. The
-strategic claim isn't that any one bet definitely works; it's that
-the **combination** of six reasonable bets gives GhostLM a
-defensible identity that parameter-scale-only roadmaps don't.
+tokenized, long-context, sparsely-activated, structurally literate,
+code-aware, binary-aware, and provenance-aware". Each scaffold is
+already in the repo (or, for bets 8 and 9, framed with the same
+template-emit pattern that bets 6 and 7 use, so the implementation
+is a known shape). The strategic claim isn't that any one bet
+definitely works; it's that the **combination** of nine reasonable
+bets gives GhostLM a defensible identity at the analyst-workflow
+altitude that parameter-scale-only roadmaps and big-model-leaderboard
+roadmaps both fail to occupy.
