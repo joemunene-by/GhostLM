@@ -1,4 +1,14 @@
-![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-v0.9.32%20%E2%80%94%20pretrain%20code%20share%202.4%25%20%E2%86%92%2011.6%25%2C%20train%20768K%20records%20%2F%20%7E422M%20tokens-blue.svg)
+<p align="center">
+  <img src="assets/ghostlm_wordmark.png" alt="GhostLM" width="560">
+</p>
+
+<p align="center">
+  <img src="https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg" alt="CI">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python">
+  <img src="https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg" alt="PyTorch">
+  <img src="https://img.shields.io/badge/status-v0.9.32%20%E2%80%94%20pretrain%20code%20share%202.4%25%20%E2%86%92%2011.6%25%2C%20train%20768K%20records%20%2F%20%7E422M%20tokens-blue.svg" alt="Status">
+</p>
 
 # GhostLM
 
