@@ -250,6 +250,8 @@ class Suite:
             "log_analysis_eval.jsonl": "bet10_log_analysis",
             "iac_security_eval.jsonl": "bet11_iac_security",
             "protocol_fields_eval.jsonl": "bet12_protocol_fields",
+            "code_explain_eval.jsonl": "bet23_code_explain",
+            "code_write_eval.jsonl": "bet24_code_write",
         }
         m = dict(default_mapping)
         if mapping:
@@ -273,6 +275,11 @@ class Suite:
             "bet12_protocol_fields": "Network protocol wire-format "
                                       "field reading (TLS / DNS / HTTP/2 / "
                                       "BGP / IP / TCP / Ethernet).",
+            "bet23_code_explain": "Free-form code explanation across "
+                                   "Python / Go / Rust / JS / TS / C / "
+                                   "Java (identify / purpose / walkthrough).",
+            "bet24_code_write": "Idiomatic code writing across the same "
+                                 "languages: function spec -> implementation.",
         }
 
         benches: List[Bench] = []
