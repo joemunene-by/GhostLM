@@ -1360,6 +1360,62 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.27] — 2026-05-09 — phase 3: BOTH code banks doubled in one release, +320 SFT records
+
+Single release adding 40 patterns each to code-explain (80 -> 120)
+and code-write (80 -> 120). Output: code-explain 600 records (was
+400), code-write 363 records (was 243). Net +320 SFT records.
+
+### scripts/expand_code_banks_phase3.py
+
+One script that idempotently appends to both banks. Saves the
+release-overhead of two separate scripts when the work is parallel.
+
+### data/raw/code_explain_patterns.jsonl: 80 -> 120
+
+40 new patterns covering structural typing (Protocol, Generic),
+__slots__, Rust blanket impls, structured concurrency
+(asyncio.TaskGroup), Go context cancellation, ThreadPoolExecutor,
+sliding-window max via heap, named regex groups, JS memoize,
+itertools (count/islice/chained), chunking generator, Go
+cancellable generator, functools.partial, Enums + auto, Rust
+algebraic data types, ChainMap, contextlib.contextmanager chdir,
+typing.overload, logging.config.dictConfig, Go struct tags,
+ContextVar, Rust lifetime annotations, powerset via itertools,
+inspect.signature, repository pattern, PostgreSQL advisory lock,
+sliding-window rate limiter, Go errgroup, NamedTuple, signal
+handlers, JS private class fields + Promise.all, gzip JSONL append,
+async signal handling, OnceLock, schema migration table, TypedDict,
+JS object spread/rest, ClassVar in dataclass, dynamic plugin load.
+
+### data/raw/code_write_patterns.jsonl: 80 -> 120
+
+40 new patterns covering FastAPI POST endpoint, Flask DELETE with
+auth, psycopg named params, sliding-window rate limiter, JWT sign
++ verify with HMAC, MIME-type sniffing, deterministic gzip,
+content-addressed record IDs, env feature flags, exponential
+backoff with jitter, JSON tree redaction, ring buffer, env-prefix
+config loader, Kahn's topological sort, recursive list flatten,
+@timed decorator, group_by higher-order, secure password
+generation, JSONL stdout streaming, Go io.Reader implementation,
+Go generics Map, Go fmt.Errorf wrapping, Rust thiserror, Rust
+mpsc channel, JS Promise.all from scratch, JS delay, JS pub/sub,
+context-manager timer, chunked iterator, Counter.most_common,
+thread-safe singleton via metaclass, snake_to_camel, dataclass
+JSON serialization, CSV streaming, nested-dict flatten,
+parse_qsl, directory SHA-256, async TTL cache, subprocess line
+streaming.
+
+### Code SFT progress
+
+  before  1,061 records (~55%)
+  this    +320 (200 from code-explain, 120 from code-write)
+  after   1,381 records (~71% of cybersec target)
+
+15 records away from 70%. Remaining 559 records to surpass cybersec.
+
+---
+
 ## [0.9.26] — 2026-05-09 — code-write phase 2: 80 patterns / 243 SFT records
 
 Doubles the v0.9.24 code-write bank from 40 to 80 patterns covering
