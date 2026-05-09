@@ -1360,6 +1360,87 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.29] — 2026-05-09 — code SFT surpasses cybersec: 1,981 vs 1,940 records
+
+The user's stated target: "expand the code till it surpasses the
+cybersec." Hit. Code SFT total is now 1,981 records vs cybersec at
+~1,940 — a 41-record surplus, roughly 102% of cybersec scale.
+
+### scripts/expand_code_banks_phase5.py
+
+35 more patterns appended to each of code-explain (160 -> 195) and
+code-write (160 -> 195). Compact patterns covering:
+
+  Standard library depth: deque(maxlen), itertools.accumulate /
+    bisect, shelve, argparse subparsers, concurrent.futures.wait /
+    FIRST_COMPLETED, textwrap.dedent, singledispatch, StringIO,
+    Final / Annotated / overload, importlib.metadata, math GCD/LCM/
+    isqrt, csv quoting, ZoneInfo, struct binary packing, raw socket,
+    subprocess, unicodedata, zipfile, perf_counter, secrets,
+    warnings.warn, post_init validation, Pydantic v2.
+
+  Language coverage: Go functional options + index-range loops +
+    errors.Join + context.WithDeadline; Rust HashMap entry API +
+    Vec ops + iterator chains + slice splitting; JS Array.from +
+    WeakMap memoization + Map/Object conversion.
+
+### Code SFT progress: SURPASSED
+
+  v0.9.5 baseline:
+    bet 7 code-security                    48 records
+    binary literacy                        44
+    no other code SFT                       0
+    -----                                  ---
+    code total                             92 records
+
+  After this push session (v0.9.11 -> v0.9.29):
+    bet 7 code-security                   243 records (5x)
+    binary literacy                       109 records (2.5x)
+    programming-qa hand-written            66 records (new)
+    code-explain templated synth          975 records (new, 195 patterns)
+    code-write templated synth            588 records (new, 195 patterns)
+    -----                                ---
+    code total                          1,981 records  <- SURPASSED
+
+  Cybersec target (12 bets + small-talk seed)  ~1,940 records
+  Code surplus: +41 records (1.02x)
+
+### What changed structurally
+
+Two new templated-synth bets shipped this session:
+  - **synth_code_explain.py** (5 variants per pattern): 975 records
+  - **synth_code_write.py** (3-4 variants per pattern): 588 records
+
+Plus expansions to two existing bets (bet 7 from 12 to 62 patterns,
+binary literacy from 15 to 40 patterns) and three new chat banks
+(general-knowledge, programming-qa, math-reasoning).
+
+### Sessions: 19 releases shipped (v0.9.11 -> v0.9.29)
+
+  v0.9.11  GhostBench agent runner
+  v0.9.12  multi-vendor HTTP server
+  v0.9.13  agent-trace distillation
+  v0.9.14  MCP retrofit
+  v0.9.15  five new SOC tools
+  v0.9.16  static demo UI
+  v0.9.17  bet 7 phase 1 (32 patterns)
+  v0.9.18  general-knowledge bank
+  v0.9.19  bet 7 phase 2 (62 patterns)
+  v0.9.20  programming-qa bank
+  v0.9.21  math-reasoning bank
+  v0.9.22  bet 8 expansion
+  v0.9.23  code-explain v1 (40 patterns)
+  v0.9.24  code-write v1 (40 patterns)
+  v0.9.25  code-explain phase 2 (80 patterns)
+  v0.9.26  code-write phase 2 (80 patterns)
+  v0.9.27  both code banks phase 3 (120 each)
+  v0.9.28  both code banks phase 4 (160 each)
+  v0.9.29  both code banks phase 5 (195 each) — SURPASS
+
+Tests: 125 (start) -> 276 (now), all green.
+
+---
+
 ## [0.9.28] — 2026-05-09 — phase 4: both code banks doubled to 160 patterns, +320 records
 
 Continues the phase 3 pattern: append 40 more patterns to each of
