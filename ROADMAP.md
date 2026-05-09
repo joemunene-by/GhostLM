@@ -134,6 +134,18 @@ The original bet 7 bank (v0.9.5) had 12 code-security patterns, heavily Python-b
 
 `scripts/expand_code_banks_phase3.py` appends 40 new patterns each to code-explain (80 -> 120) and code-write (80 -> 120) in one shot. Code-explain new categories: structural typing (Protocol, Generic, TypedDict), __slots__, Rust blanket impls, structured concurrency (asyncio.TaskGroup, Go context.WithTimeout, errgroup), ThreadPoolExecutor, sliding-window max via heap, itertools patterns (count/islice/groupby), chunking, Go cancellable generators, partial application, Enums, ADTs, ChainMap, ContextVar, Rust lifetimes / OnceLock, advisory locks, signal handlers, dataclass ClassVar, dynamic plugin loading. Code-write new categories: FastAPI / Flask handlers, psycopg named params, JWT sign + verify, MIME sniffing, deterministic gzip, JWT-style content-addressed IDs, feature flags, exponential backoff with jitter, ring buffer, Kahn's topological sort, secure password generation, Go generics Map, Rust thiserror + mpsc, async TTL cache, subprocess line streaming. Code SFT total now **1,381 records**, ~71% of cybersec target. Each bank produces deterministic synth output (5 variants × 120 patterns = 600 for explain; 3+ variants × 120 = 363 for write).
 
+### Both code banks phase 4 shipped (v0.9.28)
+
+`scripts/expand_code_banks_phase4.py` appends 40 more patterns each to code-explain (120 -> 160) and code-write (120 -> 160). Combined synth output crossed the cybersec record count for the first time. Code SFT total: **1,701 records**, ~88% of cybersec target.
+
+### Both code banks phase 5 shipped — code SFT surpasses cybersec (v0.9.29)
+
+`scripts/expand_code_banks_phase5.py` adds 35 more patterns each to code-explain (160 -> 195) and code-write (160 -> 195). Final tallies: code-explain produces 975 records (5 variants × 195 patterns), code-write produces 588 records (3+ variants × 195 patterns). Plus bet 7 code-security at 243 records and binary literacy at 109. **Code SFT total: 1,981 records** vs cybersec at ~1,940 — first release where code surpasses cybersec at the SFT layer.
+
+### Open-source code corpus collector shipped (v0.9.30)
+
+The SFT layer is balanced. The **pretrain layer** is not: code is still 2.4% of the 363M-token v1.0 pretrain corpus (about 9M tokens, all from cybersec-tool repos). For ghost-base to be a competent code-aware LM the pretrain mix needs broader code coverage. `scripts/collect_code_corpus.py` is the puller: 120 permissively-licensed repos across 15 languages (Python / Go / Rust / JS / TS / C / C++ / Java / Kotlin / Scala / Ruby / Elixir / Erlang / Zig / Swift), per-repo cap, content-hash dedup, sidecar manifest. Default config at `data/code_corpus_repos.json` covers the major ecosystems: cpython stdlib, numpy/scipy/pandas/sklearn, the HuggingFace stack, Flask/Django/FastAPI, Go stdlib + k8s/terraform/docker, Rust std + tokio/clap/cargo, express/node/react/vue/typescript, redis/sqlite/curl/postgres, spring/guava, rails/sinatra. Permissive-licenses-only allowlist enforced at run time (GPL/LGPL/AGPL skipped). Estimated **50-150M tokens** added on a full Mac pull, pushing pretrain code share into the 12-25% range. Collection runs on Mac per project conventions; the next release entry will record what landed.
+
 ### Canonical models on disk
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
 - **Chat (best ghost-small):** `checkpoints/phase19_chat_v09/best_model.pt` (v0.9, wins all three MCQ benches on apples-to-apples scoring).

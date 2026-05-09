@@ -1360,6 +1360,153 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.30] — 2026-05-09 — open-source code corpus collector: 120 repos, 15 languages
+
+The v0.9.29 SFT push got code records past cybersec, but the **pretrain
+corpus** still shows code at 2.4% (about 9M of 363M tokens). SFT shapes
+conversation; pretrain shapes language distribution. To make ghost-base
+a competent code-aware LM, pretrain code share has to grow. This
+release ships the collector that does the pull.
+
+### scripts/collect_code_corpus.py
+
+A general-purpose open-source code collector. Reads
+`data/code_corpus_repos.json` (120 entries by default), shallow-clones
+each via git with `--filter=blob:none`, walks for source files, and
+writes one JSONL record per file to `data/raw/code_corpus.jsonl`. A
+sidecar manifest at `data/raw/code_corpus_manifest.json` records
+per-source totals (license, file count, char count, status, elapsed
+time) plus aggregate breakdowns by language and license.
+
+  Coverage (default config):
+    Python      35 repos  cpython stdlib + numpy/scipy/pandas + sklearn/
+                          pytorch/transformers + Flask/FastAPI/Django +
+                          requests/httpx/aiohttp + pydantic/sqlalchemy +
+                          pytest/poetry/black + rich/textual + Pillow
+    Rust        21 repos  std + cargo + tokio/axum/tracing + serde +
+                          clap + hyper/tonic + actix-web + rustls +
+                          ripgrep/bat/fd/alacritty/deno/wasmtime +
+                          ruff/uv (modern Python tooling in Rust)
+    Go          20 repos  stdlib + gin/echo/fiber + cobra/viper +
+                          prometheus/k8s + terraform/vault/consul +
+                          docker/containerd/traefik/caddy + bubbletea
+    JavaScript  10 repos  express/node/koa + lodash + axios + react +
+                          preact + prettier/eslint + tailwind
+    TypeScript   7 repos  typescript compiler + vue/svelte/next +
+                          vite + jest + nestjs
+    C/C++       11 repos  redis/sqlite/curl/openssl/postgres + protobuf/
+                          leveldb/abseil-cpp/grpc/folly + httpd
+    Java         4 repos  spring-framework/spring-boot + commons-lang +
+                          guava
+    Ruby         3 repos  rails (activerecord) + sinatra + rspec-core
+    Plus single-language reps for kotlin/scala/elixir/erlang/zig/swift
+
+### Filters and protections
+
+  License allowlist (default):  permissive only — MIT / MIT-0 / MIT-CMU
+    / Apache-2.0 / BSD-2-Clause / BSD-3-Clause / ISC / MPL-2.0 /
+    PSF-2.0 / Unlicense / CC0-1.0 / Zlib / blessing (sqlite) /
+    PostgreSQL. GPL/LGPL/AGPL repos in the config (currently `git`,
+    `sidekiq`) are skipped at run time. Override with
+    `--license-allowlist all` or a comma-separated list.
+
+  Skip directories:  node_modules, vendor, third_party, __pycache__,
+    .venv, target, build, dist, .gradle, Pods, bazel-{bin,out,...}.
+
+  Skip file patterns:  *.min.js / *.min.css, *.bundle.js, *.test.{ts,
+    js,tsx,jsx}, *.spec.{ts,js}, *_test.go, *_mock.go, *.pb.{go,cc,h},
+    *_pb2.py / *_pb2_grpc.py, *.generated.{ts,js}, *.{js,css,d.ts}.map,
+    package-lock.json / yarn.lock / pnpm-lock.yaml / Cargo.lock /
+    Pipfile.lock / poetry.lock / go.sum / Gemfile.lock /
+    composer.lock.
+
+  Size guards:  --min-chars (default 200) drops empty / boilerplate
+    files (think `__init__.py`, `mod.rs`); --max-chars (default
+    15,000) truncates megafiles to keep training cost predictable.
+
+  Per-repo cap:  --max-files-per-repo (default 600) prevents any one
+    mega-repo (cpython/Lib has ~1700 .py files; kubernetes/pkg far
+    more) from dominating the distribution.
+
+  Per-language cap:  --per-language-cap (default 0 = no cap) gives
+    finer-grained balancing if needed.
+
+  Deduplication:  sha256 of stripped text within the run. The
+    manifest tracks `duplicates_skipped` per source.
+
+### --append (resume)
+
+`--append` rescans the existing output for hashes (so dedup carries
+forward) and skips repos already in the manifest with `status=ok`.
+Useful for resuming after a network blip mid-run, or layering a
+second config later (e.g., language-specific docs crawl). The
+collector also writes the manifest after each repo, so an interrupt
+keeps everything that's already on disk.
+
+### --dry-run
+
+Prints the planned repo list, the license filter result, and a
+language breakdown without doing any cloning. Used by the test suite
+to validate config integrity offline.
+
+### data/code_corpus_repos.json
+
+The default repo list. 120 entries covering the major language
+ecosystems with curated subdirectories where appropriate
+(`subdir: "Lib"` for cpython, `subdir: "library/std/src"` for rust,
+`subdir: "src/transformers"` for huggingface/transformers) so the
+walker doesn't blow time on docs / tests / build configs.
+
+### Why this matters for v1.0
+
+Pretrain code share at 2.4% is a known gap in the v1.0 corpus. With
+this collector, a single Mac run grows code share substantially:
+estimated 50-150M tokens depending on the per-repo cap setting,
+pushing total corpus to 415-510M tokens and code share into the
+12-25% range — closer to the SmolLM2 / TinyLlama / Phi training
+distribution. Once the pull lands and `scripts/rebuild_corpus.py`
+re-merges, the next pretrain has a properly code-rich mix.
+
+This release ships the tooling. The actual pull runs on Mac (per
+project conventions for long-running tasks); the next release entry
+will record what landed.
+
+### Tests
+
+Added tests/test_code_corpus_collector.py:
+  - 5 RepoConfig tests:  config integrity, ≥100 repos, required
+    fields, unique names, ≥12 languages with the major ones present,
+    ≥95% permissively-licensed.
+  - 4 DryRun tests:  --dry-run lists repos with license-filter line;
+    GPL repos absent by default; --license-allowlist=all includes
+    them; --only-language=rust narrows correctly.
+  - 7 ModuleAPIs unit tests:  imports, walk_source_files exclusion of
+    SKIP_DIRS, walker exclusion of lockfiles / minified / *_test.go,
+    hash_text stability, compute_totals aggregation, license-allowlist
+    parsing.
+  - 1 LiveSmoke test (gated):  full clone + collect of a small repo,
+    enabled with `RUN_LIVE_CODE_CORPUS_TEST=1`.
+
+  16 offline tests pass.
+
+### Test totals
+
+  Before this release:  276 passing
+  After this release:   292 passing, 2 skipped
+                        (+16 new collector tests)
+
+### Files
+
+  scripts/collect_code_corpus.py            new (357 lines)
+  data/code_corpus_repos.json               new (120 repos, 15 langs)
+  tests/test_code_corpus_collector.py       new (250 lines)
+  pyproject.toml                            version 0.9.3 -> 0.9.30
+  README.md                                 status badge + roadmap +
+                                            top note
+  CHANGELOG.md                              this entry
+
+---
+
 ## [0.9.29] — 2026-05-09 — code SFT surpasses cybersec: 1,981 vs 1,940 records
 
 The user's stated target: "expand the code till it surpasses the
