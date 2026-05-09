@@ -89,6 +89,14 @@ def prepare_upload_folder(checkpoint_path: str, config: GhostLMConfig) -> str:
     if model_card.exists():
         shutil.copy2(model_card, os.path.join(temp_dir, "README.md"))
 
+    # Copy the GhostLM wordmark + mark so the model-card README can render
+    # them inline on the Hub. Each file is referenced by relative filename
+    # in the MODEL_CARD.md (e.g. ![GhostLM](ghostlm_wordmark.png)).
+    for asset_name in ("ghostlm_wordmark.png", "ghostlm_mark_512.png"):
+        asset = Path("assets") / asset_name
+        if asset.exists():
+            shutil.copy2(asset, os.path.join(temp_dir, asset_name))
+
     # Write tokenizer config
     tokenizer_config = {
         "tokenizer_type": "tiktoken",

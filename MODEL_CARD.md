@@ -22,6 +22,10 @@ model-index:
     results: []
 ---
 
+<p align="center">
+  <img src="ghostlm_wordmark.png" alt="GhostLM" width="560">
+</p>
+
 # GhostLM — Cybersecurity Language Model
 
 ## Model Details
