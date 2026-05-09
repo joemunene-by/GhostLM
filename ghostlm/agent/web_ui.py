@@ -9,10 +9,47 @@ in three commands and zero configuration.
 
 The HTML is exported as a single string so the server can return it
 verbatim from a route handler. CSS + JS are embedded; the UI is
-otherwise self-contained.
+otherwise self-contained, including the GhostLM mark (base64-inlined
+below as a data URI) so the favicon + header logo ship with the
+package without extra static-asset routes.
 """
 
 from __future__ import annotations
+
+
+# 128x128 transparent GhostLM mark, base64-encoded so the demo UI ships
+# with its own logo and doesn't need a separate static-files route.
+# Source: assets/ghostlm_mark_128.png (kept in the repo for branding use).
+_LOGO_B64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAyoElEQVR4nO29ebxdRZUv/l2r9t73"
+    "3HPHzAkhgECYB0FRFMWAMijOrWgr7fycXr/Gxm5bm24ftt3qs5/PqX+tto0TCqKCAio2gyDzjGBQ"
+    "CBBIQsyc3Nzh3HP2rlrr90dV7bPPJcEA94Shs/I5uWfYU1WtWsN3rVoF7KJdtIt20S7aRbtoF+2i"
+    "XbSLdtEu2kW7aBftol20i3bRLtpFTyn9/+5HoSOr1JLGAAAAAElFTkSuQmCC"
+)
+
+
+def _build_logo_data_uri() -> str:
+    """Read the canonical mark from disk if available; fall back to inline.
+
+    In-tree dev: reads assets/ghostlm_mark_128.png (so logo edits are picked
+    up on next server restart). Installed-as-wheel: falls back to the
+    inline base64 above.
+    """
+    import base64
+    from pathlib import Path
+    here = Path(__file__).resolve()
+    for parent in (here.parent, here.parent.parent, here.parent.parent.parent):
+        candidate = parent / "assets" / "ghostlm_mark_128.png"
+        if candidate.is_file():
+            try:
+                return ("data:image/png;base64,"
+                        + base64.b64encode(candidate.read_bytes()).decode())
+            except Exception:
+                break
+    return f"data:image/png;base64,{_LOGO_B64}"
+
+
+_LOGO_DATA_URI = _build_logo_data_uri()
 
 
 INDEX_HTML = """<!doctype html>
@@ -21,6 +58,7 @@ INDEX_HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>GhostAgent</title>
+<link rel="icon" type="image/png" href="__LOGO_DATA_URI__">
 <style>
 :root {
   --bg: #0b0d10;
@@ -56,6 +94,11 @@ header h1 {
   font-size: 16px; font-weight: 600; margin: 0;
   letter-spacing: 0.3px;
 }
+header .logo {
+  width: 28px; height: 28px;
+  display: block;
+}
+header h1 .accent { color: #f36d59; }
 header .meta {
   color: var(--muted); font-size: 12px;
 }
@@ -172,7 +215,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 </head>
 <body>
 <header>
-  <h1>GhostAgent</h1>
+  <img class="logo" src="__LOGO_DATA_URI__" alt="GhostLM">
+  <h1>Ghost<span class="accent">Agent</span></h1>
   <span class="meta">cybersec tool-using agent</span>
   <span class="meta" id="model-badge">model: <span class="badge" id="model-name">loading...</span></span>
   <span class="meta" id="tools-badge">tools: <span class="badge" id="tools-list">…</span></span>
@@ -325,3 +369,5 @@ input.focus();
 </body>
 </html>
 """
+
+INDEX_HTML = INDEX_HTML.replace("__LOGO_DATA_URI__", _LOGO_DATA_URI)
