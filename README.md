@@ -1,9 +1,13 @@
-![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-v0.9.8%20%2812%20bets%2C%201.7K%20records%2C%20full%20analyst%20workflow%29%2C%20ghost--base%20pending%20GPU-blue.svg)
+![CI](https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg) ![License](https://img.shields.io/badge/license-MIT-blue.svg) ![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg) ![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg) ![Status](https://img.shields.io/badge/status-v0.9.29%20%E2%80%94%20agent%20%2B%20multi--vendor%20server%2C%20code%20SFT%20surpasses%20cybersec-blue.svg)
 
 # GhostLM
 
 > An open-source language model built entirely from scratch in PyTorch. Purpose-built for cybersecurity, with code, general language, and math/reasoning folded into the v1.0 corpus.
 
+> **2026-05-09 update (v0.9.29): code SFT surpasses cybersec.** Code SFT corpus is now **1,981 records** (243 bet-7 code-security + 109 binary-literacy + 66 programming-Q&A + 975 code-explain templated synth + 588 code-write templated synth) versus cybersec SFT at **~1,940 records** (12 differentiation bets + small-talk / general-knowledge / math-reasoning seeds). Two new templated-synth bets shipped (code-explain + code-write, 195 patterns each across 7 languages: Python, JavaScript, TypeScript, Go, Rust, Java, C). Both banks deterministic, parser-clean, drop-in for the combined-corpus build. Ghost-base SFT data is now balanced cybersec + code rather than cybersec-dominated.
+>
+> **2026-05-09 update (v0.9.11 - v0.9.16): agent infrastructure shipped.** GhostAgent runtime ([`ghostlm/agent/`](ghostlm/agent/)) wraps any GhostLM checkpoint in a tool-using loop, exercising bet-1 (`<|tool_call|>`) and bet-9 (`<|cite|>`) end-to-end. Multi-vendor HTTP server speaks OpenAI Chat Completions, Anthropic Messages, Google Gemini, and Ollama wire formats so any client SDK (or curl) drops in unchanged. MCP server retrofit adds an `ghostlm_agent` tool for Claude Desktop / Cursor integration. Trace distillation pipeline lets any OpenAI-compatible teacher (Ollama + Qwen-14B locally, real OpenAI / Anthropic, vLLM) generate fresh bet-1+9 SFT records. Agent comes with 9 cybersec tools (CVE / MITRE / CWE / RAG plus CISA KEV, GreyNoise, VirusTotal, Shodan, AlienVault OTX). Static demo UI served at `GET /` so visitors can chat in a browser with three commands. GhostBench agent runner scores the loop end-to-end across all 7 bet evals with paired-comparison vs no-tools baseline. **276 tests passing**.
+>
 > **2026-05-06 update.** The ghost-small (45-81M) line saturated at ~28% on debiased CTIBench and 0-2% on free-form fact recall: register-matching parrot, not a fact-knower. v0.9 chat is the bench winner across CTIBench full / in-repo CTF eval / external SecQA, but the truth metric (free-form fact recall) is at floor for the whole 81M parameter rung. The next move is parameter count, not corpus polish. **The v1.0 corpus is built**: 516,736 train / 27,049 val records / ~363M tokens spanning six domains (cybersec writeup, code, FineWeb-Edu general language, math/reasoning, NIST authoritative reference, security research blogs). Ghost-base (~360M params, 30L × 960d × 15h, SmolLM2-360M shape) is the v1.0 target. Launcher at [`scripts/train_ghost_base.py`](scripts/train_ghost_base.py), spec at [`docs/ghost_base_spec.md`](docs/ghost_base_spec.md), gated on rented GPU compute.
 
 > **2026-05-08 update (v0.9.8): three new bets close the analyst-workflow loop.** Bet 10 ([docs/log_analysis bank](data/raw/log_analysis_patterns.jsonl)) trains on SOC-analyst log review across Windows Sysmon / Security, Linux auditbeat, network proxy/webserver/DNS, and email gateway logs across 30 ATT&CK techniques (120 records). Bet 11 ([cloud IaC security](data/raw/iac_security_patterns.jsonl)) trains on DevSecOps PR-review of Terraform / Kubernetes misconfigs across 15 patterns covering S3, IAM, security groups, RDS, Pod securityContext, NetworkPolicy, RBAC, secrets management (60 records). Bet 12 ([protocol field reading](data/raw/protocol_field_patterns.jsonl)) trains on network-forensics wire-format decoding across 20 patterns spanning datalink / network / transport / application layers including TLS 1.3, DNS, HTTP/2, BGP, IP, TCP, Ethernet, ARP, SMB2, Kerberos, QUIC, MQTT, RDP, plus JA3 fingerprinting (60 records). **Combined templated-synth corpus is now 1,745 records across 12 bets**, all parser-validated, reproducible from one command. Ghost-base SFT-data is fully prepared; the only remaining gate is training compute.
@@ -197,6 +201,49 @@ The pipeline produces a deterministic, leakage-proof split (content-hash bucketi
 
 For per-source record counts, license posture, and reproducibility commands, see [`CORPUS.md`](CORPUS.md).
 
+### SFT Corpus (chat-tuning)
+
+On top of the pretrain corpus above, GhostLM ships a separate SFT (supervised fine-tune) corpus that teaches the model conversational patterns, tool use, cite-tagged answers, and broad coding chat. Built from hand-curated patterns + deterministic templated synth, every record is parser-clean and reproducible from a single CLI line.
+
+**Cybersec SFT (12 differentiation bets, ~1,940 records):**
+
+| Bet | Records | Eval | Description |
+|---|---:|---:|---|
+| Bet 1 (tool use) | 424 | n=15 | `<|tool_call|>{json}<|/tool_call|>` 4-message traces (search_cve_nvd / lookup_mitre_technique / lookup_cwe / rag_retrieve) |
+| Bet 6 (format-aware) | 560 | n=32 | STIX 2.1 / YARA / Sigma / MISP structured artifacts with two-path validators (real-library + structural fallback) |
+| Bet 7 (code-security) | 243 | n=50 | 62 patterns across 11 languages (Python, JavaScript, Java, Go, C, Ruby, PHP, Rust, C#, Swift, Kotlin) with vuln + patch + CWE mapping |
+| Bet 8 (binary literacy) | 109 | n=35 | 40 patterns covering file magics (PE/ELF/Mach-O/ZIP/PDF/PNG/JPEG/GIF/MP4/SQLite/DEX/WASM), shellcode, ROP gadgets, hash format recognition, encoding (base64/hex/UTF-8 BOM) |
+| Bet 9 (provenance) | 429 | n=15 | `<|cite|>type:id#field<|/cite|>` cite-tagged tool-use traces |
+| Bet 10 (log analysis) | 120 | n=25 | 30 patterns across Windows Sysmon / Linux auditbeat / network proxy / DNS / email-gateway logs mapped to 30 ATT&CK techniques |
+| Bet 11 (cloud IaC) | 60 | n=15 | 15 patterns across Terraform/AWS + Kubernetes (S3 ACL, IAM trust, security groups, RDS encryption, Pod privileged, NetworkPolicy, RBAC) |
+| Bet 12 (protocol fields) | 60 | n=20 | 15 patterns across datalink / network / transport / application layers (TLS 1.3, DNS, HTTP/2, BGP, IP, TCP, Ethernet, ARP, SMB2, Kerberos, QUIC, MQTT, RDP, JA3) |
+| Cybersec subtotal | **2,005** | | bets 1+6+7+8+9+10+11+12 |
+
+**Code SFT (broader-than-security, ~1,981 records):**
+
+| Bank | Records | Description |
+|---|---:|---|
+| Bet 7 code-security (above) | 243 | (also counted in cybersec) |
+| Binary literacy (above) | 109 | (also counted in cybersec) |
+| `code_explain` templated synth | 975 | 195 patterns × 5 variants (pretrain prose / identify language / explain purpose / walkthrough / concepts) covering algorithms, data structures, idioms, design patterns, web frameworks, databases, testing, concurrency primitives, build systems |
+| `code_write` templated synth | 588 | 195 patterns × 3-4 variants (pretrain prose / write function / write idiomatic / compare alternatives) covering everyday coding tasks across Python / JavaScript / Go / Rust / Java |
+| Programming Q&A (hand-written) | 66 | 12 topics: Python basics, concepts, JavaScript basics, tooling, Rust basics, code explain, Go basics, debug help, refactor, testing, performance, Java basics |
+
+**Cross-domain chat seeds (~375 records):**
+
+| Bank | Records | Description |
+|---|---:|---|
+| `small_talk.jsonl` | 153 | Identity, greetings, persona, project context |
+| `general_knowledge.jsonl` | 98 | 15 topics: programming, math, science, geography, etymology, uncertainty/refusal, how-to, identity, comparison, definitions, reasoning, history, cross-domain, philosophy, conversation |
+| `programming_qa.jsonl` | 66 | (also counted in code SFT) |
+| `math_reasoning.jsonl` | 58 | 10 topics: arithmetic, algebra, geometry, word problems, probability, statistics, logic, proofs, combinatorics, concepts |
+
+**Trace distillation:** [`ghostlm/agent/teacher.py`](ghostlm/agent/teacher.py) + [`scripts/distill_agent_traces.py`](scripts/distill_agent_traces.py) generate fresh bet-1+9 traces by driving any OpenAI-compatible teacher (Ollama running Qwen-14B locally, real OpenAI / Anthropic API, vLLM, etc.) through the GhostAgent runtime. Output drops directly into the SFT pipeline.
+
+**Combined-corpus build:** `python3 scripts/build_v15_combined_synth.py` streams every individual synth output, tags each record with its bet number and training-time use (pretrain prose vs SFT Q&A), and writes one unified file. Mix tag is what lets ghost-base's SFT recipe weight bets selectively.
+
+**M4-runnable SFT pipeline (no GPU):** [`scripts/prep_tool_use_sft.py`](scripts/prep_tool_use_sft.py) + [`scripts/finetune_chat.py`](scripts/finetune_chat.py) + [`scripts/eval_agent.py`](scripts/eval_agent.py) form an end-to-end loop: convert templated synth into chat-format records, fine-tune v0.9 chat on top, score against the held-out provenance eval. Wall time: a few hours per pass. Documented in CHANGELOG v0.9.10.
+
 ---
 
 ## Training Progress
@@ -335,6 +382,8 @@ Phase 4 is the new canonical for any density / generation use; Phase 3.5 stays o
 
 ## Sample Generations
 
+The samples below are historical, captured during v0.3.5 / chat-v3 (v0.6.0). They illustrate the "form but not facts" diagnosis that drove the project from a small-corpus parrot toward the v0.9.x bench-winning chat-tunes and the v0.9.11+ agent runtime that pushes factual answers through tool dispatch instead of memorisation. Newer chat-tunes win every MCQ benchmark by 0.7-9.2 pp but the 81M parameter rung still floors on free-form fact recall — the agent loop and ghost-base GPU run are the two complementary fixes for that. These older snapshots stay here as the cleanest demonstration of what the corpus-only path can and cannot produce.
+
 Real generations from the v0.3.5 best_model at `temperature=0.7, top_k=40`. The point of these isn't fluency, it's **register diversity**. v0.3.3 collapsed every prompt into CVE prose; v0.3.5 has multiple registers it can switch between depending on the prompt domain.
 
 > **Prompt:** *MITRE ATT&CK technique T1003*
@@ -418,7 +467,14 @@ GhostLM/
 │ └── resume_train.sh # Resume an interrupted training run
 ├── data/ # Data pipeline
 ├── demo/ # Gradio web demo (demo/app.py)
-├── tests/ # 276 unit tests (incl. 47 agent runtime + 24 SFT prep + 10 GhostBench agent + 24 HTTP server + 13 distillation + 5 MCP agent + 9 code-security + 11 general-knowledge + 8 programming-Q&A + 9 math-reasoning + 11 binary-literacy + 8 code-explain (80-pattern bank) + 8 code-write + bet 1-12 differentiation)
+├── tests/ # 276 unit tests covering 12 differentiation bets +
+│           # GhostAgent runtime (47) + SFT prep (24) + GhostBench
+│           # agent runner (10) + HTTP server (24) + distillation (13) +
+│           # MCP agent (5) + bet 7 code-security expansion (9) +
+│           # bet 8 binary-literacy expansion (11) + general-knowledge
+│           # bank (11) + programming-Q&A bank (8) + math-reasoning
+│           # bank (9) + code-explain templated synth at 195 patterns
+│           # (8) + code-write templated synth at 195 patterns (8)
 └── Makefile # One-command workflow
 ```
 
@@ -428,17 +484,27 @@ GhostLM/
 
 GhostLM is a multi-year effort. The honest framing is that ghost-tiny is a learning artifact and a working pipeline, *not* a useful cyber-task model. The path to "useful" is the scale ladder below, paired with a corpus that grows by ~100× from where it is today. See [ROADMAP.md](ROADMAP.md) for full milestones, compute estimates, and corpus targets.
 
-**Where we are (v0.9.3 + six differentiation bets, 2026-05-08):** the ghost-small line saturated at ~28% on debiased CTIBench and 0-2% on free-form fact recall, register-matching parrot, not a fact-knower. v0.9 chat is the bench winner across CTIBench full / in-repo CTF eval / external SecQA but the truth metric is at floor for the whole 81M parameter rung. Diagnostic: retriever surfaces the right passage 41% of the time; the 81M model extracts the fact 1% of the time. The bottleneck is generation capacity, not retrieval, and parameter scaling is the answer. **The v1.0 corpus is built**: 516,736 train / 27,049 val / ~363M tokens across six domains. **Ghost-base (~360M)** is the v1.0 target, launcher and spec ready, gated on rented GPU. **Six differentiation bets** are scaffolded in the repo: tool-grounded SFT, daily LoRA over fresh threat-intel, custom 32K BPE (measured +1.6% vs GPT-2 BPE, opt-in), RoPE NTK 16K context extension, MoE for ghost-1B+ with `ghost-1b` (2.1B total / 1.2B active) and `ghost-3b` (6.0B total / 3.3B active) presets shipped, and structured-format pretrain (STIX / YARA / Sigma / MISP). Strategic frame at [docs/differentiation.md](docs/differentiation.md).
+**Where we are (v0.9.29, 2026-05-09):** the ghost-small line saturated at ~28% on debiased CTIBench and 0-2% on free-form fact recall, register-matching parrot, not a fact-knower. v0.9 chat is the bench winner across CTIBench full / in-repo CTF eval / external SecQA but the truth metric is at floor for the whole 81M parameter rung. The bottleneck is generation capacity, not retrieval, and parameter scaling is the answer. **The v1.0 pretrain corpus is built**: 516,736 train / 27,049 val / ~363M tokens across six domains. **The SFT corpus is now ghost-base ready**: ~1,940 records of cybersec SFT across 12 differentiation bets, plus ~1,981 records of code SFT across two new templated-synth banks (code-explain + code-write) that surpass cybersec scale, plus ~375 records of cross-domain chat seeds. **Ghost-base (~360M)** is the v1.0 target, launcher and spec ready, gated on rented GPU. Strategic frame at [docs/differentiation.md](docs/differentiation.md).
 
-**Where we're going:**
+**Infrastructure shipped this push session (v0.9.11 → v0.9.29):**
 
-1. **Ghost-base v1.0 GPU run:** rented H100 hours, 360M params on the 363M-token corpus. The acceptance gate is ≥40% CTIBench OR ≥65% CTF eval OR ≥30% on the 50-question fact-recall set. This is the spend that converts the saturated ghost-small line into a model with measurable fact-recall capability. Spec at [docs/ghost_base_spec.md](docs/ghost_base_spec.md).
-2. **Bet 1 (tool-use SFT) on top of ghost-base:** ~$200 distillation budget for 10K traces, 1-2 GPU hours to fine-tune. The point of the GPU spend, the meta-skill of "lookup before answering" beats memorization at small scale.
-3. **Bet 4 (long context to 16K):** RoPE NTK rebase + 3-5 GPU hours of long-form fine-tune. Unlocks IR triage workflows where a 50K-token threat report goes in the prompt.
-4. **Bet 2 (daily LoRA cron):** practical once owned hardware lands (Blackwell 96GB recommendation); rented-GPU expense before that.
-5. **Ghost-1b with native MoE from step 0:** 24-layer / 1536-d / 4-expert top-2. Bet 5's preset already in `ghostlm/config.py` so the architecture is settled; the remaining work is the actual pretrain run on owned compute.
+1. **GhostAgent runtime** ([`ghostlm/agent/`](ghostlm/agent/)). Tool-using loop wrapping any GhostLM checkpoint. Bet-1 tool-call parser, bet-9 cite-tag emission, JSON-serialisable trace, three-state termination (answer_emitted / max_iterations / model_error). 9 cybersec tools (CVE / MITRE / CWE / RAG / CISA KEV / GreyNoise / VirusTotal / Shodan / OTX) with try-real-then-cache backends.
+2. **Multi-vendor HTTP server** ([`ghostlm/agent/server.py`](ghostlm/agent/server.py)). Speaks OpenAI Chat Completions, Anthropic Messages, Google Gemini, and Ollama wire formats. Any client SDK targeting one of those drops in unchanged. Static demo UI served at `GET /` so visitors can chat in a browser.
+3. **MCP server retrofit** ([`scripts/mcp_server.py`](scripts/mcp_server.py)). New `ghostlm_agent` tool exposes the full agent loop to Claude Desktop / Cursor / any MCP-compatible client.
+4. **Trace distillation** ([`ghostlm/agent/teacher.py`](ghostlm/agent/teacher.py)). `OpenAICompatGenerator` lets any OpenAI-compatible teacher (Ollama + Qwen-14B local, real OpenAI / Anthropic / vLLM / etc.) generate fresh bet-1+9 SFT records that drop into the SFT pipeline.
+5. **GhostBench agent runner** ([`scripts/ghostbench_agent_run.py`](scripts/ghostbench_agent_run.py)). Scores the agent loop end-to-end across all 7 bet evals with paired-comparison vs no-tools baseline. Wilson CIs, McNemar p-values via existing `python -m ghostbench compare`.
+6. **SFT pipeline** ([`scripts/prep_tool_use_sft.py`](scripts/prep_tool_use_sft.py) + [`eval_agent.py`](scripts/eval_agent.py)). M4-runnable end-to-end (synth → prep → fine-tune → eval) without GPU; closes the loop between corpus and trained model.
+7. **Code SFT expansion**. Bet 7 grew from 12 patterns (48 records) to 62 patterns / 11 languages (243 records). Bet 8 from 15 to 40 patterns. Two new templated-synth banks (code-explain at 195 patterns / 975 records, code-write at 195 patterns / 588 records) surpass cybersec SFT scale.
+8. **Cross-domain chat seeds**. Three new banks: `general_knowledge.jsonl` (98 records, 15 topics), `programming_qa.jsonl` (66 records, 12 topics), `math_reasoning.jsonl` (58 records, 10 topics). Cross-domain SFT floor moved from 0% to ~16% of unique records.
 
-**Realistic timeline:** 2-3 years of sustained work to a useful 1B from-scratch cyber LM. The shape of the curve from here is "park at the small-cybersec-LM benchmark plateau OR climb to ghost-base on rented H100s and re-bench." The differentiation bets are the strategic answer to "park is a crowded place." Detailed phase plan in [ROADMAP.md](ROADMAP.md), full multi-year hardware pathway in [docs/hardware_pathway.md](docs/hardware_pathway.md).
+**What's next (gated on rented GPU compute):**
+
+1. **Ghost-base v1.0 GPU run:** rented H100 hours, 360M params on the 363M-token pretrain corpus + the now-balanced SFT corpus. Acceptance gate: ≥40% CTIBench OR ≥65% CTF eval OR ≥30% on the 50-question fact-recall set. Spec at [docs/ghost_base_spec.md](docs/ghost_base_spec.md).
+2. **Run the SFT pipeline on v0.9 chat (M4, no GPU needed):** prep the bet-1+9 traces into chat-SFT shape, fine-tune v0.9 chat on top, score against the provenance eval. Tests whether the agent runtime can be fed a checkpoint that uses it correctly *before* ghost-base lands. Documented in CHANGELOG v0.9.10.
+3. **Bet 4 (long context to 16K):** RoPE NTK rebase + 3-5 GPU hours of long-form fine-tune. Unlocks IR triage where a 50K-token threat report goes in the prompt.
+4. **Ghost-1b with native MoE from step 0:** 24-layer / 1536-d / 4-expert top-2. Bet 5's preset already in `ghostlm/config.py` so the architecture is settled; the remaining work is the actual pretrain run on owned compute.
+
+**Realistic timeline:** 2-3 years of sustained work to a useful 1B from-scratch cyber LM. The shape of the curve from here is "park at the small-cybersec-LM benchmark plateau OR climb to ghost-base on rented H100s and re-bench." The 12 differentiation bets + agent runtime + code SFT push are the strategic answer to "park is a crowded place." Detailed phase plan in [ROADMAP.md](ROADMAP.md), full multi-year hardware pathway in [docs/hardware_pathway.md](docs/hardware_pathway.md).
 
 For changelog history (v0.1.0 onward), see [CHANGELOG.md](CHANGELOG.md).
 
