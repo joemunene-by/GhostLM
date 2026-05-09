@@ -243,6 +243,8 @@ def _bench_to_filename(bench_name: str) -> str:
         "bet10_log_analysis": "log_analysis_eval.jsonl",
         "bet11_iac_security": "iac_security_eval.jsonl",
         "bet12_protocol_fields": "protocol_fields_eval.jsonl",
+        "bet23_code_explain": "code_explain_eval.jsonl",
+        "bet24_code_write": "code_write_eval.jsonl",
     }
     return inverse.get(bench_name, f"{bench_name}.jsonl")
 
