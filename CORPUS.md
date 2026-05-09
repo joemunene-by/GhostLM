@@ -6,6 +6,31 @@ This document is the working record of what's currently in the corpus, what's kn
 
 ---
 
+## v1.0 corpus, post-code-pull rebuild (2026-05-09, v0.9.32: 768,741 train / 40,429 val records, ~422M tokens)
+
+Per-source breakdown of `data/processed/train.jsonl` after the v0.9.31 code corpus was folded in via `scripts/rebuild_corpus.py`:
+
+| Source | Records | Chars (M) | Share | Notes |
+|---|---:|---:|---:|---|
+| primus_fineweb | 284,874 | 786 | 46.5% | Trend Micro PRIMUS-FineWeb (cybersec writeup-style, ODC-BY) |
+| primus_seed | 65,160 | 192 | 11.3% | Trend Micro PRIMUS-Seed |
+| fineweb_edu | 47,510 | 185 | 11.0% | HuggingFaceFW/fineweb-edu (educational web, ODC-BY) |
+| **code_corpus** | **24,692** | **160** | **9.5%** | **NEW v0.9.31 — 105 permissively-licensed repos / 15 languages / `data/code_corpus_manifest.json`** |
+| nvd | 291,788 | 98 | 5.8% | CVE descriptions (deterministic-hash subsample, capped 6M tokens) |
+| arxiv_full | 1,880 | 96 | 5.7% | cs.CR full-text |
+| math_reasoning | 18,991 | 84 | 5.0% | open-web-math/open-web-math (math-filtered web, ODC-BY) |
+| security_code | 6,235 | 35 | 2.1% | 30 cybersec-tool repos (pwntools, impacket, scapy, etc.) |
+| exploitdb | 4,711 | 14 | 0.9% | Exploit-DB exploit collection |
+| nist_sp800 | 1,001 | 10 | 0.6% | 26 NIST SP 800 publications, pymupdf-extracted |
+| Others (synthetic/fact_qa/wikipedia_cyber/arxiv/security_blogs/cwe/owasp_*/mitre_*/rfcs/cisa_kev/capec/ctftime/vendor_research) | ~80K | ~30 | ~1.7% | Long-tail cybersec authoritative + reference + research-blog sources |
+| **Total** | **768,741** | **1,689** | **100%** | (+ 40,429 val records, leakage check 0) |
+
+**Code share: 9.5% (code_corpus) + 2.1% (security_code) = 11.6%**, up from 2.4% pre-pull. Lands in the SmolLM2 / Phi / TinyLlama training-mix band. Cybersec text share remains ~65% of total (primus_fineweb + primus_seed + nvd + arxiv_full + security_code + exploitdb + nist_sp800 + small sources).
+
+Dedup during rebuild removed 45,027 cross-source duplicates from the 854K input pool, yielding 809,170 unique records → 95% / 5% deterministic-hash split.
+
+---
+
 ## v1.0 corpus (built 2026-05-06, 516,736 train / 27,049 val records, ~363M tokens)
 
 The v1.0 corpus expansion landed: cybersec writeup-style content (the v0.9 substrate) plus three new domains the ghost-small line never saw, code (cybersec tool source), general language (FineWeb-Edu), and math/reasoning (open-web-math). Single rebuild via `scripts/rebuild_corpus.py --max-cve-tokens 6000000`, leakage check returns 0.

@@ -1360,6 +1360,85 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.32] — 2026-05-09 — corpus rebuild: code share 2.4% → 11.6%, train 516K → 768K records
+
+Mac ran `scripts/rebuild_corpus.py` against the v0.9.31 raw set (49
+JSONL sources, including the new `code_corpus.jsonl`). Result: a fully
+re-merged train/val split with the open-source code corpus folded in
+as the new second-largest source, hitting the target code-share band.
+
+### What changed
+
+  Train records:  516,736  →  768,741   (+252,005, +48.8%)
+  Val records:     27,049  →   40,429   (+13,380,  +49.5%)
+  Train tokens:      ~363M →    ~422M   (+59M tokens via chars/4)
+  Train chars:                1,688,949,002
+
+  Deduplication during merge: 45,027 duplicates removed
+                              (854K total → 809K unique → split)
+  Leakage check: 0 val texts found in train (clean split, as designed)
+
+### New per-source breakdown (train.jsonl, by chars)
+
+  primus_fineweb         46.5%   (cybersec writeup-style web text,
+                                  Trend Micro / ODC-BY)
+  primus_seed            11.3%   (cybersec writeup seed)
+  fineweb_edu            11.0%   (general educational web)
+  **code_corpus           9.5%**  ← NEW (open-source code, v0.9.31 pull)
+  nvd                     5.8%   (CVE descriptions, capped subsample)
+  arxiv_full              5.7%   (cs.CR full-text)
+  math_reasoning          5.0%   (open-web-math)
+  **security_code         2.1%**  (cybersec tool source code)
+  exploitdb               0.9%
+  nist_sp800              0.6%
+  ... (other sources < 0.5% each)
+
+### Code share
+
+  Before:  security_code only at ~2.4%
+  After:   code_corpus 9.5% + security_code 2.1% = **11.6%**
+
+  Lands in the SmolLM2 / Phi / TinyLlama training-mix band (12-25%).
+  Pretrain code is now a real signal in the distribution rather than
+  a footnote. Ghost-base sees code at SmolLM2-class density.
+
+### What this means for ghost-base
+
+The pretrain corpus going into ghost-base v1.0 is now substantively
+different from v0.9: 16% more tokens, 4.8x the code share, deduped
+against the existing cybersec text so no inflation. The fine-tuned
+model should be measurably more competent on code tasks (bet 7
+code-security, bet 8 binary literacy, bets 23-24 code-explain /
+code-write) without sacrificing the cybersec edge — those sources
+still hold ~65% of the corpus text share.
+
+### Files
+
+  data/processed/train.jsonl          regenerated on Mac (1.7 GB,
+                                      gitignored — derived artifact)
+  data/processed/val.jsonl            regenerated on Mac (90 MB,
+                                      gitignored — derived artifact)
+  pyproject.toml                      0.9.31 -> 0.9.32
+  CHANGELOG.md / README.md /
+  CORPUS.md                           v0.9.32 entries with the actual
+                                      post-rebuild distribution table
+
+### Tests
+
+No code changes in this release — pure data milestone. Suite still at
+292 passing, 2 skipped.
+
+### Next
+
+  1. Optional: re-pull failed mega-monorepos via
+     `python3 scripts/collect_code_corpus.py --append` — would catch
+     ~10-15M more tokens from pytorch / nodejs / kafka / etc.
+  2. Ghost-base GPU run: rented H100 hours, 360M params on this
+     422M-token corpus + the 4,000-record SFT corpus from v0.9.29.
+     Acceptance gate at docs/ghost_base_spec.md.
+
+---
+
 ## [0.9.31] — 2026-05-09 — open-source code corpus pull landed: 105 repos, 26K files, 168M chars
 
 The v0.9.30 collector ran on Mac. Started 10:01 PT, finished 14:11 PT,

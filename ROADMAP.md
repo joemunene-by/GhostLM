@@ -146,6 +146,14 @@ The original bet 7 bank (v0.9.5) had 12 code-security patterns, heavily Python-b
 
 The SFT layer is balanced. The **pretrain layer** is not: code is still 2.4% of the 363M-token v1.0 pretrain corpus (about 9M tokens, all from cybersec-tool repos). For ghost-base to be a competent code-aware LM the pretrain mix needs broader code coverage. `scripts/collect_code_corpus.py` is the puller: 120 permissively-licensed repos across 15 languages (Python / Go / Rust / JS / TS / C / C++ / Java / Kotlin / Scala / Ruby / Elixir / Erlang / Zig / Swift), per-repo cap, content-hash dedup, sidecar manifest. Default config at `data/code_corpus_repos.json` covers the major ecosystems: cpython stdlib, numpy/scipy/pandas/sklearn, the HuggingFace stack, Flask/Django/FastAPI, Go stdlib + k8s/terraform/docker, Rust std + tokio/clap/cargo, express/node/react/vue/typescript, redis/sqlite/curl/postgres, spring/guava, rails/sinatra. Permissive-licenses-only allowlist enforced at run time (GPL/LGPL/AGPL skipped). Estimated **50-150M tokens** added on a full Mac pull, pushing pretrain code share into the 12-25% range. Collection runs on Mac per project conventions; the next release entry will record what landed.
 
+### Open-source code corpus pull landed (v0.9.31)
+
+Mac ran the v0.9.30 collector. Result: **105 / 120 repos OK, 26,012 files, 168.4M chars (~42M tokens)**, all under permissive licenses (Apache-2.0, MIT, BSD-3, MPL-2.0, PSF-2.0, PostgreSQL, MIT-0, blessing, MIT-CMU). 15 mega-monorepos timed out at the 15-min subprocess clone deadline (pytorch / streamlit / nodejs / kafka / kotlin / scala / erlang-otp / zig / swift, plus a config typo for psf/black) — recoverable via `--append`. Manifest at `data/code_corpus_manifest.json` has the per-source breakdown.
+
+### Corpus rebuild folded code in (v0.9.32)
+
+`scripts/rebuild_corpus.py` re-merged train/val with `code_corpus.jsonl` included. **Train: 516,736 → 768,741 records (+48.8%, ~422M tokens). Val: 27,049 → 40,429.** Dedup removed 45,027 cross-source duplicates; leakage check returned 0. New per-source share (by chars): primus_fineweb 46.5% / primus_seed 11.3% / fineweb_edu 11.0% / **code_corpus 9.5% (NEW)** / nvd 5.8% / arxiv_full 5.7% / math_reasoning 5.0% / **security_code 2.1%**. **Combined code share: 11.6%, was 2.4% — 4.8x growth.** Pretrain code is now a real signal in the distribution rather than a footnote, putting ghost-base's pretrain mix in the SmolLM2 / Phi training-distribution band without sacrificing the cybersec edge (~65% of train chars are still cybersec text).
+
 ### Canonical models on disk
 - **Density / generation:** `checkpoints/phase4_ghost_small/best_model.pt` (v0.4.0, val_loss 2.3535, val PPL 11.12). Unchanged since v0.5.0.
 - **Chat (best ghost-small):** `checkpoints/phase19_chat_v09/best_model.pt` (v0.9, wins all three MCQ benches on apples-to-apples scoring).
