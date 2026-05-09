@@ -1360,6 +1360,107 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.31] — 2026-05-09 — open-source code corpus pull landed: 105 repos, 26K files, 168M chars
+
+The v0.9.30 collector ran on Mac. Started 10:01 PT, finished 14:11 PT,
+4h11m wall time across 120 repo clones.
+
+### What landed
+
+  Sources processed:    120
+  Successful clones:    105
+  Failed clones:         15  (mostly 15-min subprocess timeouts on the
+                              heaviest monorepos)
+  Files written:     26,012
+  Total chars:  168,378,820
+  Token estimate (BPE, ~4 chars/tok):  ~42M
+
+### By language
+
+  python       7,469 files  (cpython stdlib + numpy/scipy/pandas +
+                             sklearn/transformers + the lib stack)
+  go           4,351         (golang stdlib + gin/cobra/k8s/terraform/
+                             docker/caddy)
+  rust         4,029         (std + cargo + tokio/serde/clap/cargo +
+                             ripgrep/uv etc.)
+  typescript   2,318         (vue/svelte/next/typescript/vite/nestjs)
+  c            2,299         (redis/sqlite/curl/openssl/postgres)
+  cpp          1,840         (protobuf/leveldb/grpc/folly)
+  javascript   1,507         (express/koa/lodash/react/preact +
+                             prettier/eslint/jest)
+  java         1,436         (spring-framework + commons-lang + guava)
+  ruby           461         (rails/sinatra/rspec)
+  swift          228         (vapor)
+  elixir          74         (phoenix)
+  Total:      26,012
+
+### By license
+
+  Apache-2.0   9,447 files
+  MIT          8,009
+  BSD-3-Clause 4,735
+  MPL-2.0      1,698  (terraform / vault / consul / syncthing)
+  PSF-2.0        912  (cpython stdlib + matplotlib)
+  PostgreSQL     600  (postgres backend)
+  MIT-0          365  (curl)
+  blessing       149  (sqlite)
+  MIT-CMU         97  (Pillow)
+
+  Permissive 100%. No GPL/LGPL/AGPL touched the output.
+
+### Failed clones (15)
+
+Mostly 15-min subprocess timeouts on the heaviest monorepos:
+  pytorch, streamlit, ruff, nodejs, tailwindcss, abseil-cpp,
+  spring-boot, kafka, kotlin, scala-stdlib, elixir (the org repo,
+  Phoenix lib was OK), erlang-otp, zig, swift (Apple's main repo).
+
+Plus one config typo: `black` was pointing at `black-forest-labs/black`
+(Stable Diffusion org, repo doesn't exist) instead of `psf/black`. Fixed
+in this release.
+
+### What this means for the pretrain corpus
+
+  Before pull:  363M tokens, code at 9M / 2.4%
+  After pull:   ~405M tokens, code at ~51M / 12.6%
+
+Lands at the low end of the 12-25% target band, the SmolLM2 / Phi /
+TinyLlama family distribution. Code is now a real signal in the
+pretrain mix, not a footnote.
+
+### How to recover the failed clones (later, optional)
+
+The collector supports resume:
+
+  python3 scripts/collect_code_corpus.py --append
+
+`--append` rescans the existing output for hashes (so dedup carries
+forward) and skips repos already in the manifest with `status=ok` —
+the failed ones get retried. For the heaviest monorepos that timed out,
+running with a custom `--config` JSON containing only the failed entries
+plus a longer-than-15-min subprocess timeout (would need a script edit)
+or a deeper `--depth=N` hint is the move. Not blocking; the 42M tokens
+already on disk is the bulk of the value.
+
+### Files
+
+  data/code_corpus_repos.json               1 typo fix (black URL)
+  data/code_corpus_manifest.json            new (40K, the actual run
+                                            sidecar from the Mac pull)
+  CHANGELOG.md / README.md / CORPUS.md      v0.9.31 entries with
+                                            actual numbers replacing
+                                            the v0.9.30 estimates
+
+### Next
+
+  1. ssh ghostlm-mac 'cd ~/Desktop/GhostLM && PYTHONPATH=. python3 \
+     scripts/rebuild_corpus.py'  →  re-merge train/val with the new
+     code_corpus.jsonl folded in.
+  2. After rebuild, audit token shares and update CORPUS.md with the
+     real per-source token counts (vs the current chars-as-proxy).
+
+---
+
 ## [0.9.30] — 2026-05-09 — open-source code corpus collector: 120 repos, 15 languages
 
 The v0.9.29 SFT push got code records past cybersec, but the **pretrain

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ghostlm"
-version = "0.9.30"
+version = "0.9.31"
 description = "Open-source language model built from scratch in PyTorch. Purpose-built for cybersecurity, with code, general language, and math reasoning folded into the v1.0 corpus."
 readme = "README.md"
 license = "MIT"

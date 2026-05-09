@@ -26,7 +26,7 @@
   {"url": "https://github.com/python-attrs/attrs", "license": "MIT", "name": "attrs", "subdir": "src/attr", "category": "lib", "language": "python"},
   {"url": "https://github.com/python-poetry/poetry", "license": "MIT", "name": "poetry", "subdir": "src/poetry", "category": "tooling", "language": "python"},
   {"url": "https://github.com/pre-commit/pre-commit", "license": "MIT", "name": "pre-commit", "subdir": "pre_commit", "category": "tooling", "language": "python"},
-  {"url": "https://github.com/black-forest-labs/black", "license": "MIT", "name": "black", "category": "tooling", "language": "python"},
+  {"url": "https://github.com/psf/black", "license": "MIT", "name": "black", "category": "tooling", "language": "python"},
   {"url": "https://github.com/streamlit/streamlit", "license": "Apache-2.0", "name": "streamlit", "subdir": "lib/streamlit", "category": "web", "language": "python"},
   {"url": "https://github.com/Textualize/rich", "license": "MIT", "name": "rich", "subdir": "rich", "category": "tui", "language": "python"},
   {"url": "https://github.com/Textualize/textual", "license": "MIT", "name": "textual", "subdir": "src/textual", "category": "tui", "language": "python"},
