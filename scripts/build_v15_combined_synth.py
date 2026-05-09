@@ -110,6 +110,19 @@ CATEGORY_RULES = {
     ("synth_protocol_fields", "pretrain_prose"):   "pretrain",
     ("synth_protocol_fields", "identify_protocol"): "sft",
     ("synth_protocol_fields", "read_field"):       "sft",
+
+    # Bets 23/24: general code-explain + code-write (not security-only).
+    # Five explain variants and four write variants per pattern.
+    ("synth_code_explain", "pretrain_prose"):    "pretrain",
+    ("synth_code_explain", "identify_lang"):     "sft",
+    ("synth_code_explain", "explain_purpose"):   "sft",
+    ("synth_code_explain", "walkthrough"):       "sft",
+    ("synth_code_explain", "concepts"):          "sft",
+
+    ("synth_code_write", "pretrain_prose"):  "pretrain",
+    ("synth_code_write", "write_function"):  "sft",
+    ("synth_code_write", "write_idiomatic"): "sft",
+    ("synth_code_write", "compare"):         "sft",
 }
 
 
@@ -122,6 +135,8 @@ SYNTH_FILES = [
     "synth_log_analysis.jsonl",
     "synth_iac_security.jsonl",
     "synth_protocol_fields.jsonl",
+    "synth_code_explain.jsonl",
+    "synth_code_write.jsonl",
 ]
 
 
