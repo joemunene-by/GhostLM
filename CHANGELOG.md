@@ -1360,6 +1360,36 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.28] — 2026-05-09 — phase 4: both code banks doubled to 160 patterns, +320 records
+
+Continues the phase 3 pattern: append 40 more patterns to each of
+code-explain (120 -> 160) and code-write (120 -> 160). Output:
+code-explain 800 records (was 600), code-write 483 records (was
+363). Net +320 SFT records.
+
+Phase 4 patterns add: tries, segment trees, Floyd-Warshall, A*,
+Tarjan's SCC, visitor / command / chain-of-responsibility /
+template-method patterns, WebSocket echo, SSE streaming, GraphQL
+with Strawberry, pandas / polars / numpy / scipy data ops,
+recursive CTEs + window functions, JS Proxy + private fields,
+Rust tokio + generics + trait bounds, Go interface satisfaction +
+struct embedding, MessagePack + protobuf serialisation, k8s probes,
+typing.cast / assert_never / cached_property, parallel xargs,
+order-preserving dedup, dataclass replace, sqlite transaction CM,
+ProcessPoolExecutor, TemporaryDirectory, camel_to_snake,
+lru_cache + cache_info, strict JSON parsing.
+
+### Code SFT progress
+
+  before  1,381 records (~71%)
+  this    +320 (200 from explain + 120 from write)
+  after   1,701 records (~88% of cybersec target)
+
+Remaining gap: ~239 records. Phase 5 (v0.9.29) is the final
+push to surpass.
+
+---
+
 ## [0.9.27] — 2026-05-09 — phase 3: BOTH code banks doubled in one release, +320 SFT records
 
 Single release adding 40 patterns each to code-explain (80 -> 120)
