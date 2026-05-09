@@ -27,7 +27,7 @@ def _load_jsonl(path):
 class TestPatternsBank:
     def test_loads(self):
         recs = _load_jsonl(PATTERNS)
-        assert len(recs) >= 78
+        assert len(recs) >= 118
 
     def test_record_shape(self):
         recs = _load_jsonl(PATTERNS)
@@ -76,8 +76,8 @@ class TestSynthIntegration:
         )
         assert result.returncode == 0, result.stderr
         recs = _load_jsonl(out)
-        # 80 patterns × 3 reliable variants minimum = 240 records.
-        assert len(recs) >= 235, f"got only {len(recs)}"
+        # 120 patterns × 3 reliable variants minimum = 360 records.
+        assert len(recs) >= 355, f"got only {len(recs)}"
         sources = {r.get("seed_source") for r in recs}
         for v in ("pretrain_prose", "write_function",
                    "write_idiomatic"):
