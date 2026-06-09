@@ -37,8 +37,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 
@@ -668,6 +667,9 @@ def _backend_lookup_shodan(args: Dict[str, Any]) -> Dict[str, Any]:
     if (api_key and
             os.environ.get("GHOST_AGENT_OFFLINE", "0") != "1"):
         try:
+            # Shodan's REST API only accepts the key as a query param
+            # (no header auth). Be aware the key can surface in proxy /
+            # access logs on the egress path.
             url = f"https://api.shodan.io/shodan/host/{ip}?key={api_key}"
             req = urllib.request.Request(
                 url, headers={"User-Agent": "ghostlm-agent/0.1"})
