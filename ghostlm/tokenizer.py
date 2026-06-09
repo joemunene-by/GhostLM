@@ -1,72 +1,59 @@
-"""GhostLM tokenizer — wraps tiktoken's GPT-2 BPE tokenizer with cybersecurity-aware utilities."""
+"""GhostLM tokenizers — GPT-2 BPE (tiktoken) plus domain-trained 32K BPE backends.
+
+Three backends share one API surface (``encode``, ``decode``,
+``encode_chat``, ``format_chat_prompt``, ``encode_batch``, ``pad_batch``,
+``chunk_text``, ``to_tensor``, ``vocab_size``):
+
+  - ``GhostTokenizer``     legacy GPT-2 BPE via tiktoken, 7 special
+                           tokens appended after the base vocab.
+  - ``GhostTokenizerV05``  v0.5 domain-trained 32K BPE (HF tokenizers),
+                           specials at the head of the vocab.
+  - ``GhostTokenizerV1``   v1 32K BPE with renamed specials plus four
+                           tool-use tags for the bet-1 SFT format.
+
+All shared behaviour lives in ``ChatTokenizerBase``; subclasses only
+provide the raw BPE encode/decode and their special-token table, so the
+chat-format and loss-mask logic cannot drift between backends.
+
+Use ``load_tokenizer(path)`` to pick the right backend automatically.
+"""
 
 import json
-import os
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional
 
 import tiktoken
 import torch
 
 
-class GhostTokenizer:
-    """Wrapper around tiktoken GPT-2 BPE tokenizer with GhostLM utilities.
+class ChatTokenizerBase:
+    """Shared GhostLM tokenizer behaviour.
 
-    Provides encoding, decoding, batching, padding, and text chunking
-    utilities tailored for cybersecurity document processing.
+    Subclasses must provide:
+
+      - Class attributes ``BOS``, ``EOS``, ``PAD``, ``UNK``, ``USER``,
+        ``ASSISTANT``, ``END`` (special-token strings).
+      - ``self._special_tokens``: {token_string: token_id} mapping.
+      - ``_encode_raw(text) -> List[int]``: plain BPE encode.
+      - ``_decode_raw(ids) -> str``: plain BPE decode.
+      - ``vocab_size`` property.
+
+    Everything else — chat formatting, loss masks, padding, chunking —
+    is implemented here once so the wire format can't drift between
+    BPE backends.
     """
 
-    # Special token strings
-    BOS = "<|ghost_bos|>"
-    EOS = "<|ghost_eos|>"
-    PAD = "<|ghost_pad|>"
-    UNK = "<|ghost_unk|>"
-    # Chat role markers (added in v0.5 chat-tuning) — IDs appended after the
-    # original four so pre-chat checkpoints can be expanded by 3 rows rather
-    # than reshuffled.
-    USER = "<|ghost_user|>"
-    ASSISTANT = "<|ghost_assistant|>"
-    END = "<|ghost_end|>"
+    # Provided by subclasses; declared here for type checkers.
+    _special_tokens: dict
 
-    def __init__(self):
-        """Initialize the GhostTokenizer with the GPT-2 BPE encoding.
+    def _encode_raw(self, text: str) -> List[int]:
+        raise NotImplementedError
 
-        Loads the tiktoken gpt2 encoding and assigns special token IDs
-        beyond the standard vocabulary for begin-of-sequence, end-of-sequence,
-        padding, unknown, and chat role markers.
-        """
-        self._encoder = tiktoken.get_encoding("gpt2")
-        self._vocab_size = self._encoder.n_vocab
-
-        # Assign special token IDs beyond the base vocabulary
-        self._special_tokens = {
-            self.BOS: self._vocab_size,
-            self.EOS: self._vocab_size + 1,
-            self.PAD: self._vocab_size + 2,
-            self.UNK: self._vocab_size + 3,
-            self.USER: self._vocab_size + 4,
-            self.ASSISTANT: self._vocab_size + 5,
-            self.END: self._vocab_size + 6,
-        }
-
-        # Reverse mapping for quick lookup
-        self._id_to_special = {v: k for k, v in self._special_tokens.items()}
-
-    @property
-    def vocab_size(self) -> int:
-        """Return the effective vocabulary size including special tokens.
-
-        Returns:
-            Total vocabulary size (base vocab + 7 special tokens).
-        """
-        return self._vocab_size + len(self._special_tokens)
+    def _decode_raw(self, ids: List[int]) -> str:
+        raise NotImplementedError
 
     def _special_token_ids(self) -> set:
-        """Return a set of all special token IDs.
-
-        Returns:
-            Set of integer token IDs reserved for special tokens.
-        """
+        """Return a set of all special token IDs."""
         return set(self._special_tokens.values())
 
     def encode(self, text: str, add_bos: bool = False, add_eos: bool = False) -> List[int]:
@@ -80,7 +67,7 @@ class GhostTokenizer:
         Returns:
             List of integer token IDs.
         """
-        ids = self._encoder.encode(text, allowed_special="all")
+        ids = self._encode_raw(text)
 
         if add_bos:
             ids = [self._special_tokens[self.BOS]] + ids
@@ -103,14 +90,27 @@ class GhostTokenizer:
             special_ids = self._special_token_ids()
             ids = [i for i in ids if i not in special_ids]
 
-        return self._encoder.decode(ids)
+        return self._decode_raw(ids)
+
+    def encode_batch(self, texts: List[str], add_bos: bool = False, add_eos: bool = False) -> List[List[int]]:
+        """Encode a list of text strings into lists of token IDs.
+
+        Args:
+            texts: List of input text strings to encode.
+            add_bos: If True, prepend BOS token ID to each sequence.
+            add_eos: If True, append EOS token ID to each sequence.
+
+        Returns:
+            List of lists of integer token IDs, one per input text.
+        """
+        return [self.encode(text, add_bos=add_bos, add_eos=add_eos) for text in texts]
 
     def encode_chat(self, turns: List[dict]) -> tuple:
         """Encode a multi-turn chat conversation with role markers and a loss mask.
 
         Format: <|ghost_user|>{content}<|ghost_end|><|ghost_assistant|>{content}<|ghost_end|>...
         The loss mask is 1 on assistant content tokens and the assistant's trailing
-        <|ghost_end|> (so the model learns to stop), and 0 everywhere else (user
+        end marker (so the model learns to stop), and 0 everywhere else (user
         prompts and role markers themselves).
 
         Args:
@@ -129,7 +129,7 @@ class GhostTokenizer:
 
         for turn in turns:
             role = turn["role"]
-            content_ids = self._encoder.encode(turn["content"], allowed_special="all")
+            content_ids = self._encode_raw(turn["content"])
             if role == "user":
                 ids.append(user_id)
                 mask.append(0)
@@ -150,10 +150,10 @@ class GhostTokenizer:
         return ids, mask
 
     def format_chat_prompt(self, turns: List[dict]) -> List[int]:
-        """Encode a chat history and append <|ghost_assistant|> ready for generation.
+        """Encode a chat history and append the assistant marker ready for generation.
 
         Used at inference: feed the resulting token ids to the model; it should
-        generate the assistant's reply followed by <|ghost_end|>.
+        generate the assistant's reply followed by the end marker.
 
         Args:
             turns: List of {"role": "user"|"assistant", "content": str}, ending
@@ -165,19 +165,6 @@ class GhostTokenizer:
         ids, _ = self.encode_chat(turns)
         ids.append(self._special_tokens[self.ASSISTANT])
         return ids
-
-    def encode_batch(self, texts: List[str], add_bos: bool = False, add_eos: bool = False) -> List[List[int]]:
-        """Encode a list of text strings into lists of token IDs.
-
-        Args:
-            texts: List of input text strings to encode.
-            add_bos: If True, prepend BOS token ID to each sequence.
-            add_eos: If True, append EOS token ID to each sequence.
-
-        Returns:
-            List of lists of integer token IDs, one per input text.
-        """
-        return [self.encode(text, add_bos=add_bos, add_eos=add_eos) for text in texts]
 
     def to_tensor(self, ids: List[int], device: str = "cpu") -> torch.Tensor:
         """Convert a list of token IDs to a PyTorch tensor.
@@ -262,6 +249,69 @@ class GhostTokenizer:
 
         return chunks
 
+    def __len__(self) -> int:
+        """Return the effective vocabulary size."""
+        return self.vocab_size
+
+
+class GhostTokenizer(ChatTokenizerBase):
+    """Wrapper around tiktoken GPT-2 BPE tokenizer with GhostLM utilities.
+
+    Provides encoding, decoding, batching, padding, and text chunking
+    utilities tailored for cybersecurity document processing.
+    """
+
+    # Special token strings
+    BOS = "<|ghost_bos|>"
+    EOS = "<|ghost_eos|>"
+    PAD = "<|ghost_pad|>"
+    UNK = "<|ghost_unk|>"
+    # Chat role markers (added in v0.5 chat-tuning) — IDs appended after the
+    # original four so pre-chat checkpoints can be expanded by 3 rows rather
+    # than reshuffled.
+    USER = "<|ghost_user|>"
+    ASSISTANT = "<|ghost_assistant|>"
+    END = "<|ghost_end|>"
+
+    def __init__(self):
+        """Initialize the GhostTokenizer with the GPT-2 BPE encoding.
+
+        Loads the tiktoken gpt2 encoding and assigns special token IDs
+        beyond the standard vocabulary for begin-of-sequence, end-of-sequence,
+        padding, unknown, and chat role markers.
+        """
+        self._encoder = tiktoken.get_encoding("gpt2")
+        self._vocab_size = self._encoder.n_vocab
+
+        # Assign special token IDs beyond the base vocabulary
+        self._special_tokens = {
+            self.BOS: self._vocab_size,
+            self.EOS: self._vocab_size + 1,
+            self.PAD: self._vocab_size + 2,
+            self.UNK: self._vocab_size + 3,
+            self.USER: self._vocab_size + 4,
+            self.ASSISTANT: self._vocab_size + 5,
+            self.END: self._vocab_size + 6,
+        }
+
+        # Reverse mapping for quick lookup
+        self._id_to_special = {v: k for k, v in self._special_tokens.items()}
+
+    @property
+    def vocab_size(self) -> int:
+        """Return the effective vocabulary size including special tokens.
+
+        Returns:
+            Total vocabulary size (base vocab + 7 special tokens).
+        """
+        return self._vocab_size + len(self._special_tokens)
+
+    def _encode_raw(self, text: str) -> List[int]:
+        return self._encoder.encode(text, allowed_special="all")
+
+    def _decode_raw(self, ids: List[int]) -> str:
+        return self._encoder.decode(ids)
+
     def save(self, path: str) -> None:
         """Save tokenizer metadata to a JSON file.
 
@@ -304,24 +354,52 @@ class GhostTokenizer:
 
         return tokenizer
 
-    def __len__(self) -> int:
-        """Return the effective vocabulary size.
-
-        Returns:
-            Integer count of tokens including special tokens.
-        """
-        return self.vocab_size
-
     def __repr__(self) -> str:
         """Return a concise string representation of the tokenizer.
 
         Returns:
-            String like: GhostTokenizer(vocab_size=50261, special_tokens=4)
+            String like: GhostTokenizer(vocab_size=50264, special_tokens=7)
         """
         return f"GhostTokenizer(vocab_size={self.vocab_size}, special_tokens={len(self._special_tokens)})"
 
 
-class GhostTokenizerV05:
+class _HFTokenizerBase(ChatTokenizerBase):
+    """Shared plumbing for the HuggingFace-tokenizers-backed backends."""
+
+    def __init__(self, path: str):
+        """Load the trained tokenizer.json file and bind special tokens."""
+        from tokenizers import Tokenizer
+        self._tok = Tokenizer.from_file(path)
+        self._vocab_size = self._tok.get_vocab_size()
+        self._special_tokens = self._bind_special_tokens(path)
+        self._id_to_special = {v: k for k, v in self._special_tokens.items()}
+
+    def _bind_special_tokens(self, path: str) -> dict:
+        raise NotImplementedError
+
+    @classmethod
+    def from_file(cls, path: str):
+        """Constructor alias — matches the GhostTokenizer.load shape."""
+        return cls(path)
+
+    @property
+    def vocab_size(self) -> int:
+        """Return the total vocabulary size (~32,000 by default)."""
+        return self._vocab_size
+
+    def _encode_raw(self, text: str) -> List[int]:
+        return self._tok.encode(text).ids
+
+    def _decode_raw(self, ids: List[int]) -> str:
+        return self._tok.decode(ids)
+
+    def __repr__(self) -> str:
+        """Concise summary."""
+        return (f"{type(self).__name__}(vocab_size={self._vocab_size}, "
+                f"special_tokens={len(self._special_tokens)})")
+
+
+class GhostTokenizerV05(_HFTokenizerBase):
     """v0.5 tokenizer — domain-trained 32K BPE via HuggingFace tokenizers.
 
     Drop-in replacement for ``GhostTokenizer`` with the same API surface
@@ -344,100 +422,17 @@ class GhostTokenizerV05:
     ASSISTANT = GhostTokenizer.ASSISTANT
     END = GhostTokenizer.END
 
-    def __init__(self, path: str):
-        """Load the trained tokenizer.json file."""
-        from tokenizers import Tokenizer
-        self._tok = Tokenizer.from_file(path)
-        self._vocab_size = self._tok.get_vocab_size()
-        self._special_tokens = {
+    def _bind_special_tokens(self, path: str) -> dict:
+        return {
             name: self._tok.token_to_id(name)
             for name in (
                 self.BOS, self.EOS, self.PAD, self.UNK,
                 self.USER, self.ASSISTANT, self.END,
             )
         }
-        self._id_to_special = {v: k for k, v in self._special_tokens.items()}
-
-    @classmethod
-    def from_file(cls, path: str) -> "GhostTokenizerV05":
-        """Alias for the constructor — matches the GhostTokenizer.load shape."""
-        return cls(path)
-
-    @property
-    def vocab_size(self) -> int:
-        """Return the total vocabulary size (~32,000 by default)."""
-        return self._vocab_size
-
-    def _special_token_ids(self) -> set:
-        """Return the set of special-token integer IDs."""
-        return set(self._special_tokens.values())
-
-    def encode(self, text: str, add_bos: bool = False, add_eos: bool = False) -> List[int]:
-        """Encode text to token IDs (matches GhostTokenizer.encode)."""
-        ids = self._tok.encode(text).ids
-        if add_bos:
-            ids = [self._special_tokens[self.BOS]] + ids
-        if add_eos:
-            ids = ids + [self._special_tokens[self.EOS]]
-        return ids
-
-    def decode(self, ids: List[int], skip_special: bool = True) -> str:
-        """Decode token IDs to text (matches GhostTokenizer.decode)."""
-        if skip_special:
-            specials = self._special_token_ids()
-            ids = [i for i in ids if i not in specials]
-        return self._tok.decode(ids)
-
-    def encode_batch(self, texts: List[str], add_bos: bool = False, add_eos: bool = False) -> List[List[int]]:
-        """Encode a batch of texts."""
-        return [self.encode(t, add_bos=add_bos, add_eos=add_eos) for t in texts]
-
-    def encode_chat(self, turns: List[dict]) -> tuple:
-        """Build (token_ids, loss_mask) for a chat conversation.
-
-        Mirrors ``GhostTokenizer.encode_chat`` exactly — only the underlying
-        BPE differs.
-        """
-        user_id = self._special_tokens[self.USER]
-        assistant_id = self._special_tokens[self.ASSISTANT]
-        end_id = self._special_tokens[self.END]
-        ids: List[int] = []
-        mask: List[int] = []
-        for turn in turns:
-            role = turn["role"]
-            content_ids = self._tok.encode(turn["content"]).ids
-            if role == "user":
-                ids.append(user_id); mask.append(0)
-                ids.extend(content_ids); mask.extend([0] * len(content_ids))
-                ids.append(end_id); mask.append(0)
-            elif role == "assistant":
-                ids.append(assistant_id); mask.append(0)
-                ids.extend(content_ids); mask.extend([1] * len(content_ids))
-                ids.append(end_id); mask.append(1)
-            else:
-                raise ValueError(f"Unknown role: {role!r}")
-        return ids, mask
-
-    def format_chat_prompt(self, turns: List[dict]) -> List[int]:
-        """Build an inference prompt ending in <|ghost_assistant|>."""
-        ids, _ = self.encode_chat(turns)
-        ids.append(self._special_tokens[self.ASSISTANT])
-        return ids
-
-    def to_tensor(self, ids: List[int], device: str = "cpu") -> torch.Tensor:
-        """Convert ids to a (1, T) torch.LongTensor."""
-        return torch.tensor(ids, dtype=torch.long, device=device).unsqueeze(0)
-
-    def __len__(self) -> int:
-        """Return the vocab size."""
-        return self._vocab_size
-
-    def __repr__(self) -> str:
-        """Concise summary."""
-        return f"GhostTokenizerV05(vocab_size={self._vocab_size}, special_tokens={len(self._special_tokens)})"
 
 
-class GhostTokenizerV1:
+class GhostTokenizerV1(_HFTokenizerBase):
     """v1 tokenizer: 32K BPE retrained on the v1.0 corpus by
     ``scripts/train_v1_bpe.py``. Differs from V05 in the special-token
     naming scheme plus four extra tool-use tags:
@@ -474,11 +469,7 @@ class GhostTokenizerV1:
     TOOL_RESPONSE = "<|tool_response|>"
     TOOL_RESPONSE_END = "<|/tool_response|>"
 
-    def __init__(self, path: str):
-        """Load tokenizer.json (and sibling special_tokens_map.json if present)."""
-        from tokenizers import Tokenizer
-        self._tok = Tokenizer.from_file(path)
-        self._vocab_size = self._tok.get_vocab_size()
+    def _bind_special_tokens(self, path: str) -> dict:
         # Bind every named special. token_to_id returns None for missing
         # tokens; we want a hard error so misconfigured tokenizer files
         # don't silently mask bugs at training time.
@@ -486,7 +477,7 @@ class GhostTokenizerV1:
                  self.USER, self.ASSISTANT, self.END,
                  self.TOOL_CALL, self.TOOL_CALL_END,
                  self.TOOL_RESPONSE, self.TOOL_RESPONSE_END)
-        self._special_tokens = {}
+        special_tokens = {}
         for name in names:
             tid = self._tok.token_to_id(name)
             if tid is None:
@@ -494,82 +485,8 @@ class GhostTokenizerV1:
                     f"v1 tokenizer at {path} missing special token {name!r}; "
                     f"retrain via scripts/train_v1_bpe.py"
                 )
-            self._special_tokens[name] = tid
-        self._id_to_special = {v: k for k, v in self._special_tokens.items()}
-
-    @classmethod
-    def from_file(cls, path: str) -> "GhostTokenizerV1":
-        """Constructor alias matching V05.from_file."""
-        return cls(path)
-
-    @property
-    def vocab_size(self) -> int:
-        """Total vocab size (32000 by default)."""
-        return self._vocab_size
-
-    def _special_token_ids(self) -> set:
-        """Set of all special-token integer IDs."""
-        return set(self._special_tokens.values())
-
-    def encode(self, text: str, add_bos: bool = False, add_eos: bool = False) -> List[int]:
-        """Encode text -> ids (matches V05.encode shape)."""
-        ids = self._tok.encode(text).ids
-        if add_bos:
-            ids = [self._special_tokens[self.BOS]] + ids
-        if add_eos:
-            ids = ids + [self._special_tokens[self.EOS]]
-        return ids
-
-    def decode(self, ids: List[int], skip_special: bool = True) -> str:
-        """Decode ids -> text (matches V05.decode shape)."""
-        if skip_special:
-            specials = self._special_token_ids()
-            ids = [i for i in ids if i not in specials]
-        return self._tok.decode(ids)
-
-    def encode_batch(self, texts: List[str], add_bos: bool = False, add_eos: bool = False) -> List[List[int]]:
-        """Batch encode."""
-        return [self.encode(t, add_bos=add_bos, add_eos=add_eos) for t in texts]
-
-    def encode_chat(self, turns: List[dict]) -> tuple:
-        """Build (token_ids, loss_mask) for chat (matches V05.encode_chat)."""
-        user_id = self._special_tokens[self.USER]
-        assistant_id = self._special_tokens[self.ASSISTANT]
-        end_id = self._special_tokens[self.END]
-        ids: List[int] = []
-        mask: List[int] = []
-        for turn in turns:
-            role = turn["role"]
-            content_ids = self._tok.encode(turn["content"]).ids
-            if role == "user":
-                ids.append(user_id); mask.append(0)
-                ids.extend(content_ids); mask.extend([0] * len(content_ids))
-                ids.append(end_id); mask.append(0)
-            elif role == "assistant":
-                ids.append(assistant_id); mask.append(0)
-                ids.extend(content_ids); mask.extend([1] * len(content_ids))
-                ids.append(end_id); mask.append(1)
-            else:
-                raise ValueError(f"Unknown role: {role!r}")
-        return ids, mask
-
-    def format_chat_prompt(self, turns: List[dict]) -> List[int]:
-        """Inference-side prompt ending in <|ghost_assistant|>."""
-        ids, _ = self.encode_chat(turns)
-        ids.append(self._special_tokens[self.ASSISTANT])
-        return ids
-
-    def to_tensor(self, ids: List[int], device: str = "cpu") -> torch.Tensor:
-        """Convert ids -> (1, T) torch.LongTensor."""
-        return torch.tensor(ids, dtype=torch.long, device=device).unsqueeze(0)
-
-    def __len__(self) -> int:
-        """Return vocab size."""
-        return self._vocab_size
-
-    def __repr__(self) -> str:
-        """Concise summary."""
-        return f"GhostTokenizerV1(vocab_size={self._vocab_size}, special_tokens={len(self._special_tokens)})"
+            special_tokens[name] = tid
+        return special_tokens
 
 
 def _looks_like_v1(path: Path) -> bool:
