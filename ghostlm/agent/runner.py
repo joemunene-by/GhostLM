@@ -25,12 +25,11 @@ the loop properly.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from dataclasses import fields
 from pathlib import Path
-from typing import List, Tuple
+from typing import List
 
 from .messages import AgentMessage, MessageRole
 from .runtime import GhostAgent, RuntimeConfig
@@ -211,21 +210,31 @@ def make_generator_from_loaded(
                             device=device).unsqueeze(0)
         new_ids: list = []
         ctx = config.context_length
+        # KV-cached decoding: prefill the prompt once, then feed only the
+        # newly sampled token each step. If the sequence outgrows the
+        # context window, drop the cache and re-prefill from the cropped
+        # tail (sliding window) — same semantics as the uncached loop.
+        past_kv = None
+        input_ids = ids[:, -ctx:]
         # Stop on either the chat end token OR a decoded "<|/tool_call|>"
         # tail so the loop can dispatch immediately. Decoding every step
         # is cheap relative to the forward pass.
         with torch.no_grad():
             for _ in range(max_new_tokens):
-                cond = ids[:, -ctx:]
-                logits, _ = model(cond)
+                past_len = past_kv[0][0].size(2) if past_kv else 0
+                if past_len + input_ids.size(1) > ctx:
+                    past_kv = None
+                    input_ids = ids[:, -ctx:]
+                logits, _, past_kv = model(
+                    input_ids, past_kv=past_kv, use_cache=True,
+                )
                 next_logits = logits[:, -1, :].squeeze(0).clone()
                 tok = _sample_next(next_logits, new_ids[-128:])
                 if tok == end_id:
                     break
                 new_ids.append(tok)
-                ids = torch.cat(
-                    [ids, torch.tensor([[tok]], device=device)], dim=1,
-                )
+                input_ids = torch.tensor([[tok]], device=device)
+                ids = torch.cat([ids, input_ids], dim=1)
                 # Cheap suffix check: only decode the trailing window.
                 if len(new_ids) >= 6:
                     tail = tokenizer.decode(new_ids[-32:])
