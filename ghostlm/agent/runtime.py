@@ -44,10 +44,10 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from .messages import AgentMessage, AgentTrace, MessageRole
-from .parser import ParsedOutput, parse_agent_output
+from .parser import parse_agent_output
 from .tools import TOOLS_REGISTRY, Tool, dispatch
 
 
