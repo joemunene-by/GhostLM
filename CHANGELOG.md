@@ -1360,6 +1360,119 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.33] — 2026-06-09 — full-codebase review: KV cache, memmap corpus, DDP sharding, LR/init fixes
+
+A top-to-bottom review of the training and inference stack ahead of
+the ghost-base GPU spend. Everything here is either a correctness fix
+that changes what that spend buys, or a scaling fix that removes a
+bottleneck at v1.0-corpus size.
+
+### Fixed (training correctness — these change run results)
+
+- **LR schedule off-by-one**: `GhostTrainer.train_step` applied the
+  scheduled learning rate *after* the optimizer update, so every step
+  ran at the previous step's LR — and the very first update ran at the
+  full base LR (3e-4) instead of the warmup floor (~1.5e-7), a recipe
+  for an early loss spike on fresh weights. The LR is now set
+  immediately before `optimizer.step()`. Regression-tested.
+- **DDP trained on identical data on every rank**: the trainer wrapped
+  the model in DistributedDataParallel but `build_dataloaders` never
+  sharded the data; with the fixed seed, all ranks computed the same
+  batches and the all-reduce averaged identical gradients — N GPUs for
+  zero speedup. The train loader now uses a `DistributedSampler` under
+  torchrun (`WORLD_SIZE > 1`), and the trainer's cycle calls
+  `sampler.set_epoch()` so reshuffles differ across epochs. The val
+  loader stays unsharded so val loss is comparable at any world size.
+- **Depth-scaled init missed SwiGLU**: the residual-projection init
+  matched `proj.weight`/`fc2.weight` by name; in SwiGLU, `fc2` is the
+  *gate* and `fc3` is the residual-path output, so every modern preset
+  (RoPE+SwiGLU+RMSNorm, including ghost-1b/3b) depth-scaled the wrong
+  matrix. Init is now module-type-aware: attention `proj`, GELU `fc2`,
+  SwiGLU `fc3`.
+- **`scripts/train.py` hardcoded `vocab_size = 50261`** ("+4 special
+  tokens") — stale since the v0.5 chat-role tokens brought the real
+  count to 50264. Token ids 50261-50263 (`<|ghost_user|>`,
+  `<|ghost_assistant|>`, `<|ghost_end|>`) fell outside the embedding
+  table. Vocab size is now derived from `len(tokenizer)`.
+- **No document separators in the pretrain stream**: `GhostDataset`
+  concatenated records with nothing between them. Every record is now
+  EOS-terminated so the model sees explicit document boundaries.
+- **MoE + DDP**: experts that receive no tokens in a micro-batch
+  produce no gradients, which DDP treats as an error; the trainer now
+  passes `find_unused_parameters=True` when `use_moe` is set.
+
+### Added (inference performance)
+
+- **KV-cache generation**: `GhostLM.forward` accepts
+  `past_kv`/`use_cache` and returns per-layer key/value caches;
+  `generate()`, the agent runner, and `scripts/chat.py` all prefill
+  the prompt once and feed single tokens thereafter — O(T) attention
+  per step instead of a full O(T^2) recompute, across all four
+  architecture variants (learned-pos/GELU, RoPE/SwiGLU/RMSNorm, flash,
+  MoE). RoPE applies rotations at true absolute positions via a cache
+  offset. On context overflow the cache rebuilds from the cropped tail
+  (sliding window), matching pre-cache semantics. Parity is pinned by
+  tests: cached incremental logits equal full-forward logits to 1e-4.
+- **Padding-mask support**: `forward(attn_mask=...)` makes padded
+  positions invisible to real tokens (the mask `pad_batch` always
+  produced but nothing consumed). Left-padding can't NaN: fully-masked
+  query rows keep their diagonal open.
+- **Memmap pretokenized corpus**: `scripts/pretokenize.py` streams
+  JSONL into flat uint16/uint32 `.bin` token files (+ sidecar
+  meta.json); new `GhostBinDataset` memory-maps them. At v1.0-corpus
+  scale this replaces >10 GB of Python-list tokens and minutes of
+  re-tokenization per launch with instant startup and near-zero RAM.
+  `build_dataloaders` picks the backend by file extension; `make
+  pretokenize` wraps it.
+- **bf16 autocast**: AMP now prefers bfloat16 on supporting GPUs (same
+  exponent range as fp32, no GradScaler needed); `config.dtype:
+  "float16"` forces the old behaviour. The previously-dead
+  `config.dtype` field is now read.
+
+### Changed
+
+- `GhostLMConfig.model_size()` / new `num_params()` count parameters
+  exactly by instantiating on the meta device — correct for SwiGLU's
+  2/3-width hidden, RoPE (no learned positions), MoE expert pools, and
+  weight tying (ghost-1b reports 2.1B, ghost-3b 6.0B). `__repr__` now
+  shows the modern-arch flags.
+- The three tokenizer backends (GPT-2 BPE, v0.5 32K, v1 32K) share one
+  `ChatTokenizerBase` — chat formatting, loss masks, padding, and
+  chunking are implemented once, so the SFT wire format can't drift
+  between BPE backends (~250 lines of triplicated logic removed).
+  `pad_batch`/`chunk_text` are now available on all backends.
+- Agent HTTP server: generation serialized behind a lock (FastAPI's
+  threadpool could previously drive concurrent forwards through one
+  model), vendor `usage` fields report real tokenizer counts instead
+  of `len/4` estimates, and the SSE endpoint documents that it replays
+  the completed loop rather than streaming tokens.
+- Trainer: checkpoint-step evals reuse the eval-interval result
+  instead of running validation twice; logs append to
+  `training_log.jsonl` (the legacy `.json` array is still written);
+  tqdm/prints/log writes are rank-0-only under DDP.
+- `SparseMoE.last_aux_loss` is a plain per-forward attribute instead
+  of a re-assigned buffer.
+- CI: ruff lint job; test matrix on Python 3.10 + 3.13; dependencies
+  installed from pyproject extras (`.[train,data,dev,serve]`) so CI
+  can't drift from package metadata; ghostbench tests included.
+- Packaging: `requirements.txt` is a thin `-e .[...]` shim over
+  pyproject (single source of truth); new `serve` extra (fastapi /
+  uvicorn / pydantic); pymupdf moved into the `data` extra; ruff
+  config in pyproject (`make lint`).
+- README: the stack of dated update blockquotes moved here (they were
+  duplicated verbatim); the top now carries a single status paragraph
+  and a version badge.
+
+### Tests
+
+- 18 new tests (`tests/test_kv_cache.py`): cached-vs-full logit parity
+  across all four architecture variants, generation past the context
+  window, right-pad invisibility, left-pad NaN guard, cache-overflow
+  assertion, SwiGLU init std, bin-vs-jsonl dataset equivalence, EOS
+  separator presence, and first-step warmup LR. 430 tests green.
+
+---
+
 ## [0.9.32] — 2026-05-09 — corpus rebuild: code share 2.4% → 11.6%, train 516K → 768K records
 
 Mac ran `scripts/rebuild_corpus.py` against the v0.9.31 raw set (49
