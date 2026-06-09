@@ -1,13 +1,4 @@
-torch>=2.0.0
-numpy>=1.24.0
-transformers>=4.36.0
-datasets>=2.16.0
-tokenizers>=0.15.0
-tiktoken>=0.5.0
-requests>=2.31.0
-tqdm>=4.66.0
-safetensors>=0.4.0
-wandb>=0.16.0
-pytest>=8.0.0
-matplotlib>=3.8.0
-pymupdf>=1.24.0  # arXiv full-text PDF extraction (collect_arxiv_full_text)
+# Convenience shim — pyproject.toml is the single source of truth for
+# dependencies. This installs the package editable with every extra
+# (training, export, data collection, serving, dev tooling).
+-e .[train,export,data,serve,dev]

@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: all install test data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-exploitdb data-exploitdb-audit data-arxiv-full data-diversity data-rebuild data-audit train-tiny train-small generate chat demo demo-compare benchmark eval-security eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security-all-phases eval-compare-phases eval-perplexity-by-source plot export clean help
+.PHONY: all install test lint pretokenize data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-exploitdb data-exploitdb-audit data-arxiv-full data-diversity data-rebuild data-audit train-tiny train-small generate chat demo demo-compare benchmark eval-security eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security-all-phases eval-compare-phases eval-perplexity-by-source plot export clean help
 
 help:
 	@echo "GhostLM — Cybersecurity Language Model"
@@ -8,6 +8,8 @@ help:
 	@echo ""
 	@echo "  install         Install all dependencies"
 	@echo "  test            Run all unit tests"
+	@echo "  lint            Ruff lint over ghostlm/ ghostbench/ tests/"
+	@echo "  pretokenize     One-time corpus pretokenization into memmap .bin files"
 	@echo "  data            Download and prepare training data (full pipeline)"
 	@echo "  data-nvd-full   Pull the full NVD CVE corpus (Phase 3 — uses NVD_API_KEY)"
 	@echo "  data-ctf-repos  Pull CTF writeups from a JSON-config'd list of permissive repos"
@@ -37,11 +39,16 @@ help:
 
 install:
 	pip install torch --index-url https://download.pytorch.org/whl/cpu
-	pip install -r requirements.txt
-	pip install -e .
+	pip install -e ".[train,export,data,serve,dev]"
 
 test:
-	PYTHONPATH=. $(PYTHON) -m pytest tests/ -v
+	PYTHONPATH=. $(PYTHON) -m pytest tests/ ghostbench/tests/ -v
+
+lint:
+	$(PYTHON) -m ruff check ghostlm/ ghostbench/ tests/
+
+pretokenize:
+	$(PYTHON) scripts/pretokenize.py --train data/processed/train.jsonl --val data/processed/val.jsonl
 
 data:
 	$(PYTHON) data/collect.py

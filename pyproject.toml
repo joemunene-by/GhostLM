@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ghostlm"
-version = "0.9.32"
+version = "0.9.33"
 description = "Open-source language model built from scratch in PyTorch. Purpose-built for cybersecurity, with code, general language, and math reasoning folded into the v1.0 corpus."
 readme = "README.md"
 license = "MIT"
@@ -18,6 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Security",
 ]
@@ -32,8 +33,14 @@ dependencies = [
 [project.optional-dependencies]
 train = ["wandb>=0.16.0", "matplotlib>=3.8.0"]
 export = ["safetensors>=0.4.0"]
-data = ["datasets>=2.16.0", "tokenizers>=0.15.0", "requests>=2.31.0"]
-dev = ["pytest>=8.0.0"]
+data = [
+    "datasets>=2.16.0",
+    "tokenizers>=0.15.0",
+    "requests>=2.31.0",
+    "pymupdf>=1.24.0",  # arXiv full-text PDF extraction
+]
+serve = ["fastapi>=0.110.0", "uvicorn>=0.29.0", "pydantic>=2.0.0"]
+dev = ["pytest>=8.0.0", "ruff>=0.4.0"]
 
 [project.urls]
 Homepage = "https://github.com/joemunene-by/GhostLM"
@@ -43,3 +50,18 @@ Issues = "https://github.com/joemunene-by/GhostLM/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["ghostlm*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+# Lint the shipped packages and their tests. scripts/ is a large pile of
+# one-off operational tooling; lint it opportunistically, not as a gate.
+include = ["ghostlm/**/*.py", "ghostbench/**/*.py", "tests/**/*.py", "pyproject.toml"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests prepend the repo root to sys.path before importing the package.
+"tests/**" = ["E402"]
+"ghostbench/tests/**" = ["E402"]
