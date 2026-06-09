@@ -164,8 +164,6 @@ def main():
     if args.no_wandb:
         config.use_wandb = False
 
-    # Set vocab size to match GhostTokenizer (base 50257 + 4 special tokens)
-    config.vocab_size = 50261
     if args.context_length is not None:
         config.context_length = args.context_length
     if args.eval_interval is not None:
@@ -178,11 +176,16 @@ def main():
         config.checkpoint_dir = f"checkpoints/{args.run_name}"
         config.log_dir = f"logs/{args.run_name}"
 
-    # Print config
-    print(repr(config))
-
     # Initialize tokenizer
     tokenizer = GhostTokenizer()
+
+    # Derive vocab size from the tokenizer instead of hardcoding it.
+    # (A stale hardcoded 50261 here once excluded the three chat-role
+    # special tokens, whose ids 50261-50263 fell outside the embedding.)
+    config.vocab_size = len(tokenizer)
+
+    # Print config
+    print(repr(config))
 
     # Verify data files exist
     train_path = Path(args.train_data)
