@@ -1,12 +1,18 @@
 """GhostLM transformer model — decoder-only architecture built from scratch in PyTorch."""
 
 import math
+from typing import List, Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from ghostlm.config import GhostLMConfig
+
+# One transformer layer's cached keys and values, each of shape
+# (B, n_heads, T_past, head_dim). A full-model cache is a list with one
+# entry per block, in block order.
+LayerKVCache = Tuple[torch.Tensor, torch.Tensor]
 
 
 class RotaryEmbedding(nn.Module):
@@ -29,8 +35,17 @@ class RotaryEmbedding(nn.Module):
         self.register_buffer("cos_cached", emb.cos(), persistent=False)
         self.register_buffer("sin_cached", emb.sin(), persistent=False)
 
-    def forward(self, seq_len: int):
-        return self.cos_cached[:seq_len], self.sin_cached[:seq_len]
+    def forward(self, seq_len: int, offset: int = 0):
+        """Return cos/sin tables for positions [offset, offset + seq_len).
+
+        ``offset`` is the number of tokens already in the KV cache, so
+        incremental decoding rotates new queries/keys with their true
+        absolute positions.
+        """
+        return (
+            self.cos_cached[offset : offset + seq_len],
+            self.sin_cached[offset : offset + seq_len],
+        )
 
 
 def _rotate_half(x):
@@ -131,16 +146,65 @@ class CausalSelfAttention(nn.Module):
                 persistent=False,
             )
 
-    def forward(self, x):
+    def _attention_bias(
+        self,
+        B: int,
+        T: int,
+        past_len: int,
+        attn_mask: Optional[torch.Tensor],
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> torch.Tensor:
+        """Build an additive attention bias combining the (offset) causal
+        mask with an optional padding mask.
+
+        Query positions are [past_len, past_len + T); key positions are
+        [0, past_len + T). ``attn_mask`` is (B, past_len + T) with 1 for
+        real tokens and 0 for padding. The diagonal is always kept
+        unmasked so fully-padded query rows (left padding) self-attend
+        instead of softmaxing over an all--inf row and producing NaNs.
+        """
+        total_len = past_len + T
+        # keep[i, j] == True when query past_len + i may attend to key j.
+        keep = torch.ones(T, total_len, dtype=torch.bool, device=device)
+        keep = keep.tril(diagonal=past_len)
+        keep = keep.unsqueeze(0).unsqueeze(0)  # (1, 1, T, total_len)
+        if attn_mask is not None:
+            pad_keep = attn_mask.to(torch.bool).view(B, 1, 1, total_len)
+            keep = keep & pad_keep
+            # Re-open the diagonal (query attends to itself) to avoid
+            # fully-masked rows; padded positions produce garbage that
+            # downstream losses/readers must ignore anyway.
+            diag = torch.zeros(T, total_len, dtype=torch.bool, device=device)
+            idx = torch.arange(T, device=device)
+            diag[idx, idx + past_len] = True
+            keep = keep | diag.view(1, 1, T, total_len)
+        bias = torch.zeros(keep.shape, dtype=dtype, device=device)
+        bias.masked_fill_(~keep, float("-inf"))
+        return bias
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        attn_mask: Optional[torch.Tensor] = None,
+        past_kv: Optional[LayerKVCache] = None,
+        use_cache: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[LayerKVCache]]:
         """Forward pass through causal self-attention.
 
         Args:
             x: Input tensor of shape (B, T, d_model).
+            attn_mask: Optional (B, past_len + T) padding mask; 1 for real
+                tokens, 0 for padding.
+            past_kv: Optional (k, v) tensors from previous steps, each of
+                shape (B, n_heads, past_len, head_dim).
+            use_cache: If True, also return the updated (k, v) cache.
 
         Returns:
-            Output tensor of shape (B, T, d_model).
+            Tuple of (output of shape (B, T, d_model), updated cache or None).
         """
         B, T, C = x.size()
+        past_len = past_kv[0].size(2) if past_kv is not None else 0
 
         # Combined QKV projection and split
         qkv = self.c_qkv(x)
@@ -151,24 +215,48 @@ class CausalSelfAttention(nn.Module):
         k = k.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
 
-        # Apply RoPE to Q and K (not V)
+        # Apply RoPE to Q and K (not V) at their absolute positions.
+        # Cached keys were already rotated when first computed.
         if self.use_rope:
-            cos, sin = self.rope(T)
+            cos, sin = self.rope(T, offset=past_len)
             q, k = apply_rotary_pos_emb(q, k, cos, sin)
 
+        # Prepend cached keys/values from previous decode steps.
+        if past_kv is not None:
+            k = torch.cat([past_kv[0], k], dim=2)
+            v = torch.cat([past_kv[1], v], dim=2)
+        present: Optional[LayerKVCache] = (k, v) if use_cache else None
+
         if self.use_flash_attention:
-            # PyTorch 2.0+ scaled_dot_product_attention with automatic backend selection
-            y = F.scaled_dot_product_attention(
-                q, k, v,
-                attn_mask=None,
-                dropout_p=self.dropout_p if self.training else 0.0,
-                is_causal=True,
-            )
+            if attn_mask is None and past_len == 0:
+                # Fast path: plain causal attention, backend-selected.
+                y = F.scaled_dot_product_attention(
+                    q, k, v,
+                    attn_mask=None,
+                    dropout_p=self.dropout_p if self.training else 0.0,
+                    is_causal=True,
+                )
+            else:
+                bias = self._attention_bias(
+                    B, T, past_len, attn_mask, q.dtype, q.device,
+                )
+                y = F.scaled_dot_product_attention(
+                    q, k, v,
+                    attn_mask=bias,
+                    dropout_p=self.dropout_p if self.training else 0.0,
+                    is_causal=False,
+                )
         else:
             # Manual attention path
             scale = 1.0 / math.sqrt(self.head_dim)
             att = (q @ k.transpose(-2, -1)) * scale
-            att = att.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float("-inf"))
+            if attn_mask is None and past_len == 0:
+                causal = self.causal_mask[:, :, :T, :T]
+                att = att.masked_fill(causal == 0, float("-inf"))
+            else:
+                att = att + self._attention_bias(
+                    B, T, past_len, attn_mask, att.dtype, x.device,
+                )
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v
@@ -177,7 +265,7 @@ class CausalSelfAttention(nn.Module):
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.proj(y))
 
-        return y
+        return y, present
 
 
 class FeedForward(nn.Module):
@@ -282,11 +370,12 @@ class SparseMoE(nn.Module):
         self.gate = nn.Linear(config.d_model, self.n_experts, bias=False)
         self.experts = nn.ModuleList([SwiGLU(config) for _ in range(self.n_experts)])
         self.dropout = nn.Dropout(config.dropout)
-        # Buffer for the most recently computed aux loss (load-balancing
-        # term). Trainer reads ``last_aux_loss`` after each forward and
-        # adds ``moe_aux_loss_coef * sum(last_aux_loss)`` across all MoE
-        # layers to the main objective.
-        self.register_buffer("last_aux_loss", torch.zeros(1), persistent=False)
+        # Most recently computed aux loss (load-balancing term), set on
+        # every forward. ``GhostLM.forward`` sums it across all MoE
+        # layers and adds ``moe_aux_loss_coef * sum`` to the objective.
+        # Plain attribute (not a buffer): it is a per-forward scratch
+        # value carrying autograd history, not model state.
+        self.last_aux_loss: Optional[torch.Tensor] = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Top-K routing + weighted expert sum + load-balancing loss."""
@@ -361,20 +450,33 @@ class TransformerBlock(nn.Module):
         self.ln_2 = make_norm(config, config.d_model)
         self.ffn = make_ffn(config)
 
-    def forward(self, x):
+    def forward(
+        self,
+        x: torch.Tensor,
+        attn_mask: Optional[torch.Tensor] = None,
+        past_kv: Optional[LayerKVCache] = None,
+        use_cache: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[LayerKVCache]]:
         """Forward pass through the transformer block.
 
         Args:
             x: Input tensor of shape (B, T, d_model).
+            attn_mask: Optional (B, past_len + T) padding mask.
+            past_kv: Optional cached (k, v) for this layer.
+            use_cache: If True, return the updated layer cache.
 
         Returns:
-            Output tensor of shape (B, T, d_model).
+            Tuple of (output of shape (B, T, d_model), updated cache or None).
         """
         # Pre-norm + self-attention with residual
-        x = x + self.attn(self.ln_1(x))
+        attn_out, present = self.attn(
+            self.ln_1(x), attn_mask=attn_mask,
+            past_kv=past_kv, use_cache=use_cache,
+        )
+        x = x + attn_out
         # Pre-norm + feed-forward with residual
         x = x + self.ffn(self.ln_2(x))
-        return x
+        return x, present
 
 
 class GhostLM(nn.Module):
@@ -414,10 +516,18 @@ class GhostLM(nn.Module):
         # Initialize weights
         self.apply(self._init_weights)
 
-        # Apply scaled residual initialization for deeper models
-        for pn, p in self.named_parameters():
-            if pn.endswith("proj.weight") or pn.endswith("fc2.weight"):
-                torch.nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * config.n_layers))
+        # Apply scaled residual initialization for deeper models. Only
+        # the projections that feed the residual stream get the
+        # depth-scaled std: attention output (proj), GELU FFN output
+        # (fc2), and SwiGLU output (fc3 — NOT fc2, which is the gate).
+        resid_std = 0.02 / math.sqrt(2 * config.n_layers)
+        for module in self.modules():
+            if isinstance(module, CausalSelfAttention):
+                torch.nn.init.normal_(module.proj.weight, mean=0.0, std=resid_std)
+            elif isinstance(module, FeedForward):
+                torch.nn.init.normal_(module.fc2.weight, mean=0.0, std=resid_std)
+            elif isinstance(module, SwiGLU):
+                torch.nn.init.normal_(module.fc3.weight, mean=0.0, std=resid_std)
 
     def _init_weights(self, module):
         """Initialize module weights with a normal distribution.
@@ -432,23 +542,36 @@ class GhostLM(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, attn_mask=None, past_kv=None, use_cache=False):
         """Forward pass of the model.
 
         Args:
             idx: Input token ids of shape (B, T).
             targets: Optional target token ids of shape (B, T) for loss computation.
+            attn_mask: Optional padding mask of shape (B, past_len + T);
+                1 for real tokens, 0 for padding (see
+                ``GhostTokenizer.pad_batch``). Outputs at padded positions
+                are undefined and must be ignored by the caller.
+            past_kv: Optional per-layer KV cache from a previous call made
+                with ``use_cache=True``. When provided, ``idx`` should
+                contain only the new (not yet cached) tokens.
+            use_cache: If True, additionally return the updated KV cache
+                for incremental decoding.
 
         Returns:
-            Tuple of (logits, loss). Logits have shape (B, T, vocab_size).
+            Tuple of (logits, loss), or (logits, loss, kv_cache) when
+            ``use_cache`` is True. Logits have shape (B, T, vocab_size).
             Loss is returned only if targets are provided.
 
         Raises:
-            AssertionError: If sequence length exceeds context_length.
+            AssertionError: If cached + new sequence length exceeds
+                context_length.
         """
         B, T = idx.size()
-        assert T <= self.config.context_length, (
-            f"Sequence length {T} exceeds context length {self.config.context_length}"
+        past_len = past_kv[0][0].size(2) if past_kv else 0
+        assert past_len + T <= self.config.context_length, (
+            f"Sequence length {past_len + T} exceeds context length "
+            f"{self.config.context_length}"
         )
 
         # Token + positional embeddings
@@ -456,13 +579,19 @@ class GhostLM(nn.Module):
         if self.config.use_rope:
             x = self.dropout(tok_emb)
         else:
-            pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
+            pos = torch.arange(past_len, past_len + T, dtype=torch.long, device=idx.device)
             pos_emb = self.pos_embedding(pos)
             x = self.dropout(tok_emb + pos_emb)
 
         # Transformer blocks
-        for block in self.blocks:
-            x = block(x)
+        presents: Optional[List[LayerKVCache]] = [] if use_cache else None
+        for i, block in enumerate(self.blocks):
+            layer_past = past_kv[i] if past_kv else None
+            x, present = block(
+                x, attn_mask=attn_mask, past_kv=layer_past, use_cache=use_cache,
+            )
+            if use_cache:
+                presents.append(present)
 
         # Final layer norm
         x = self.ln_f(x)
@@ -483,14 +612,24 @@ class GhostLM(nn.Module):
             if getattr(self.config, "use_moe", False):
                 aux = sum(
                     m.last_aux_loss for m in self.modules()
-                    if isinstance(m, SparseMoE)
+                    if isinstance(m, SparseMoE) and m.last_aux_loss is not None
                 )
                 loss = loss + self.config.moe_aux_loss_coef * aux
 
+        if use_cache:
+            return logits, loss, presents
         return logits, loss
 
+    @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
-        """Autoregressively generate new tokens.
+        """Autoregressively generate new tokens with KV caching.
+
+        The prompt is prefilled once; every subsequent step feeds only
+        the newly sampled token and reuses the cached keys/values, so
+        each step costs O(T) attention instead of a full O(T^2)
+        recompute. If the sequence outgrows the context window, the
+        cache is rebuilt from the cropped tail (sliding window), which
+        matches the pre-cache behaviour.
 
         Args:
             idx: Input token ids of shape (B, T) serving as the prompt.
@@ -501,12 +640,19 @@ class GhostLM(nn.Module):
         Returns:
             Tensor of shape (B, T + max_new_tokens) with generated tokens.
         """
-        for _ in range(max_new_tokens):
-            # Crop context if needed
-            idx_cond = idx[:, -self.config.context_length:]
+        ctx = self.config.context_length
+        past_kv = None
+        # First step prefills the (cropped) prompt; later steps feed one token.
+        input_ids = idx[:, -ctx:]
 
-            # Forward pass
-            logits, _ = self(idx_cond)
+        for _ in range(max_new_tokens):
+            past_len = past_kv[0][0].size(2) if past_kv else 0
+            if past_len + input_ids.size(1) > ctx:
+                # Cache full: slide the window and re-prefill.
+                past_kv = None
+                input_ids = idx[:, -ctx:]
+
+            logits, _, past_kv = self(input_ids, past_kv=past_kv, use_cache=True)
 
             # Take logits at the last position
             logits = logits[:, -1, :] / temperature
@@ -520,8 +666,9 @@ class GhostLM(nn.Module):
             probs = F.softmax(logits, dim=-1)
             idx_next = torch.multinomial(probs, num_samples=1)
 
-            # Append to sequence
+            # Append to sequence; next step only feeds the new token.
             idx = torch.cat((idx, idx_next), dim=1)
+            input_ids = idx_next
 
         return idx
 

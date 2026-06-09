@@ -151,10 +151,18 @@ def generate_until_end(
     ids = torch.tensor(prompt_ids, dtype=torch.long, device=device).unsqueeze(0)
     new_ids: list = []
     ctx = model.config.context_length
+    # KV-cached decoding: prefill the prompt once, then feed only the new
+    # token each step. On context overflow, re-prefill from the cropped
+    # tail (sliding window) — same output semantics as the uncached loop.
+    past_kv = None
+    input_ids = ids[:, -ctx:]
     with torch.no_grad():
         for _ in range(max_new_tokens):
-            cond = ids[:, -ctx:]
-            logits, _ = model(cond)
+            past_len = past_kv[0][0].size(2) if past_kv else 0
+            if past_len + input_ids.size(1) > ctx:
+                past_kv = None
+                input_ids = ids[:, -ctx:]
+            logits, _, past_kv = model(input_ids, past_kv=past_kv, use_cache=True)
             next_logits = logits[:, -1, :].squeeze(0).clone()
             window = new_ids[-repetition_window:] if repetition_window > 0 else new_ids
             tok = sample_next(
@@ -164,7 +172,8 @@ def generate_until_end(
             if tok == end_id:
                 break
             new_ids.append(tok)
-            ids = torch.cat([ids, torch.tensor([[tok]], device=device)], dim=1)
+            input_ids = torch.tensor([[tok]], device=device)
+            ids = torch.cat([ids, input_ids], dim=1)
     return new_ids
 
 
