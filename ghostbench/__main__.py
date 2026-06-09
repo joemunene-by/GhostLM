@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import List
 
 from .behavioral import BEHAVIORAL_VALIDATORS
-from .bench import Bench, EvalRecord, Prediction, Suite
+from .bench import Bench, Prediction, Suite
 from .parsers import DEFAULT_PARSERS
 from .reports import (
     render_paired_comparison,
@@ -46,7 +46,7 @@ from .reports import (
     render_suite_paired_comparison,
     render_suite_summary,
 )
-from .scoring import RunReport, score_record
+from .scoring import RunReport
 
 
 def _load_predictions(path: Path) -> List[Prediction]:

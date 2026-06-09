@@ -22,7 +22,7 @@ import torch
 from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM, SparseMoE
 from ghostlm.tokenizer import (
-    GhostTokenizer, GhostTokenizerV05, GhostTokenizerV1, load_tokenizer,
+    GhostTokenizer, GhostTokenizerV1, load_tokenizer,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

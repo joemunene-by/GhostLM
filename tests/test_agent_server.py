@@ -22,7 +22,6 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from ghostlm.agent import (  # noqa: E402
-    GhostAgent,
     MessageRole,
     RuntimeConfig,
 )

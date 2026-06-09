@@ -1,6 +1,5 @@
 """Tests for ghostbench.parsers."""
 
-import pytest
 
 from ghostbench.parsers import (
     DEFAULT_PARSERS, parse_misp, parse_provenance, parse_sigma,

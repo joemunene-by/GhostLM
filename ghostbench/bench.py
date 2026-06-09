@@ -309,5 +309,5 @@ class Suite:
         return self.benches[key]
 
     def __repr__(self) -> str:
-        return (f"Suite(benches=["
+        return ("Suite(benches=["
                 + ", ".join(b.name for b in self.benches) + "])")

@@ -3,8 +3,7 @@
 import pytest
 
 from ghostbench.projections import (
-    DEFAULT_ASYMPTOTES, DEFAULT_SATURATION_N, Projection,
-    project_bet, project_suite, render_projection_table,
+    DEFAULT_ASYMPTOTES, DEFAULT_SATURATION_N, project_bet, project_suite, render_projection_table,
 )
 
 

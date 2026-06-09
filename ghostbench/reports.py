@@ -14,9 +14,9 @@ helpers live in ``ghostbench.plot`` for callers that want PNG output.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import List, Optional
 
-from .scoring import RunReport, Score
+from .scoring import RunReport
 from .stats import wilson_ci, mcnemar_test, cohen_h, paired_diff_ci
 
 

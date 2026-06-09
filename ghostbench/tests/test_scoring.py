@@ -1,9 +1,8 @@
 """Tests for ghostbench.scoring."""
 
-import pytest
 
 from ghostbench.behavioral import BEHAVIORAL_VALIDATORS
-from ghostbench.parsers import DEFAULT_PARSERS, parse_provenance, parse_stix
+from ghostbench.parsers import DEFAULT_PARSERS
 from ghostbench.scoring import Score, get_path, score_record
 
 
