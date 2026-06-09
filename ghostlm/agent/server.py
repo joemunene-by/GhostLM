@@ -59,6 +59,7 @@ CLI:
 from __future__ import annotations
 
 import json
+import threading
 import time
 import uuid
 from datetime import datetime, timezone
@@ -76,7 +77,7 @@ try:
 except ImportError:  # pragma: no cover
     _FASTAPI_AVAILABLE = False
     BaseModel = object  # type: ignore
-    Field = lambda *a, **k: None  # type: ignore
+    Field = lambda *a, **k: None  # type: ignore  # noqa: E731 - stub for optional dep
 
 from .web_ui import INDEX_HTML
 
@@ -315,8 +316,20 @@ def create_app(
     config: Optional[RuntimeConfig] = None,
     model_name: str = "ghostlm",
     tools: Optional[Dict[str, Tool]] = None,
+    count_tokens: Optional[Callable[[str], int]] = None,
 ):
-    """Build a FastAPI app wrapping a GhostAgent loop."""
+    """Build a FastAPI app wrapping a GhostAgent loop.
+
+    Args:
+        generator: Callable mapping message history to assistant text.
+        config: Runtime knobs for the agent loop.
+        model_name: Identifier surfaced in vendor responses.
+        tools: Tool registry override (tests inject stubs here).
+        count_tokens: Optional ``text -> token count`` callable used for
+            the usage fields in vendor responses. Falls back to the
+            ~4-chars-per-token estimate when omitted (e.g. stub
+            generators in tests that have no tokenizer).
+    """
     if not _FASTAPI_AVAILABLE:
         raise RuntimeError(
             "ghostlm.agent.server requires fastapi + pydantic. "
@@ -326,6 +339,18 @@ def create_app(
     cfg = config or RuntimeConfig()
     tool_reg = tools if tools is not None else TOOLS_REGISTRY
     agent = GhostAgent(generator, cfg, tool_reg)
+    _count = count_tokens or (lambda text: max(1, len(text) // 4))
+
+    # FastAPI runs sync endpoint handlers in a threadpool, so two
+    # concurrent requests would otherwise drive the same model forward
+    # pass from two threads. Serialize generation behind one lock; tool
+    # dispatch and response shaping stay inside it because the loop
+    # interleaves them with generation.
+    gen_lock = threading.Lock()
+
+    def run_agent(query: str, local_agent: Optional[GhostAgent] = None) -> AgentTrace:
+        with gen_lock:
+            return (local_agent or agent).run(query)
 
     app = FastAPI(
         title="GhostAgent HTTP API",
@@ -399,9 +424,9 @@ def create_app(
                 stop_sequences=list(cfg.stop_sequences),
             )
             local_agent = GhostAgent(generator, local_cfg, tool_reg)
-            trace = local_agent.run(req.query)
+            trace = run_agent(req.query, local_agent)
         else:
-            trace = agent.run(req.query)
+            trace = run_agent(req.query)
         out: Dict[str, Any] = {
             "model": model_name,
             "final_answer": trace.final_answer,
@@ -426,11 +451,12 @@ def create_app(
 
         if req.stream:
             return StreamingResponse(
-                _stream_openai_chunks(query, agent, model_name),
+                _stream_openai_chunks(query, run_agent, model_name),
                 media_type="text/event-stream",
             )
-        trace = agent.run(query)
+        trace = run_agent(query)
         completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+        prompt_tokens = _count(query)
         return {
             "id": completion_id,
             "object": "chat.completion",
@@ -442,10 +468,9 @@ def create_app(
                 "finish_reason": _openai_finish_reason(trace),
             }],
             "usage": {
-                "prompt_tokens": max(1, len(query) // 4),
+                "prompt_tokens": prompt_tokens,
                 "completion_tokens": trace.total_tokens_emitted,
-                "total_tokens": (max(1, len(query) // 4)
-                                  + trace.total_tokens_emitted),
+                "total_tokens": prompt_tokens + trace.total_tokens_emitted,
             },
         }
 
@@ -459,7 +484,7 @@ def create_app(
             query = _anthropic_extract_query(req.messages)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        trace = agent.run(query)
+        trace = run_agent(query)
         return {
             "id": f"msg_{uuid.uuid4().hex[:24]}",
             "type": "message",
@@ -469,7 +494,7 @@ def create_app(
             "stop_reason": _anthropic_stop_reason(trace),
             "stop_sequence": None,
             "usage": {
-                "input_tokens": max(1, len(query) // 4),
+                "input_tokens": _count(query),
                 "output_tokens": trace.total_tokens_emitted,
             },
         }
@@ -485,7 +510,8 @@ def create_app(
             query = _gemini_extract_query(req.contents)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        trace = agent.run(query)
+        trace = run_agent(query)
+        prompt_tokens = _count(query)
         return {
             "candidates": [{
                 "content": {
@@ -496,10 +522,9 @@ def create_app(
                 "index": 0,
             }],
             "usageMetadata": {
-                "promptTokenCount": max(1, len(query) // 4),
+                "promptTokenCount": prompt_tokens,
                 "candidatesTokenCount": trace.total_tokens_emitted,
-                "totalTokenCount": (max(1, len(query) // 4)
-                                     + trace.total_tokens_emitted),
+                "totalTokenCount": prompt_tokens + trace.total_tokens_emitted,
             },
             "modelVersion": model or model_name,
         }
@@ -514,7 +539,7 @@ def create_app(
             query = _ollama_extract_query_chat(req.messages)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        trace = agent.run(query)
+        trace = run_agent(query)
         return {
             "model": req.model or model_name,
             "created_at": _now_iso(),
@@ -524,12 +549,12 @@ def create_app(
             "done_reason": _ollama_done_reason(trace),
             "total_duration": trace.total_latency_ms * 1_000_000,
             "eval_count": trace.total_tokens_emitted,
-            "prompt_eval_count": max(1, len(query) // 4),
+            "prompt_eval_count": _count(query),
         }
 
     @app.post("/api/generate")
     def ollama_generate(req: OllamaGenerateRequest = Body(...)):
-        trace = agent.run(req.prompt)
+        trace = run_agent(req.prompt)
         return {
             "model": req.model or model_name,
             "created_at": _now_iso(),
@@ -538,7 +563,7 @@ def create_app(
             "done_reason": _ollama_done_reason(trace),
             "total_duration": trace.total_latency_ms * 1_000_000,
             "eval_count": trace.total_tokens_emitted,
-            "prompt_eval_count": max(1, len(req.prompt) // 4),
+            "prompt_eval_count": _count(req.prompt),
         }
 
     return app
@@ -549,9 +574,16 @@ def create_app(
 # ---------------------------------------------------------------------------
 
 
-def _stream_openai_chunks(query: str, agent, model_name: str):
+def _stream_openai_chunks(query: str, run_agent, model_name: str):
     """Iteration-level SSE stream. Emits one delta per assistant
-    message, then a closing chunk with the final answer + DONE."""
+    message, then a closing chunk with the final answer + DONE.
+
+    Compatibility shim, not true token streaming: the agent loop runs
+    to completion first, then its assistant turns are replayed as SSE
+    chunks. Clients see a stall for the full generation time followed
+    by a burst.
+
+    ``run_agent`` is the lock-guarded runner from ``create_app``."""
     completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
     created = int(time.time())
 
@@ -567,7 +599,7 @@ def _stream_openai_chunks(query: str, agent, model_name: str):
         return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
     yield _wrap({"role": "assistant"})
-    trace = agent.run(query)
+    trace = run_agent(query)
     for hist in trace.history:
         if hist.role == MessageRole.ASSISTANT:
             yield _wrap({"content": hist.content + "\n"})
@@ -629,7 +661,13 @@ def cli_main() -> int:
         temperature=args.temperature,
         top_p=args.top_p,
     )
-    app = create_app(generator, cfg, model_name=args.model_name)
+    # Real token counts for the usage fields in vendor responses.
+    from ghostlm.tokenizer import GhostTokenizer
+    _tok = GhostTokenizer()
+    app = create_app(
+        generator, cfg, model_name=args.model_name,
+        count_tokens=lambda text: max(1, len(_tok.encode(text))),
+    )
     print(f"[ghostagent-server] {args.host}:{args.port} "
           f"model={args.model_name}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
