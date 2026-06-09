@@ -1,6 +1,6 @@
 """GhostLM configuration — all model and training hyperparameters live here."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -62,32 +62,30 @@ class GhostLMConfig:
     seed: int = 42
     use_wandb: bool = False
 
-    def model_size(self) -> str:
-        """Estimate total parameter count and return a human-readable string.
+    def num_params(self) -> int:
+        """Return the exact trainable parameter count for this config.
 
-        Computes the approximate number of trainable parameters based on
-        vocab_size, d_model, n_heads, n_layers, and d_ff.
+        Instantiates the model on the meta device (no memory is
+        allocated, no weights are initialized on real storage), so the
+        count is exact for every architecture switch — RoPE vs learned
+        positions, GELU vs SwiGLU vs MoE FFN, bias on/off, weight tying.
+        """
+        import torch  # local imports avoid a config <-> model cycle
+        from ghostlm.model import GhostLM
+
+        with torch.device("meta"):
+            model = GhostLM(self)
+        # parameters() yields tied tensors once, so the tied lm_head
+        # is not double-counted.
+        return sum(p.numel() for p in model.parameters())
+
+    def model_size(self) -> str:
+        """Return the exact parameter count as a human-readable string.
 
         Returns:
-            A string like "124M" or "1.2B" representing the estimated size.
+            A string like "124M" or "1.2B".
         """
-        embedding_params = self.vocab_size * self.d_model
-        attention_params = self.n_layers * (
-            4 * self.d_model * self.d_model + 2 * self.d_model
-        )
-        ffn_params = self.n_layers * (
-            2 * self.d_model * self.d_ff + self.d_model + self.d_ff
-        )
-        # MoE multiplies the FFN parameter count by n_experts (each
-        # expert is its own FFN pool). Inference compute is still
-        # ~n_experts_active times one expert, but the *parameter count*
-        # this method reports should reflect the full model size.
-        if getattr(self, "use_moe", False):
-            ffn_params *= getattr(self, "n_experts", 4)
-        layer_norm_params = self.n_layers * 4 * self.d_model
-        output_head_params = self.d_model * self.vocab_size
-
-        total = embedding_params + attention_params + ffn_params + layer_norm_params + output_head_params
+        total = self.num_params()
 
         if total >= 1e9:
             return f"{total / 1e9:.1f}B"
@@ -210,6 +208,13 @@ class GhostLMConfig:
             f"  d_ff:            {self.d_ff}",
             f"  dropout:         {self.dropout}",
             f"  bias:            {self.bias}",
+            f"  use_rope:        {self.use_rope}",
+            f"  use_swiglu:      {self.use_swiglu}",
+            f"  use_rmsnorm:     {self.use_rmsnorm}",
+            f"  use_flash_attn:  {self.use_flash_attention}",
+            f"  use_moe:         {self.use_moe}"
+            + (f" ({self.n_experts} experts, top-{self.n_experts_active})"
+               if self.use_moe else ""),
             "Training:",
             f"  batch_size:      {self.batch_size}",
             f"  learning_rate:   {self.learning_rate}",

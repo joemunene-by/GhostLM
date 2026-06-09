@@ -6,7 +6,7 @@ import os
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Optional, Tuple
 
 import torch
 from tqdm import tqdm
@@ -80,7 +80,22 @@ class GhostTrainer:
         else:
             self.use_amp = use_amp and self.device.startswith("cuda")
 
-        self.grad_scaler = torch.amp.GradScaler("cuda", enabled=self.use_amp)
+        # AMP dtype. bfloat16 has the same exponent range as float32, so
+        # it needs no loss scaling and is the stabler choice for
+        # pretraining on Ampere+ GPUs. Honour an explicit
+        # ``config.dtype: "float16"`` request; otherwise prefer bf16
+        # whenever the hardware supports it.
+        if self.use_amp and config.dtype != "float16" and torch.cuda.is_bf16_supported():
+            self.amp_dtype = torch.bfloat16
+        else:
+            self.amp_dtype = torch.float16
+
+        # GradScaler is only needed for float16 (bf16 doesn't overflow
+        # gradients the way fp16 does). With enabled=False it's a no-op
+        # passthrough, so the train-step code stays uniform.
+        self.grad_scaler = torch.amp.GradScaler(
+            "cuda", enabled=self.use_amp and self.amp_dtype == torch.float16,
+        )
 
         # Optimizer (built BEFORE wrapping in DDP so param groups see raw modules)
         self.optimizer = self.model.configure_optimizers(config)
@@ -94,6 +109,11 @@ class GhostTrainer:
             if torch.cuda.is_available():
                 ddp_kwargs["device_ids"] = [self.local_rank]
                 ddp_kwargs["output_device"] = self.local_rank
+            # MoE: experts that receive no tokens in a micro-batch get no
+            # gradient, which DDP treats as an error unless told to scan
+            # for unused parameters each backward.
+            if getattr(config, "use_moe", False):
+                ddp_kwargs["find_unused_parameters"] = True
             self.model = DDP(self.model, **ddp_kwargs)
 
         # Create directories
@@ -167,13 +187,19 @@ class GhostTrainer:
         total_loss = 0.0
 
         for mx, my in zip(micro_x, micro_y):
-            with torch.amp.autocast("cuda", enabled=self.use_amp):
+            with torch.amp.autocast("cuda", dtype=self.amp_dtype, enabled=self.use_amp):
                 _, loss = self.model(mx, targets=my)
                 # Scale loss by number of accumulation steps
                 scaled_loss = loss / len(micro_x)
 
             self.grad_scaler.scale(scaled_loss).backward()
             total_loss += loss.item()
+
+        # Apply this step's scheduled LR BEFORE the optimizer update.
+        # (Setting it afterwards would make every update use the previous
+        # step's LR — and the very first update would run at the full
+        # base LR instead of the warmup floor.)
+        self._set_lr()
 
         # Gradient clipping and optimizer step after accumulation
         self.grad_scaler.unscale_(self.optimizer)
@@ -183,7 +209,6 @@ class GhostTrainer:
         self.optimizer.zero_grad(set_to_none=True)
 
         self.step += 1
-        self._set_lr()
 
         return total_loss / len(micro_x)
 
@@ -209,7 +234,7 @@ class GhostTrainer:
                 x = x.to(self.device)
                 y = y.to(self.device)
 
-                with torch.amp.autocast("cuda", enabled=self.use_amp):
+                with torch.amp.autocast("cuda", dtype=self.amp_dtype, enabled=self.use_amp):
                     _, loss = self.model(x, targets=y)
                 total_loss += loss.item()
                 count += 1
@@ -279,14 +304,22 @@ class GhostTrainer:
         print(f"Loaded checkpoint from step {self.step} (val_loss={self.best_val_loss:.4f})")
 
     def _log(self, data: dict) -> None:
-        """Append a data dict to the training log and persist as JSON.
+        """Append a data dict to the training log and persist it.
+
+        Each entry is appended to ``training_log.jsonl`` as it arrives
+        (O(1) per entry), and the legacy ``training_log.json`` array is
+        rewritten so existing consumers (plot scripts) keep working.
+        Only rank 0 writes under distributed training.
 
         Args:
             data: Dictionary of metrics and metadata to log.
         """
         self.log.append(data)
-        log_path = self.log_dir / "training_log.json"
-        with open(log_path, "w") as f:
+        if not self.is_main_process:
+            return
+        with open(self.log_dir / "training_log.jsonl", "a") as f:
+            f.write(json.dumps(data) + "\n")
+        with open(self.log_dir / "training_log.json", "w") as f:
             json.dump(self.log, f, indent=2)
 
     def train(self, train_loader, val_loader) -> None:
@@ -301,20 +334,33 @@ class GhostTrainer:
             train_loader: DataLoader yielding (input_ids, target_ids) training batches.
             val_loader: DataLoader yielding (input_ids, target_ids) validation batches.
         """
-        print(f"Training on device: {self.device}")
-        print(f"Mixed precision (AMP): {'enabled' if self.use_amp else 'disabled'}")
-        print(f"Model size: {self.model.num_params():,} parameters")
-        print(f"Training from step {self.step} to {self.config.max_steps}")
+        if self.is_main_process:
+            print(f"Training on device: {self.device}")
+            amp_desc = (
+                f"enabled ({'bf16' if self.amp_dtype == torch.bfloat16 else 'fp16'})"
+                if self.use_amp else "disabled"
+            )
+            print(f"Mixed precision (AMP): {amp_desc}")
+            print(f"Model size: {self.model.num_params():,} parameters")
+            print(f"Training from step {self.step} to {self.config.max_steps}")
 
-        # Create iterator that cycles through train_loader
+        # Create iterator that cycles through train_loader. Under DDP the
+        # DistributedSampler must be told the epoch number, otherwise
+        # every pass (and every rank reseed) reuses the epoch-0 shuffle.
         def cycle(loader):
+            epoch = 0
             while True:
+                sampler = getattr(loader, "sampler", None)
+                if hasattr(sampler, "set_epoch"):
+                    sampler.set_epoch(epoch)
                 for batch in loader:
                     yield batch
+                epoch += 1
 
         train_iter = cycle(train_loader)
 
-        with tqdm(initial=self.step, total=self.config.max_steps, desc="Training") as pbar:
+        with tqdm(initial=self.step, total=self.config.max_steps, desc="Training",
+                  disable=not self.is_main_process) as pbar:
             while self.step < self.config.max_steps:
                 t0 = time.time()
 
@@ -328,10 +374,17 @@ class GhostTrainer:
                 pbar.set_postfix(loss=f"{loss:.4f}", lr=f"{lr:.2e}", dt=f"{dt:.3f}s")
                 pbar.update(1)
 
-                # Periodic evaluation
-                if self.step % self.config.eval_interval == 0:
+                # Periodic evaluation / checkpointing. When a step hits
+                # both intervals, evaluate once and reuse the result.
+                eval_due = self.step % self.config.eval_interval == 0
+                save_due = self.step % self.config.save_interval == 0
+
+                if eval_due or save_due:
                     val_loss = self.eval_step(val_loader)
-                    print(f"\n  Step {self.step} | val_loss={val_loss:.4f} | train_loss={loss:.4f}")
+
+                if eval_due:
+                    if self.is_main_process:
+                        print(f"\n  Step {self.step} | val_loss={val_loss:.4f} | train_loss={loss:.4f}")
 
                     self._log({
                         "step": self.step,
@@ -341,15 +394,15 @@ class GhostTrainer:
                         "time": dt,
                     })
 
-                # Periodic checkpoint
-                if self.step % self.config.save_interval == 0:
-                    val_loss = self.eval_step(val_loader)
+                if save_due:
                     self.save_checkpoint(val_loss)
 
         # Final evaluation and checkpoint
-        print("\nTraining complete. Running final evaluation...")
+        if self.is_main_process:
+            print("\nTraining complete. Running final evaluation...")
         val_loss = self.eval_step(val_loader)
-        print(f"Final val_loss: {val_loss:.4f}")
+        if self.is_main_process:
+            print(f"Final val_loss: {val_loss:.4f}")
         self.save_checkpoint(val_loss)
 
         self._log({
@@ -361,4 +414,5 @@ class GhostTrainer:
             "status": "complete",
         })
 
-        print(f"Training log saved to {self.log_dir / 'training_log.json'}")
+        if self.is_main_process:
+            print(f"Training log saved to {self.log_dir / 'training_log.json'}")
