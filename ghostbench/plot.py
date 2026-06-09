@@ -45,7 +45,7 @@ custom annotations or save in any format.
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Tuple
 
 from .scoring import RunReport
 from .stats import cohen_h, mcnemar_test, paired_diff_ci, wilson_ci
@@ -274,8 +274,12 @@ def plot_paired_comparison(a_report: RunReport, b_report: RunReport,
         b_r = 100 * b_pass / n
         a_low, a_high = wilson_ci(a_pass, n)
         b_low, b_high = wilson_ci(b_pass, n)
-        a_rates.append(a_r); a_lo.append(a_r - a_low); a_hi.append(a_high - a_r)
-        b_rates.append(b_r); b_lo.append(b_r - b_low); b_hi.append(b_high - b_r)
+        a_rates.append(a_r)
+        a_lo.append(a_r - a_low)
+        a_hi.append(a_high - a_r)
+        b_rates.append(b_r)
+        b_lo.append(b_r - b_low)
+        b_hi.append(b_high - b_r)
         sig_marker = "**" if p_value < 0.01 else ("*" if p_value < 0.05 else "")
         h_label = (
             "neg" if abs(h) < 0.2 else
@@ -286,14 +290,14 @@ def plot_paired_comparison(a_report: RunReport, b_report: RunReport,
         annotations.append((sig_marker, h_label, p_value))
 
     x = list(range(len(tiers)))
-    bars_a = ax.bar(
+    ax.bar(
         [xi - width / 2 for xi in x], a_rates, width,
         yerr=[a_lo, a_hi],
         label=a_report.run_name, color=_PALETTE["a"],
         edgecolor=_PALETTE["sig"], capsize=3,
         error_kw={"ecolor": _PALETTE["sig"], "elinewidth": 1.0},
     )
-    bars_b = ax.bar(
+    ax.bar(
         [xi + width / 2 for xi in x], b_rates, width,
         yerr=[b_lo, b_hi],
         label=b_report.run_name, color=_PALETTE["b"],

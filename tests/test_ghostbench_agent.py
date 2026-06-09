@@ -17,14 +17,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 os.environ["GHOST_AGENT_OFFLINE"] = "1"
 
-from ghostbench.bench import Bench, EvalRecord, Prediction  # noqa: E402
+from ghostbench.bench import Bench, Prediction  # noqa: E402
 from ghostbench.parsers import DEFAULT_PARSERS  # noqa: E402
 from ghostlm.agent import (  # noqa: E402
     AgentMessage,

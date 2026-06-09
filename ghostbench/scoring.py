@@ -49,10 +49,8 @@ turn these primitives into the operator-facing eval API.
 
 from __future__ import annotations
 
-import json
-from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------

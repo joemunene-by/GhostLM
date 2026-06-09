@@ -148,8 +148,8 @@ def test_end_to_end_via_subprocess(tmp_path):
         capture_output=True, text=True, timeout=30,
     )
     assert result.returncode == 0, result.stderr
-    train = [json.loads(l) for l in out_train.read_text().splitlines() if l]
-    val = [json.loads(l) for l in out_val.read_text().splitlines() if l]
+    train = [json.loads(line) for line in out_train.read_text().splitlines() if line]
+    val = [json.loads(line) for line in out_val.read_text().splitlines() if line]
     # 1 base + 3 synth = 4 total split into train+val.
     assert len(train) + len(val) == 4
     # Base small_talk record should appear in train.

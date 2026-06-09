@@ -1,6 +1,5 @@
 """GhostLM unit tests — validates model architecture, tokenizer, and config."""
 
-import pytest
 import torch
 
 from ghostlm.config import GhostLMConfig

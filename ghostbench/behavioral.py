@@ -49,7 +49,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, Optional
+from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +262,7 @@ def behavioral_sigma(blob: str) -> Optional[bool]:
     blob = _strip_code_fence(blob)
 
     try:
-        import sigma  # type: ignore[import-not-found]
+        import sigma  # type: ignore[import-not-found]  # noqa: F401 - availability probe
         from sigma.collection import SigmaCollection  # type: ignore[import-not-found]
         try:
             SigmaCollection.from_yaml(blob)

@@ -4,7 +4,6 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -20,12 +19,9 @@ from ghostlm.agent import (
     RuntimeConfig,
     TOOLS_REGISTRY,
     Tool,
-    ToolResult,
     parse_agent_output,
-    parse_cite_tags,
-    parse_tool_calls,
 )
-from ghostlm.agent.parser import normalise_tags, strip_tool_call_blocks
+from ghostlm.agent.parser import strip_tool_call_blocks
 from ghostlm.agent.runner import make_generator_from_loaded
 from ghostlm.agent.tools import dispatch
 
