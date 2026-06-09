@@ -7,34 +7,55 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Ruff lint
+        run: ruff check ghostlm/ ghostbench/ tests/
+
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest supported and newest released — pyproject declares >=3.10.
+        python-version: ["3.10", "3.13"]
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Cache pip dependencies
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
-            ${{ runner.os }}-pip-
+            ${{ runner.os }}-pip-${{ matrix.python-version }}-
 
       - name: Install CPU-only PyTorch
         run: pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Install dependencies
-        run: pip install numpy tiktoken tqdm pytest requests datasets transformers tokenizers wandb
-
-      - name: Install package in editable mode
-        run: pip install -e .
+      # Dependencies come from pyproject.toml so CI can't drift from the
+      # package metadata.
+      - name: Install package with extras
+        run: pip install -e ".[train,data,dev,serve]"
 
       - name: Run tests
-        run: pytest tests/ -v --tb=short
+        run: pytest tests/ ghostbench/tests/ -v --tb=short
