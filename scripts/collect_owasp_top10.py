@@ -14,16 +14,17 @@ We fetch each markdown file individually via raw.githubusercontent.com
 because git-clone of the full repo has been unreliable on flaky
 networks. Exposes ``--year`` to allow ingesting other Top-10 cycles
 (2017, 2017, etc.) by changing the path.
+
+Reference usage of ``collect_common`` (fetch + JsonlWriter); new
+collectors should follow this shape.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import re
-import time
-import urllib.request
-from pathlib import Path
+
+from collect_common import JsonlWriter, http_get_json, http_get_text
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,24 +47,12 @@ def list_markdown_urls(year: str, lang: str) -> list[tuple[str, str]]:
     """Return [(filename, raw_url), ...] for the year/lang docs folder."""
     api = (f"https://api.github.com/repos/OWASP/Top10/"
            f"contents/{year}/docs/{lang}")
-    req = urllib.request.Request(
-        api, headers={"User-Agent": "GhostLM-Top10/0.6",
-                      "Accept": "application/vnd.github+json"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        items = json.loads(resp.read().decode("utf-8"))
+    items = http_get_json(api, headers={"Accept": "application/vnd.github+json"})
     out = []
     for item in items:
         if item.get("name", "").endswith(".md") and item.get("download_url"):
             out.append((item["name"], item["download_url"]))
     return out
-
-
-def fetch_markdown(url: str) -> str:
-    """Fetch one markdown file as text."""
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "GhostLM-Top10/0.6"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read().decode("utf-8", errors="ignore")
 
 
 def extract_title_and_body(md: str, fallback: str) -> tuple[str, str]:
@@ -81,59 +70,27 @@ def extract_title_and_body(md: str, fallback: str) -> tuple[str, str]:
 def main() -> None:
     """Fetch all year/lang markdowns, emit JSONL."""
     args = parse_args()
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"  listing OWASP Top 10 {args.year}/{args.lang} markdowns...")
     files = list_markdown_urls(args.year, args.lang)
     print(f"  found {len(files)} markdown files")
 
-    out_fh = out_path.open("w", encoding="utf-8")
-    written = 0
-    skipped_short = 0
-    truncated = 0
-    failed = 0
+    with JsonlWriter(args.out, source="owasp_top10",
+                     min_chars=args.min_chars, max_chars=args.max_chars,
+                     request_delay=args.request_delay) as out:
+        for fname, url in files:
+            try:
+                raw = http_get_text(url)
+            except Exception as e:
+                out.count_failure(f"{fname}: fetch error {e}")
+                continue
 
-    for fname, url in files:
-        try:
-            raw = fetch_markdown(url)
-        except Exception as e:
-            print(f"  {fname}: fetch error {e}")
-            failed += 1
-            time.sleep(args.request_delay)
-            continue
+            fallback = fname.replace(".md", "").replace("_", " ").replace("-", " ")
+            title, body = extract_title_and_body(raw, fallback)
+            text = f"{title}\n\n{body}".strip()
 
-        fallback = fname.replace(".md", "").replace("_", " ").replace("-", " ")
-        title, body = extract_title_and_body(raw, fallback)
-        text = f"{title}\n\n{body}".strip()
-
-        if len(text) < args.min_chars:
-            skipped_short += 1
-            time.sleep(args.request_delay)
-            continue
-        if len(text) > args.max_chars:
-            text = text[:args.max_chars].rsplit("\n\n", 1)[0]
-            truncated += 1
-
-        rec_id = f"OWASP-Top10-{args.year}-{fname.replace('.md', '')}"
-        rec = {
-            "id": rec_id,
-            "source": "owasp_top10",
-            "text": text,
-            "title": title,
-        }
-        out_fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        written += 1
-        time.sleep(args.request_delay)
-
-    out_fh.close()
-    print(f"Wrote {written} OWASP Top 10 records to {out_path}")
-    if skipped_short:
-        print(f"  Skipped {skipped_short} too-short")
-    if truncated:
-        print(f"  Truncated {truncated} long docs to {args.max_chars} chars")
-    if failed:
-        print(f"  Failed {failed}")
+            rec_id = f"OWASP-Top10-{args.year}-{fname.replace('.md', '')}"
+            out.write(rec_id=rec_id, text=text, title=title)
 
 
 if __name__ == "__main__":
