@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg" alt="PyTorch">
-  <img src="https://img.shields.io/badge/version-0.9.33-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.9.34-blue.svg" alt="Version">
 </p>
 
 # GhostLM
@@ -16,7 +16,7 @@
 
 > **Sister project**: [`ghostloop`](https://github.com/joemunene-by/ghostloop) is the embodied-AI sibling — same `GhostAgent`-shaped tool-using runtime + fail-closed safety pipeline + GhostBench-shaped paired-comparison eval, applied to **robot motion primitives** instead of CVE / MITRE / CWE lookups. Shipped v0.3.0 on 2026-05-10 with PyBullet + MuJoCo backends, MuJoCo Menagerie loader, episode catalogue, trace replay, five policy gates (DenyList / RateLimit / Geofence / ForceCap / HITL), and a `python -m ghostloop` CLI. The thesis: as VLA models become the policy substrate, the runtime around them needs the same rigor we already apply to LLM tool use.
 
-> **Status (v0.9.33 — 2026-06-09):** training/inference stack hardened ahead of the ghost-base GPU run — KV-cached generation, memory-mapped pretokenized corpus, real DDP data sharding, LR-schedule and SwiGLU-init fixes. The v1.0 pretrain corpus stands at 768,741 train / 40,429 val records (~422M tokens), code share 11.6%, cybersec sources ~65% of text. The GhostAgent tool-using runtime, multi-vendor HTTP server (OpenAI / Anthropic / Gemini / Ollama wire formats), MCP integration, and the GhostBench statistical eval suite are all shipped. **ghost-base (~360M params) is the v1.0 training target, gated on rented GPU compute.** Dated, per-version detail lives in [CHANGELOG.md](CHANGELOG.md).
+> **Status (v0.9.34 — 2026-06-10):** training/inference stack hardened ahead of the ghost-base GPU run — KV-cached generation (5.4× faster decoding), memory-mapped pretokenized corpus, real DDP data sharding, LR-schedule and SwiGLU-init fixes, plus live wandb metrics, `--compile`, and `--grad-checkpoint` flags, all dress-rehearsed end-to-end on Mac. The v1.0 pretrain corpus stands at 768,741 train / 40,429 val records (~422M tokens), code share 11.6%, cybersec sources ~65% of text. The GhostAgent tool-using runtime, multi-vendor HTTP server (OpenAI / Anthropic / Gemini / Ollama wire formats), MCP integration, and the GhostBench statistical eval suite are all shipped. **ghost-base (~360M params) is the v1.0 training target, gated on rented GPU compute.** Dated, per-version detail lives in [CHANGELOG.md](CHANGELOG.md).
 
 GhostLM is a decoder-only transformer language model. Pretrained from scratch on CVE descriptions, CTF writeups, MITRE/CWE/OWASP/RFC reference material, NIST SP 800 publications, security research blogs, security tool source code, FineWeb-Edu educational web text, and open-web-math reasoning. No pretrained weights, no wrappers, every component written by hand.
 
@@ -115,6 +115,9 @@ make train-small
 
 # Multi-GPU (DDP): data is sharded per rank via DistributedSampler
 torchrun --nproc_per_node=4 scripts/train.py --preset ghost-small ...
+
+# GPU-run extras: live wandb metrics, torch.compile, gradient checkpointing
+python scripts/train_ghost_base.py --wandb --compile --grad-checkpoint ...
 ```
 
 ### Generate Text
