@@ -22,7 +22,8 @@ def parse_args():
     parser.add_argument(
         "--preset",
         type=str,
-        choices=["ghost-tiny", "ghost-small", "ghost-medium"],
+        choices=["ghost-tiny", "ghost-small", "ghost-medium",
+                 "ghost-small-v0.5", "ghost-1b", "ghost-3b"],
         default="ghost-small",
         help="Model preset configuration (default: ghost-small)",
     )
