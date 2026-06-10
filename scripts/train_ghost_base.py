@@ -81,6 +81,16 @@ def parse_args() -> argparse.Namespace:
                    help="Mixed-precision dtype (bf16 for H100, fp32 for MPS smoke)")
     p.add_argument("--resume", default=None,
                    help="Path to a checkpoint .pt to resume from")
+    p.add_argument("--wandb", action="store_true",
+                   help="Enable Weights & Biases live metrics (rank-0 only).")
+    p.add_argument("--wandb-project", default=None,
+                   help="wandb project name (default: ghostlm).")
+    p.add_argument("--compile", action="store_true",
+                   help="torch.compile the model (CUDA: ~1.3-1.8x faster "
+                        "steps after a first-step compilation stall).")
+    p.add_argument("--grad-checkpoint", action="store_true",
+                   help="Gradient checkpointing: large activation-memory "
+                        "cut for ~25-30%% extra step time.")
     return p.parse_args()
 
 
@@ -112,6 +122,11 @@ def main() -> None:
     config.log_dir = f"logs/{args.run_name}"
     config.device = args.device
     config.dtype = args.dtype
+    config.use_wandb = args.wandb
+    if args.wandb_project:
+        config.wandb_project = args.wandb_project
+    config.use_compile = args.compile
+    config.gradient_checkpointing = args.grad_checkpoint
     print(config)
 
     model = GhostLM(config)

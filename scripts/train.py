@@ -81,9 +81,32 @@ def parse_args():
         help="Override context length (default: preset value, use 128 for low-RAM CPU training)",
     )
     parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="Enable Weights & Biases live metrics (rank-0 only).",
+    )
+    parser.add_argument(
+        "--wandb-project",
+        type=str,
+        default=None,
+        help="wandb project name (default: ghostlm).",
+    )
+    parser.add_argument(
         "--no-wandb",
         action="store_true",
         help="Disable wandb logging",
+    )
+    parser.add_argument(
+        "--compile",
+        action="store_true",
+        help="torch.compile the model (CUDA: typically 1.3-1.8x faster steps "
+        "after a first-step compilation stall).",
+    )
+    parser.add_argument(
+        "--grad-checkpoint",
+        action="store_true",
+        help="Gradient checkpointing: recompute block activations in backward. "
+        "Large activation-memory cut for ~25-30%% extra step time.",
     )
     parser.add_argument(
         "--run-name",
@@ -161,8 +184,16 @@ def main():
     config.grad_accum_steps = args.grad_accum
     if args.device != "auto":
         config.device = args.device
+    if args.wandb:
+        config.use_wandb = True
     if args.no_wandb:
         config.use_wandb = False
+    if args.wandb_project:
+        config.wandb_project = args.wandb_project
+    if args.compile:
+        config.use_compile = True
+    if args.grad_checkpoint:
+        config.gradient_checkpointing = True
 
     if args.context_length is not None:
         config.context_length = args.context_length

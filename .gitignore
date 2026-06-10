@@ -69,3 +69,6 @@ logs/
 .ipynb_checkpoints/
 checkpoints/
 !checkpoints/.gitkeep
+
+# Weights & Biases local run data
+wandb/
