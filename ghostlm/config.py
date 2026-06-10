@@ -61,6 +61,14 @@ class GhostLMConfig:
     dtype: str = "float32"
     seed: int = 42
     use_wandb: bool = False
+    wandb_project: str = "ghostlm"
+    # torch.compile the model before training. Typically a 1.3-1.8x
+    # throughput win on CUDA; first step pays a compilation stall.
+    use_compile: bool = False
+    # Recompute block activations in backward instead of storing them.
+    # Trades ~25-30% step time for a large activation-memory cut —
+    # what makes ghost-1b/3b shapes fit on a single card.
+    gradient_checkpointing: bool = False
 
     def num_params(self) -> int:
         """Return the exact trainable parameter count for this config.
@@ -235,6 +243,8 @@ class GhostLMConfig:
             f"  dtype:           {self.dtype}",
             f"  seed:            {self.seed}",
             f"  use_wandb:       {self.use_wandb}",
+            f"  use_compile:     {self.use_compile}",
+            f"  grad_checkpoint: {self.gradient_checkpointing}",
             "=" * 40,
             f"Estimated size: {self.model_size()}",
         ]

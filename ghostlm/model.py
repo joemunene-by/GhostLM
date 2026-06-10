@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.utils.checkpoint
 
 from ghostlm.config import GhostLMConfig
 
@@ -583,13 +584,28 @@ class GhostLM(nn.Module):
             pos_emb = self.pos_embedding(pos)
             x = self.dropout(tok_emb + pos_emb)
 
-        # Transformer blocks
+        # Transformer blocks. Gradient checkpointing recomputes each
+        # block's activations during backward instead of storing them —
+        # a large activation-memory cut for ~25-30% extra step time.
+        # Only sensible while training (and pointless with a KV cache).
+        use_ckpt = (
+            getattr(self.config, "gradient_checkpointing", False)
+            and self.training
+            and torch.is_grad_enabled()
+            and not use_cache
+        )
         presents: Optional[List[LayerKVCache]] = [] if use_cache else None
         for i, block in enumerate(self.blocks):
             layer_past = past_kv[i] if past_kv else None
-            x, present = block(
-                x, attn_mask=attn_mask, past_kv=layer_past, use_cache=use_cache,
-            )
+            if use_ckpt:
+                x, present = torch.utils.checkpoint.checkpoint(
+                    block, x, attn_mask, layer_past, use_cache,
+                    use_reentrant=False,
+                )
+            else:
+                x, present = block(
+                    x, attn_mask=attn_mask, past_kv=layer_past, use_cache=use_cache,
+                )
             if use_cache:
                 presents.append(present)
 

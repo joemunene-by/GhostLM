@@ -100,6 +100,13 @@ class GhostTrainer:
         # Optimizer (built BEFORE wrapping in DDP so param groups see raw modules)
         self.optimizer = self.model.configure_optimizers(config)
 
+        # torch.compile — after optimizer creation (param groups bind the
+        # raw modules), before the DDP wrap (nanoGPT-style order). The
+        # first forward pays a compilation stall; steady-state steps are
+        # typically 1.3-1.8x faster on CUDA.
+        if getattr(config, "use_compile", False):
+            self.model = torch.compile(self.model)
+
         # DDP wrap. Each rank now sees a self.model that does the all-reduce
         # transparently in backward(). Other code paths that touch
         # self.model.* still work because DDP forwards attribute access.
@@ -128,6 +135,37 @@ class GhostTrainer:
         self.accum_steps = getattr(config, 'grad_accum_steps', 4)
         self.best_val_loss = float("inf")
         self.log: list = []
+
+        # Weights & Biases — live metrics for long (paid) runs. Rank-0
+        # only; degrades to a warning if wandb isn't installed or can't
+        # reach the network, so offline runs never crash on telemetry.
+        self.wandb_run = None
+        if getattr(config, "use_wandb", False) and self.is_main_process:
+            try:
+                import wandb
+                run_name = self.log_dir.name if self.log_dir.name != "logs" else None
+                self.wandb_run = wandb.init(
+                    project=getattr(config, "wandb_project", "ghostlm"),
+                    name=run_name,
+                    config=asdict(config),
+                    resume="allow",
+                )
+            except Exception as e:  # noqa: BLE001 - telemetry must not kill training
+                print(f"[warn] wandb logging disabled: {type(e).__name__}: {e}")
+                self.wandb_run = None
+
+    def _unwrap_model(self) -> GhostLM:
+        """Peel DDP and torch.compile wrappers off self.model.
+
+        Checkpoints must store plain GhostLM state dicts (no 'module.'
+        or '_orig_mod.' key prefixes) so they load anywhere.
+        """
+        model = self.model
+        if hasattr(model, "module"):  # DistributedDataParallel
+            model = model.module
+        if hasattr(model, "_orig_mod"):  # torch.compile OptimizedModule
+            model = model._orig_mod
+        return model
 
     def get_lr(self) -> float:
         """Compute the current learning rate using cosine decay with linear warmup.
@@ -258,8 +296,8 @@ class GhostTrainer:
         if getattr(self, "is_distributed", False) and not self.is_main_process:
             return
 
-        # Unwrap DDP to keep checkpoints loadable on a single GPU
-        raw_model = self.model.module if hasattr(self.model, "module") else self.model
+        # Unwrap DDP / torch.compile to keep checkpoints loadable anywhere
+        raw_model = self._unwrap_model()
 
         checkpoint = {
             "step": self.step,
@@ -292,8 +330,8 @@ class GhostTrainer:
         """
         checkpoint = torch.load(path, map_location=self.device, weights_only=False)
 
-        # Load into the raw model (works for DDP-wrapped or single-GPU)
-        raw_model = self.model.module if hasattr(self.model, "module") else self.model
+        # Load into the raw model (works under DDP / torch.compile wraps)
+        raw_model = self._unwrap_model()
         raw_model.load_state_dict(checkpoint["model_state_dict"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         if "grad_scaler_state_dict" in checkpoint:
@@ -321,6 +359,10 @@ class GhostTrainer:
             f.write(json.dumps(data) + "\n")
         with open(self.log_dir / "training_log.json", "w") as f:
             json.dump(self.log, f, indent=2)
+        if self.wandb_run is not None:
+            metrics = {f"eval/{k}": v for k, v in data.items()
+                       if isinstance(v, (int, float)) and k != "step"}
+            self.wandb_run.log(metrics, step=data.get("step", self.step))
 
     def train(self, train_loader, val_loader) -> None:
         """Run the main training loop.
@@ -341,7 +383,7 @@ class GhostTrainer:
                 if self.use_amp else "disabled"
             )
             print(f"Mixed precision (AMP): {amp_desc}")
-            print(f"Model size: {self.model.num_params():,} parameters")
+            print(f"Model size: {self._unwrap_model().num_params():,} parameters")
             print(f"Training from step {self.step} to {self.config.max_steps}")
 
         # Create iterator that cycles through train_loader. Under DDP the
@@ -373,6 +415,15 @@ class GhostTrainer:
 
                 pbar.set_postfix(loss=f"{loss:.4f}", lr=f"{lr:.2e}", dt=f"{dt:.3f}s")
                 pbar.update(1)
+
+                # Per-step stream so a stall or divergence is visible
+                # live, not at the next eval interval.
+                if self.wandb_run is not None:
+                    self.wandb_run.log(
+                        {"train/loss": loss, "train/lr": lr,
+                         "train/step_time_s": dt},
+                        step=self.step,
+                    )
 
                 # Periodic evaluation / checkpointing. When a step hits
                 # both intervals, evaluate once and reuse the result.
@@ -413,6 +464,9 @@ class GhostTrainer:
             "time": dt,
             "status": "complete",
         })
+
+        if self.wandb_run is not None:
+            self.wandb_run.finish()
 
         if self.is_main_process:
             print(f"Training log saved to {self.log_dir / 'training_log.json'}")
