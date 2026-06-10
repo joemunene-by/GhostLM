@@ -1360,6 +1360,71 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.34] — 2026-06-10 — GPU-run prep: wandb wiring, torch.compile, gradient checkpointing, DDP dress rehearsal
+
+The three items flagged as blocking for the ghost-base GPU spend, plus
+an end-to-end dress rehearsal of the new training path on Mac.
+
+### Added
+
+- **Weights & Biases is actually wired now.** `config.use_wandb`
+  existed (with a `--no-wandb` CLI flag and a wandb dependency) but
+  the trainer never imported or called wandb — a paid multi-day run
+  would have had no live metrics. `GhostTrainer` now streams per-step
+  `train/loss`, `train/lr`, `train/step_time_s` and per-eval
+  `eval/val_loss` etc., rank-0 only, with `wandb.init` config capture
+  and `finish()` on completion. Degrades to a warning (training
+  continues) if wandb is missing or unreachable. New `--wandb` /
+  `--wandb-project` flags on `scripts/train.py` and
+  `scripts/train_ghost_base.py`; `wandb_project` config field.
+  Verified end-to-end with `WANDB_MODE=offline`.
+- **`--compile` (torch.compile)**: wraps the model after optimizer
+  creation and before the DDP wrap (nanoGPT order). Typically a
+  1.3-1.8x step-time win on CUDA. Checkpoint save/load unwraps the
+  `OptimizedModule` so state dicts stay prefix-free and loadable
+  anywhere (`GhostTrainer._unwrap_model` peels DDP + compile).
+- **`--grad-checkpoint` (gradient checkpointing)**: recomputes block
+  activations in backward (`use_reentrant=False`) for a large
+  activation-memory cut at ~25-30% step-time cost — what makes the
+  ghost-1b/3b shapes fit per card. Only active in training mode;
+  KV-cached inference is untouched. Loss and gradients verified
+  identical with/without.
+
+### Fixed
+
+- **DDP crashed at startup**: `train()` called `self.model.num_params()`,
+  which `DistributedDataParallel` does not forward — any torchrun
+  launch died before step 0 (found by the dress rehearsal, fixed via
+  `_unwrap_model()`).
+
+### Dress rehearsal (Mac, ghost-tiny)
+
+- rebuild_corpus -> pretokenize -> `.bin` smoke train: pretokenizer
+  ran at ~4.6M tokens/s (the full 422M-token corpus is a ~90s one-time
+  job); warmup LR observably starts at the floor; checkpoints + both
+  log formats written.
+- 2-process `torchrun` (gloo, CPU) with `--grad-checkpoint`: trains,
+  rank-0-only output, one checkpoint writer, and `DistributedSampler`
+  shards verified disjoint across ranks (0 overlap in 2,000 sampled
+  indices per rank).
+- KV-cache benchmark, ghost-small-v0.5 (45M) on CPU, 64-token prompt
+  + 200 new tokens: **41.3 -> 223.4 tok/s (5.4x)** vs the uncached
+  loop.
+- Note: the local `data/raw` currently rebuilds to only 38,588 train
+  records (~31M tokens) — the v0.9.32 768K-record corpus's big
+  sources (primus_fineweb, fineweb_edu, code_corpus) are not on this
+  disk and need re-pulling (or restoring) before the real run.
+
+### Tests
+
+- 5 new tests (`tests/test_gpu_run_prep.py`): wandb init/log/finish
+  via a stub module, graceful degradation when wandb is broken,
+  compile wrap + prefix-free checkpoints, gradient-checkpointing
+  loss/grad parity, and checkpointing × KV-cache non-interference.
+  440 tests green.
+
+---
+
 ## [0.9.33] — 2026-06-09 — full-codebase review: KV cache, memmap corpus, DDP sharding, LR/init fixes
 
 A top-to-bottom review of the training and inference stack ahead of
