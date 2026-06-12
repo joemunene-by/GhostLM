@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg" alt="PyTorch">
-  <img src="https://img.shields.io/badge/version-0.9.34-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.9.35-blue.svg" alt="Version">
 </p>
 
 # GhostLM

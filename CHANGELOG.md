@@ -1360,6 +1360,42 @@ ghost-base v1.0 GPU run. Currently empty.
 
 ---
 
+## [0.9.35] — 2026-06-12 — attention modernization: GQA, QK-norm, rope_base fix
+
+Two opt-in attention upgrades plus one real bug fix, all flag-gated
+and default-off so every existing checkpoint and preset loads
+byte-identically.
+
+### Added
+
+- **Grouped-query attention.** New `n_kv_heads` config field
+  (default `None` = plain MHA). Setting it below `n_heads` projects
+  K/V at the reduced head count and shares each KV head across
+  `n_heads / n_kv_heads` query heads, Llama-3 / Qwen / Gemma style.
+  The KV cache stores the compact `n_kv_heads` tensors — that is the
+  memory win — and expansion to the full query head count happens
+  per attention call via `_repeat_kv`. Covered by the full
+  cached-vs-full-forward parity matrix in `test_kv_cache.py` (two new
+  variants: `gqa` with 2-of-4 KV heads, `gqa_flash` with MQA-style
+  1-of-4 under SDPA).
+- **QK-norm.** New `use_qk_norm` flag: per-head RMSNorm on queries
+  and keys before RoPE (Qwen3 / Gemma-3 / OLMo-2 style). Cheap
+  insurance against attention-logit blowups on long bf16 pretrains —
+  relevant for the upcoming ghost-base run. The norm weights land in
+  the optimizer's no-decay group automatically via the existing
+  RMSNorm blacklist.
+
+### Fixed
+
+- **`rope_base` was dead config.** `GhostLMConfig.rope_base` existed
+  since the v0.5 wiring but was never passed to `RotaryEmbedding`,
+  which silently used its own 10000.0 default. Harmless today (every
+  preset uses 10000) but it would have made any future long-context
+  base sweep a no-op. Now plumbed through, with a regression test
+  asserting the frequency table actually changes.
+
+---
+
 ## [0.9.34] — 2026-06-10 — GPU-run prep: wandb wiring, torch.compile, gradient checkpointing, DDP dress rehearsal
 
 The three items flagged as blocking for the ghost-base GPU spend, plus
