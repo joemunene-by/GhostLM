@@ -1358,6 +1358,13 @@ The Unreleased section below tracks both.
 The next release will land whatever follow-ups arrive before the
 ghost-base v1.0 GPU run.
 
+- **GPU-run runbook.** `docs/ghost_base_gpu_runbook.md` is the
+  start-to-finish script for the rented-box run: provision, corpus
+  rebuild on the box (the Mac no longer holds the seven big raw
+  sources and is tight on disk), pretokenize, smoke, the real 30k-step
+  run, acceptance evals, artifact retrieval, teardown. Budget works
+  out to roughly $20-40 on one H100. Phase 0 items (NVD API key,
+  wandb key) are free and should happen before booking anything.
 - **ghost-base launcher adopts the v0.9.35 attention upgrades.**
   `scripts/train_ghost_base.py` now sets `n_kv_heads=5` (the same
   15q/5kv GQA split SmolLM2-360M uses), `use_qk_norm=True`, and —
