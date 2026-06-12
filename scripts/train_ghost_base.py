@@ -13,13 +13,21 @@ Architecture (ghost-base, matches SmolLM2-360M):
   layers   30   (5x v0.7's 6; deeper helps factual binding)
   d_model  960  (1.25x v0.7's 768; head_dim 64 with 15 heads)
   n_heads  15   (head_dim 64, head budget 64 unchanged)
-  d_ff     3200 (~3.33x d_model; SwiGLU full width, sized to hit
-                  exactly ~360M params matching SmolLM2-360M)
+  kv_heads 5    (grouped-query attention, 3 query heads per KV head —
+                  the same 15q/5kv split SmolLM2-360M uses; 3x smaller
+                  KV cache at inference)
+  d_ff     3936 (SwiGLU hidden 2624; widened from 3200 to give the
+                  ~37M params GQA saves back to the FFN, keeping the
+                  total at ~349M — the capacity rung is the experiment)
   vocab    50,264  (GPT-2 50K BPE + 7 special tokens, unchanged)
   context  1024 train, 2048 inference (RoPE base 10000)
-  norm     RMSNorm (unchanged)
+  norm     RMSNorm (unchanged) + QK-norm on per-head queries/keys
+                  (bf16 attention-logit stability insurance)
   ffn      SwiGLU (unchanged)
   pos      RoPE (unchanged)
+  attn     SDPA/flash path enabled (the v0.5 preset left
+                  use_flash_attention off; without this the H100 run
+                  would have used the manual materialized-matrix path)
 
 Estimated params: ~360M (matches SmolLM2-360M, the literature
 reference where factual recall on cybersec MCQ has been reported
@@ -60,7 +68,7 @@ from ghostlm.trainer import GhostTrainer
 
 def parse_args() -> argparse.Namespace:
     """CLI args."""
-    p = argparse.ArgumentParser(description="GhostLM ghost-base pretrain (12L x 768d, ~360M)")
+    p = argparse.ArgumentParser(description="GhostLM ghost-base pretrain (30L x 960d, GQA 15q/5kv, ~349M)")
     p.add_argument("--train-data", default="data/processed/train.jsonl")
     p.add_argument("--val-data", default="data/processed/val.jsonl")
     p.add_argument("--run-name", default="ghost_base_pretrain")
@@ -108,7 +116,10 @@ def main() -> None:
     config.n_layers = 30
     config.d_model = 960
     config.n_heads = 15
-    config.d_ff = 3200
+    config.n_kv_heads = 5
+    config.d_ff = 3936
+    config.use_qk_norm = True
+    config.use_flash_attention = True
     config.vocab_size = tokenizer.vocab_size
     config.context_length = args.context_length
     config.batch_size = args.batch_size
@@ -134,7 +145,7 @@ def main() -> None:
     print(f"Model parameters: {n_params:,} ({n_params / 1e6:.1f}M)")
     if n_params < 300_000_000 or n_params > 420_000_000:
         print(f"WARNING: param count {n_params / 1e6:.0f}M outside expected "
-              f"~300-420M range for ghost-base (12L x 768d x 12h). Check overrides.")
+              f"~300-420M range for ghost-base (30L x 960d, GQA 15q/5kv). Check overrides.")
 
     train_loader, val_loader = build_dataloaders(
         args.train_data, args.val_data, tokenizer, config,

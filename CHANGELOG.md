@@ -1356,7 +1356,19 @@ The Unreleased section below tracks both.
 ## [Unreleased]
 
 The next release will land whatever follow-ups arrive before the
-ghost-base v1.0 GPU run. Currently empty.
+ghost-base v1.0 GPU run.
+
+- **ghost-base launcher adopts the v0.9.35 attention upgrades.**
+  `scripts/train_ghost_base.py` now sets `n_kv_heads=5` (the same
+  15q/5kv GQA split SmolLM2-360M uses), `use_qk_norm=True`, and —
+  critically — `use_flash_attention=True`: the v0.5 preset it builds
+  on left flash off, so the H100 run would have silently trained on
+  the manual materialized-attention path. `d_ff` is widened 3200 →
+  3936 to give the ~37M params GQA saves back to the FFN, keeping the
+  total at ~349M (vs 347M before) since the capacity rung is the
+  whole point of the experiment. Smoke-tested at the full shape:
+  forward/backward, cached-vs-full-forward parity (max diff 7e-6),
+  compact 5-head KV cache, optimizer param grouping.
 
 ---
 
