@@ -11,8 +11,9 @@ import torch.utils.checkpoint
 from ghostlm.config import GhostLMConfig
 
 # One transformer layer's cached keys and values, each of shape
-# (B, n_heads, T_past, head_dim). A full-model cache is a list with one
-# entry per block, in block order.
+# (B, n_kv_heads, T_past, head_dim) — n_kv_heads == n_heads unless
+# grouped-query attention is configured. A full-model cache is a list
+# with one entry per block, in block order.
 LayerKVCache = Tuple[torch.Tensor, torch.Tensor]
 
 
@@ -47,6 +48,19 @@ class RotaryEmbedding(nn.Module):
             self.cos_cached[offset : offset + seq_len],
             self.sin_cached[offset : offset + seq_len],
         )
+
+
+def _repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """Expand grouped KV heads to match the query head count.
+
+    (B, n_kv_heads, T, head_dim) -> (B, n_kv_heads * n_rep, T, head_dim),
+    a no-op when n_rep == 1. The KV cache stays at n_kv_heads (that is
+    the memory win of GQA); the expansion only exists inside the
+    attention computation.
+    """
+    if n_rep == 1:
+        return x
+    return x.repeat_interleave(n_rep, dim=1)
 
 
 def _rotate_half(x):
@@ -106,7 +120,9 @@ class CausalSelfAttention(nn.Module):
 
     Uses a single combined QKV projection for efficiency, then splits
     the result into separate query, key, and value tensors. Supports
-    optional RoPE (Rotary Position Embeddings) and Flash Attention.
+    optional RoPE (Rotary Position Embeddings), Flash Attention,
+    grouped-query attention (``n_kv_heads``), and QK-norm
+    (``use_qk_norm``).
     """
 
     def __init__(self, config: GhostLMConfig):
@@ -121,14 +137,31 @@ class CausalSelfAttention(nn.Module):
 
         self.n_heads = config.n_heads
         self.head_dim = config.d_model // config.n_heads
+        # Grouped-query attention: fewer KV heads than query heads, each
+        # shared by n_rep query heads. n_kv_heads == n_heads (None in the
+        # config) is plain MHA and keeps the historical checkpoint shapes.
+        self.n_kv_heads = config.n_kv_heads if getattr(config, "n_kv_heads", None) else config.n_heads
+        assert config.n_heads % self.n_kv_heads == 0, (
+            f"n_heads ({config.n_heads}) must be divisible by n_kv_heads ({self.n_kv_heads})"
+        )
+        self.n_rep = self.n_heads // self.n_kv_heads
         self.context_length = config.context_length
         self.use_rope = config.use_rope
         self.use_flash_attention = config.use_flash_attention
         self.dropout_p = config.dropout
 
-        # Single combined QKV projection
-        self.c_qkv = nn.Linear(config.d_model, 3 * config.d_model, bias=config.bias)
+        # Single combined QKV projection. Q keeps the full head count;
+        # K and V are projected at n_kv_heads each.
+        qkv_dim = (self.n_heads + 2 * self.n_kv_heads) * self.head_dim
+        self.c_qkv = nn.Linear(config.d_model, qkv_dim, bias=config.bias)
         self.proj = nn.Linear(config.d_model, config.d_model, bias=config.bias)
+
+        # QK-norm: per-head RMSNorm on queries and keys before RoPE,
+        # guarding against attention-logit growth on long pretrains.
+        self.use_qk_norm = getattr(config, "use_qk_norm", False)
+        if self.use_qk_norm:
+            self.q_norm = RMSNorm(self.head_dim)
+            self.k_norm = RMSNorm(self.head_dim)
 
         # Dropout applied to attention weights (manual path only)
         self.attn_dropout = nn.Dropout(config.dropout)
@@ -136,7 +169,10 @@ class CausalSelfAttention(nn.Module):
 
         # RoPE
         if self.use_rope:
-            self.rope = RotaryEmbedding(self.head_dim, config.context_length)
+            self.rope = RotaryEmbedding(
+                self.head_dim, config.context_length,
+                base=getattr(config, "rope_base", 10000.0),
+            )
 
         # Causal mask buffer (only needed for manual attention path)
         if not self.use_flash_attention:
@@ -198,7 +234,7 @@ class CausalSelfAttention(nn.Module):
             attn_mask: Optional (B, past_len + T) padding mask; 1 for real
                 tokens, 0 for padding.
             past_kv: Optional (k, v) tensors from previous steps, each of
-                shape (B, n_heads, past_len, head_dim).
+                shape (B, n_kv_heads, past_len, head_dim).
             use_cache: If True, also return the updated (k, v) cache.
 
         Returns:
@@ -207,14 +243,20 @@ class CausalSelfAttention(nn.Module):
         B, T, C = x.size()
         past_len = past_kv[0].size(2) if past_kv is not None else 0
 
-        # Combined QKV projection and split
+        # Combined QKV projection and split (K/V at n_kv_heads)
         qkv = self.c_qkv(x)
-        q, k, v = qkv.split(self.n_heads * self.head_dim, dim=-1)
+        kv_dim = self.n_kv_heads * self.head_dim
+        q, k, v = qkv.split([self.n_heads * self.head_dim, kv_dim, kv_dim], dim=-1)
 
-        # Reshape to (B, n_heads, T, head_dim)
+        # Reshape to (B, heads, T, head_dim)
         q = q.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
-        k = k.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
-        v = v.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
+        k = k.view(B, T, self.n_kv_heads, self.head_dim).transpose(1, 2)
+        v = v.view(B, T, self.n_kv_heads, self.head_dim).transpose(1, 2)
+
+        # QK-norm before RoPE, per head.
+        if self.use_qk_norm:
+            q = self.q_norm(q)
+            k = self.k_norm(k)
 
         # Apply RoPE to Q and K (not V) at their absolute positions.
         # Cached keys were already rotated when first computed.
@@ -222,11 +264,16 @@ class CausalSelfAttention(nn.Module):
             cos, sin = self.rope(T, offset=past_len)
             q, k = apply_rotary_pos_emb(q, k, cos, sin)
 
-        # Prepend cached keys/values from previous decode steps.
+        # Prepend cached keys/values from previous decode steps. The
+        # cache holds compact n_kv_heads tensors; expansion to the full
+        # query head count happens after, per attention call.
         if past_kv is not None:
             k = torch.cat([past_kv[0], k], dim=2)
             v = torch.cat([past_kv[1], v], dim=2)
         present: Optional[LayerKVCache] = (k, v) if use_cache else None
+
+        k = _repeat_kv(k, self.n_rep)
+        v = _repeat_kv(v, self.n_rep)
 
         if self.use_flash_attention:
             if attn_mask is None and past_len == 0:

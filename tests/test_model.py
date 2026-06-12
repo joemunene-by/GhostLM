@@ -231,3 +231,74 @@ def test_model_generate_with_rope():
 
     generated = model.generate(x, max_new_tokens=20)
     assert generated.shape == (1, 30)
+
+
+def test_gqa_shapes_and_compact_cache():
+    """GQA projects K/V at n_kv_heads and caches them compactly."""
+    config = GhostLMConfig(
+        n_layers=2, d_model=64, n_heads=4, n_kv_heads=2, d_ff=128,
+        vocab_size=200, context_length=32, dropout=0.0, use_rope=True,
+    )
+    model = GhostLM(config)
+    head_dim = 64 // 4
+
+    # QKV projection: 4 query heads + 2 K heads + 2 V heads.
+    assert model.blocks[0].attn.c_qkv.out_features == (4 + 2 + 2) * head_dim
+
+    x = torch.randint(0, 200, (2, 8))
+    logits, _, kv = model(x, use_cache=True)
+    assert logits.shape == (2, 8, 200)
+    # Cached K/V stay at n_kv_heads — half the memory of MHA here.
+    assert kv[0][0].shape == (2, 2, 8, head_dim)
+
+    # Optimizer setup must categorize every parameter.
+    model.configure_optimizers(config)
+
+
+def test_gqa_defaults_to_mha():
+    """n_kv_heads=None must reproduce the historical MHA checkpoint shapes."""
+    config = GhostLMConfig(
+        n_layers=1, d_model=64, n_heads=4, d_ff=128,
+        vocab_size=200, context_length=32,
+    )
+    model = GhostLM(config)
+    assert model.blocks[0].attn.c_qkv.out_features == 3 * 64
+    assert model.blocks[0].attn.n_rep == 1
+
+
+def test_qk_norm_modules_and_forward():
+    """QK-norm adds per-head RMSNorms and keeps the forward pass finite."""
+    config = GhostLMConfig(
+        n_layers=2, d_model=64, n_heads=4, d_ff=128,
+        vocab_size=200, context_length=32, dropout=0.0,
+        use_rope=True, use_rmsnorm=True, use_qk_norm=True,
+    )
+    model = GhostLM(config)
+    attn = model.blocks[0].attn
+    assert attn.q_norm.weight.shape == (16,)
+    assert attn.k_norm.weight.shape == (16,)
+
+    x = torch.randint(0, 200, (2, 8))
+    logits, loss = model(x, targets=x)
+    assert torch.isfinite(loss)
+
+    # The norm weights must land in the no-decay group.
+    model.configure_optimizers(config)
+
+
+def test_rope_base_flows_into_rotary_embedding():
+    """config.rope_base must change the RoPE frequency table."""
+    base_cfg = GhostLMConfig(
+        n_layers=1, d_model=64, n_heads=4, d_ff=128,
+        vocab_size=200, context_length=32, use_rope=True,
+    )
+    long_cfg = GhostLMConfig(
+        n_layers=1, d_model=64, n_heads=4, d_ff=128,
+        vocab_size=200, context_length=32, use_rope=True,
+        rope_base=1_000_000.0,
+    )
+    rope_default = GhostLM(base_cfg).blocks[0].attn.rope
+    rope_long = GhostLM(long_cfg).blocks[0].attn.rope
+    assert not torch.allclose(rope_default.inv_freq, rope_long.inv_freq)
+    # Higher base means slower-rotating high dims (smaller frequencies).
+    assert rope_long.inv_freq[-1] < rope_default.inv_freq[-1]

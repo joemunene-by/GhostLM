@@ -27,6 +27,12 @@ VARIANTS = {
                   use_flash_attention=True),
     "moe": dict(use_rope=True, use_moe=True, n_experts=4,
                 n_experts_active=2, use_flash_attention=True),
+    "gqa": dict(use_rope=True, use_swiglu=True, use_rmsnorm=True,
+                n_kv_heads=2),
+    "gqa_flash": dict(use_rope=True, use_swiglu=True, use_rmsnorm=True,
+                      use_flash_attention=True, n_kv_heads=1),
+    "qknorm": dict(use_rope=True, use_swiglu=True, use_rmsnorm=True,
+                   use_qk_norm=True),
 }
 
 

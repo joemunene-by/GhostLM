@@ -1,6 +1,7 @@
 """GhostLM configuration — all model and training hyperparameters live here."""
 
 from dataclasses import dataclass
+from typing import Optional
 
 
 @dataclass
@@ -25,6 +26,17 @@ class GhostLMConfig:
     use_swiglu: bool = False
     use_rmsnorm: bool = False
     use_flash_attention: bool = False
+    # Grouped-query attention: number of key/value heads. None means
+    # n_kv_heads == n_heads (plain multi-head attention, the historical
+    # behaviour). Setting it lower (n_heads must be divisible by it)
+    # shares each KV head across n_heads / n_kv_heads query heads —
+    # Llama-3 / Qwen / Gemma style — shrinking the KV cache by the same
+    # factor at near-zero quality cost.
+    n_kv_heads: Optional[int] = None
+    # RMSNorm on per-head queries and keys before RoPE (Qwen3 / Gemma-3 /
+    # OLMo-2 style). Cheap insurance against attention-logit blowups on
+    # long bf16 pretrains.
+    use_qk_norm: bool = False
 
     # Mixture-of-Experts (sparse FFN). Off by default; enable for
     # ghost-1B and beyond. With use_moe = True the FFN at every
@@ -220,6 +232,8 @@ class GhostLMConfig:
             f"  use_swiglu:      {self.use_swiglu}",
             f"  use_rmsnorm:     {self.use_rmsnorm}",
             f"  use_flash_attn:  {self.use_flash_attention}",
+            f"  n_kv_heads:      {self.n_kv_heads if self.n_kv_heads is not None else f'{self.n_heads} (MHA)'}",
+            f"  use_qk_norm:     {self.use_qk_norm}",
             f"  use_moe:         {self.use_moe}"
             + (f" ({self.n_experts} experts, top-{self.n_experts_active})"
                if self.use_moe else ""),
