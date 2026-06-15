@@ -1,13 +1,15 @@
 """GhostLM training entry point — initializes model, tokenizer, data, and runs the training loop."""
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM
 from ghostlm.tokenizer import GhostTokenizer
-from ghostlm.dataset import build_dataloaders
+from ghostlm.dataset import build_dataloaders, build_curriculum_train_loader
+from ghostlm.curriculum import DEFAULT_GENERALIST_CURRICULUM, parse_curriculum_spec
 from ghostlm.trainer import GhostTrainer
 
 
@@ -152,6 +154,18 @@ def parse_args():
         "(GPT-3 / Llama / OLMo packing). Recommended for pretraining on the "
         "packed corpus; off by default to keep existing runs reproducible.",
     )
+    parser.add_argument(
+        "--curriculum-manifest",
+        default=None,
+        help="Path to a train.domains.json (from `pretokenize.py --by-domain`) "
+        "to enable multi-stage domain-weighted (curriculum) training.",
+    )
+    parser.add_argument(
+        "--curriculum-spec",
+        default=None,
+        help="Compact curriculum spec overriding the default generalist "
+        "schedule, e.g. '0.5:general_web=5,cybersec=2;1.0:code=3,math=2'.",
+    )
 
     return parser.parse_args()
 
@@ -255,6 +269,20 @@ def main():
 
     # Initialize trainer
     trainer = GhostTrainer(model, config)
+
+    # Curriculum (multi-stage domain-weighted) training: swap the flat train
+    # loader for a domain-weighted sampler over per-domain bins whose mixture
+    # follows training progress. Val stays the flat split for comparability.
+    if args.curriculum_manifest:
+        with open(args.curriculum_manifest) as f:
+            manifest = json.load(f)
+        curriculum = (parse_curriculum_spec(args.curriculum_spec)
+                      if args.curriculum_spec else DEFAULT_GENERALIST_CURRICULUM)
+        print(f"Curriculum: {len(manifest)} domains from {args.curriculum_manifest}")
+        train_loader = build_curriculum_train_loader(
+            manifest, config, curriculum,
+            progress_fn=lambda: trainer.step / max(1, config.max_steps),
+        )
 
     # Resume from checkpoint if provided
     if args.checkpoint:
