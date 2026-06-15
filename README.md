@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg" alt="PyTorch">
-  <img src="https://img.shields.io/badge/version-0.10.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.11.0-blue.svg" alt="Version">
 </p>
 
 # GhostLM
@@ -65,6 +65,7 @@ Built with:
 - **Flash Attention**, opt-in via `use_flash_attention=True`, routes through PyTorch 2.0+ `scaled_dot_product_attention` for `O(n)` memory
 - **Grouped-query attention** (GQA) + **QK-norm**, opt-in, for KV-cache savings and long-pretrain stability
 - **Intra-document attention masking**, opt-in via `intra_doc_mask=True`, so packed EOS-delimited documents don't attend across boundaries (GPT-3 / Llama / OLMo-style; default-on for the ghost-base run)
+- **Multi-stage domain curriculum**, opt-in, shifts the data mixture across training (broad web early, code/math/knowledge upweighted later), the SmolLM2 / H2O-Danube3 recipe (`ghostlm/curriculum.py`, `pretokenize.py --by-domain`)
 - Pre-norm transformer blocks with residual connections
 - Cosine LR schedule with linear warmup
 - Weight-tied output projection

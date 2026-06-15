@@ -1358,6 +1358,34 @@ The Unreleased section below tracks both.
 The next release will land whatever follow-ups arrive before the
 ghost-base v1.0 GPU run.
 
+## [0.11.0] — 2026-06-16 — Multi-stage domain curriculum (SmolLM2-style data schedule)
+
+Modern small-LM training (SmolLM2, H2O-Danube3, MiniCPM) does not use a
+fixed data mixture; it shifts the mixture across training, broad web
+early for fluency, then upweighting the dense reasoning domains
+(code / math / curated knowledge), with a short anneal on the best data.
+GhostLM now does this.
+
+- **`ghostlm/curriculum.py`** — `DomainCurriculum` maps training progress
+  (step / max_steps) to normalized per-domain sampling weights, linearly
+  interpolating between stages so the mixture drifts smoothly.
+  `DEFAULT_GENERALIST_CURRICULUM` is a 3-stage schedule (web-heavy ->
+  balanced -> code/math/knowledge anneal); `parse_curriculum_spec` accepts
+  a compact CLI string. Pure and deterministic.
+- **`MultiDomainBinDataset`** (`ghostlm/dataset.py`) — an infinite,
+  curriculum-aware `IterableDataset` that samples a domain by the current
+  weights and returns a random block from that domain's token stream. The
+  weights follow live training progress via a `progress_fn` closure over
+  `trainer.step`. `build_curriculum_train_loader` wires it up.
+- **`scripts/pretokenize.py --by-domain`** — writes one
+  `train.<domain>.bin` per training domain plus a `train.domains.json`
+  manifest the curriculum loader consumes.
+- **`scripts/train_ghost_base.py --curriculum-manifest`** (+ optional
+  `--curriculum-spec`) enables curriculum training for the v1.0 run.
+- Tests: `tests/test_curriculum.py` (schedule interpolation, empirical
+  sampling frequency matches weights, mixture follows progress) plus an
+  end-to-end trainer smoke. Default training path unchanged.
+
 ## [0.10.0] — 2026-06-16 — Generalist pivot: de-specialization, intra-document masking, corpus decontamination
 
 The release that turns GhostLM from a cybersecurity-only model into a

@@ -3,13 +3,14 @@
 import json
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset, DistributedSampler
+from torch.utils.data import DataLoader, Dataset, DistributedSampler, IterableDataset
 
 from ghostlm.config import GhostLMConfig
+from ghostlm.curriculum import DomainCurriculum
 from ghostlm.tokenizer import GhostTokenizer
 
 
@@ -139,6 +140,101 @@ class GhostBinDataset(Dataset):
         if len(y_np) < len(x):
             y_np = np.concatenate([y_np, np.full(len(x) - len(y_np), -1, dtype=np.int64)])
         return x, torch.from_numpy(y_np)
+
+
+class MultiDomainBinDataset(IterableDataset):
+    """Domain-weighted, curriculum-aware sampler over per-domain ``.bin`` files.
+
+    Each domain is a separate memory-mapped token stream (written by
+    ``scripts/pretokenize.py --by-domain``). On every step the sampler asks
+    the ``DomainCurriculum`` for the domain weights at the current training
+    progress, picks a domain by those weights, and returns a random
+    context-length block from it. This is the multi-stage data schedule
+    used by SmolLM2 / H2O-Danube3: a fixed corpus, but a *mixture that
+    shifts over training*.
+
+    Infinite by design (an ``IterableDataset``): training is step-bounded,
+    not epoch-bounded, so there is no natural length. ``progress_fn``
+    returns the current step / max_steps in [0, 1]; the trainer updates the
+    value it closes over each step. With ``num_workers=0`` (GhostLM's
+    default) the dataset shares the trainer's process, so the closure sees
+    live progress.
+    """
+
+    def __init__(
+        self,
+        domain_bins: Dict[str, str],
+        config: GhostLMConfig,
+        curriculum: DomainCurriculum,
+        progress_fn: Callable[[], float],
+        seed: int = 42,
+    ):
+        self.context_length = config.context_length
+        self.curriculum = curriculum
+        self.progress_fn = progress_fn
+        self.seed = seed
+        self.domains: List[str] = []
+        self.streams: Dict[str, np.memmap] = {}
+        for domain, path in domain_bins.items():
+            p = Path(path)
+            meta = p.with_suffix(".meta.json")
+            dtype = "uint16"
+            if meta.exists():
+                with open(meta) as f:
+                    dtype = json.load(f).get("dtype", "uint16")
+            arr = np.memmap(p, dtype=np.dtype(dtype), mode="r")
+            if len(arr) < self.context_length + 1:
+                print(f"  skip domain {domain}: only {len(arr)} tokens")
+                continue
+            self.domains.append(domain)
+            self.streams[domain] = arr
+            print(f"  domain {domain}: {len(arr):,} tokens ({path})")
+        if not self.domains:
+            raise ValueError("no usable domain bins (all empty or too short)")
+
+    def _weight_vector(self, progress: float) -> np.ndarray:
+        w = self.curriculum.weights_at(progress)
+        v = np.array([max(0.0, w.get(d, 0.0)) for d in self.domains], dtype=np.float64)
+        s = v.sum()
+        return v / s if s > 0 else np.full(len(self.domains), 1.0 / len(self.domains))
+
+    def __iter__(self):
+        info = torch.utils.data.get_worker_info()
+        worker_id = info.id if info is not None else 0
+        rank = int(os.environ.get("RANK", "0"))
+        rng = np.random.default_rng(self.seed + 1009 * rank + worker_id)
+        ctx = self.context_length
+        while True:
+            v = self._weight_vector(self.progress_fn())
+            domain = self.domains[rng.choice(len(self.domains), p=v)]
+            stream = self.streams[domain]
+            start = int(rng.integers(0, len(stream) - ctx))
+            x = torch.from_numpy(stream[start:start + ctx].astype(np.int64))
+            y = torch.from_numpy(stream[start + 1:start + ctx + 1].astype(np.int64))
+            yield x, y
+
+
+def build_curriculum_train_loader(
+    domain_bins: Dict[str, str],
+    config: GhostLMConfig,
+    curriculum: DomainCurriculum,
+    progress_fn: Callable[[], float],
+    seed: Optional[int] = None,
+) -> DataLoader:
+    """Build an infinite, curriculum-weighted training DataLoader.
+
+    Pair with a step-bounded training loop. The val loader stays the plain
+    ``GhostBinDataset`` so val loss remains comparable across runs.
+    """
+    ds = MultiDomainBinDataset(
+        domain_bins, config, curriculum, progress_fn,
+        seed=config.seed if seed is None else seed,
+    )
+    pin = torch.cuda.is_available()
+    return DataLoader(
+        ds, batch_size=config.batch_size, num_workers=0,
+        pin_memory=pin, drop_last=True,
+    )
 
 
 def _make_dataset(path: str, tokenizer: GhostTokenizer, config: GhostLMConfig) -> Dataset:

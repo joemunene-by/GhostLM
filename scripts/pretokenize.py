@@ -33,6 +33,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from ghostlm.tokenizer import load_tokenizer  # noqa: E402
+from data.collect import domain_of  # noqa: E402
 
 
 def pretokenize_file(jsonl_path: Path, out_path: Path, tokenizer) -> int:
@@ -79,6 +80,58 @@ def pretokenize_file(jsonl_path: Path, out_path: Path, tokenizer) -> int:
     return total
 
 
+def pretokenize_by_domain(jsonl_path: Path, out_dir: Path, tokenizer, stem: str) -> dict:
+    """Write one ``.bin`` per training domain for curriculum sampling.
+
+    Each record's ``source`` is mapped to a domain (``data.collect.domain_of``)
+    and its EOS-terminated tokens are appended to that domain's stream. Emits
+    ``<stem>.<domain>.bin`` (+ per-bin meta) and a ``<stem>.domains.json``
+    manifest mapping domain -> bin path, which the curriculum trainer loads.
+    """
+    vocab_size = len(tokenizer)
+    dtype = np.uint16 if vocab_size <= np.iinfo(np.uint16).max + 1 else np.uint32
+
+    handles: dict = {}
+    totals: dict = {}
+    t0 = time.time()
+    records = 0
+    with open(jsonl_path, "r", encoding="utf-8") as f_in:
+        for line in f_in:
+            line = line.strip()
+            if not line:
+                continue
+            rec = json.loads(line)
+            text = rec.get("text", "")
+            if not text:
+                continue
+            domain = domain_of(rec.get("source", ""))
+            if domain not in handles:
+                handles[domain] = open(out_dir / f"{stem}.{domain}.bin", "wb")
+                totals[domain] = 0
+            ids = tokenizer.encode(text, add_eos=True)
+            np.asarray(ids, dtype=dtype).tofile(handles[domain])
+            totals[domain] += len(ids)
+            records += 1
+            if records % 50_000 == 0:
+                print(f"  {records:,} records ({time.time() - t0:.0f}s)")
+
+    manifest = {}
+    for domain, fh in handles.items():
+        fh.close()
+        bin_path = out_dir / f"{stem}.{domain}.bin"
+        with open(bin_path.with_suffix(".meta.json"), "w") as f:
+            json.dump({"dtype": np.dtype(dtype).name, "vocab_size": vocab_size,
+                       "num_tokens": totals[domain], "domain": domain}, f, indent=2)
+        manifest[domain] = str(bin_path)
+        print(f"  domain {domain:12s} {totals[domain]:>12,} tokens -> {bin_path.name}")
+
+    manifest_path = out_dir / f"{stem}.domains.json"
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"  manifest -> {manifest_path}")
+    return manifest
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description="Pretokenize JSONL corpora into memmap-ready .bin files.",
@@ -92,6 +145,10 @@ def main() -> int:
     p.add_argument("--tokenizer", default=None,
                    help="Optional tokenizer.json path (v0.5/v1 BPE). "
                         "Omit for the default GPT-2 BPE tokenizer.")
+    p.add_argument("--by-domain", action="store_true",
+                   help="Also write one train.<domain>.bin per training domain "
+                        "plus a train.domains.json manifest, for curriculum "
+                        "(domain-weighted) training. The val split stays a single bin.")
     args = p.parse_args()
 
     tokenizer = load_tokenizer(args.tokenizer)
@@ -107,6 +164,10 @@ def main() -> int:
         out_path = out_dir / (src.stem + ".bin")
         print(f"Pretokenizing {src} -> {out_path}")
         pretokenize_file(src, out_path, tokenizer)
+        # Per-domain shards only make sense for the training split.
+        if args.by_domain and "train" in src.stem:
+            print(f"Pretokenizing {src} by domain")
+            pretokenize_by_domain(src, out_dir, tokenizer, src.stem)
 
     return 0
 
