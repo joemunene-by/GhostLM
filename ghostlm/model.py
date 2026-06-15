@@ -63,6 +63,31 @@ def _repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
     return x.repeat_interleave(n_rep, dim=1)
 
 
+def build_intra_doc_bias(
+    idx: torch.Tensor, eos_token_id: int, dtype: torch.dtype
+) -> torch.Tensor:
+    """Build a causal + intra-document additive attention bias.
+
+    Given packed token ids ``idx`` (B, T) where documents are separated by
+    ``eos_token_id``, returns a (B, 1, T, T) additive bias that is 0 where a
+    query may attend to a key (same document AND causal) and -inf otherwise.
+    Broadcasts over heads. The EOS token is grouped with the document it
+    terminates (exclusive cumsum), so a new document cannot attend back to
+    the previous document's separator. The diagonal is always allowed, so no
+    query row is fully masked (no softmax NaNs).
+    """
+    B, T = idx.shape
+    is_eos = (idx == eos_token_id).to(torch.int32)
+    # seg[b, t] = number of EOS tokens strictly before position t -> document id.
+    seg = is_eos.cumsum(dim=1) - is_eos
+    same_doc = seg.unsqueeze(2) == seg.unsqueeze(1)          # (B, T, T): query i, key j
+    causal = torch.ones(T, T, dtype=torch.bool, device=idx.device).tril()
+    keep = same_doc & causal.unsqueeze(0)                    # (B, T, T)
+    bias = torch.zeros(B, 1, T, T, dtype=dtype, device=idx.device)
+    bias.masked_fill_(~keep.unsqueeze(1), float("-inf"))
+    return bias
+
+
 def _rotate_half(x):
     """Rotate the second half of the last dimension and negate it."""
     x1, x2 = x.chunk(2, dim=-1)
@@ -275,8 +300,15 @@ class CausalSelfAttention(nn.Module):
         k = _repeat_kv(k, self.n_rep)
         v = _repeat_kv(v, self.n_rep)
 
+        # A 4-D attn_mask is a precomputed additive bias (B, 1, T, total_len),
+        # e.g. the intra-document mask built in GhostLM.forward — use it
+        # directly. A 2-D (B, total_len) attn_mask is the padding mask handled
+        # by _attention_bias. None + no cache is the plain-causal fast path.
+        precomputed_bias = attn_mask if (attn_mask is not None and attn_mask.dim() == 4) else None
+        fast_causal = attn_mask is None and past_len == 0
+
         if self.use_flash_attention:
-            if attn_mask is None and past_len == 0:
+            if fast_causal:
                 # Fast path: plain causal attention, backend-selected.
                 y = F.scaled_dot_product_attention(
                     q, k, v,
@@ -285,9 +317,8 @@ class CausalSelfAttention(nn.Module):
                     is_causal=True,
                 )
             else:
-                bias = self._attention_bias(
-                    B, T, past_len, attn_mask, q.dtype, q.device,
-                )
+                bias = precomputed_bias.to(q.dtype) if precomputed_bias is not None else \
+                    self._attention_bias(B, T, past_len, attn_mask, q.dtype, q.device)
                 y = F.scaled_dot_product_attention(
                     q, k, v,
                     attn_mask=bias,
@@ -298,9 +329,11 @@ class CausalSelfAttention(nn.Module):
             # Manual attention path
             scale = 1.0 / math.sqrt(self.head_dim)
             att = (q @ k.transpose(-2, -1)) * scale
-            if attn_mask is None and past_len == 0:
+            if fast_causal:
                 causal = self.causal_mask[:, :, :T, :T]
                 att = att.masked_fill(causal == 0, float("-inf"))
+            elif precomputed_bias is not None:
+                att = att + precomputed_bias.to(att.dtype)
             else:
                 att = att + self._attention_bias(
                     B, T, past_len, attn_mask, att.dtype, x.device,
@@ -630,6 +663,21 @@ class GhostLM(nn.Module):
             pos = torch.arange(past_len, past_len + T, dtype=torch.long, device=idx.device)
             pos_emb = self.pos_embedding(pos)
             x = self.dropout(tok_emb + pos_emb)
+
+        # Intra-document attention mask for packed sequences. Built once and
+        # passed down through the attn_mask channel as a 4-D additive bias
+        # (attention recognizes the extra dims). Only for the full-sequence
+        # path: no KV-cache decoding (past_len > 0) and no existing padding
+        # mask to combine with. Off unless config.intra_doc_mask and an EOS
+        # id are set, so default behaviour is unchanged.
+        if (
+            getattr(self.config, "intra_doc_mask", False)
+            and self.config.eos_token_id is not None
+            and attn_mask is None
+            and past_len == 0
+            and not use_cache
+        ):
+            attn_mask = build_intra_doc_bias(idx, self.config.eos_token_id, x.dtype)
 
         # Transformer blocks. Gradient checkpointing recomputes each
         # block's activations during backward instead of storing them —

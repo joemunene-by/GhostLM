@@ -41,6 +41,17 @@ Budgets are token *caps*, not exact shares: a domain contributes `min(collected,
 
 The headline: cybersec dropped from ~65-73% of the corpus to a minority domain. This snapshot under-represents cybersec (the large PRIMUS/NVD-full sources weren't on disk; with them present the `cybersec` cap of 120M binds) and excludes code (the `collect_code_corpus.py` pull was still running). The final v1.0 generalist corpus re-runs this once FineWeb-Edu reaches target and the code pull lands.
 
+### Decontamination
+
+Adding general web and Wikipedia raises a real risk: ARC / OpenBookQA questions may appear verbatim in FineWeb-Edu or Wikipedia, which would inflate the new general benchmarks. `scripts/decontaminate.py` fingerprints every benchmark (cybersec MCQ sets + the general rulers) with exact-question and 12-word-shingle detectors, scans the corpus, and can remove offending records (`--write-clean`).
+
+First run over the preview generalist corpus (195,850 records) against all benchmarks (CTIBench-adjacent eval sets, SecQA, the CTF set, fact-recall v1/v2, and the 4,030-question ARC/OpenBookQA general set): **7 contaminated records (0.004%)**, 5 exact + 2 shingle. The corpus is effectively uncontaminated, so the eval numbers reflect capability, not memorization. The final rebuild runs `decontaminate.py --write-clean` to strip those few records.
+
+```bash
+python3 scripts/decontaminate.py --include-answers \
+  --write-clean data/processed/train_clean.jsonl
+```
+
 **New general-domain collectors** feeding the non-cybersec domains:
 
 | Domain | Collector | Source / license |

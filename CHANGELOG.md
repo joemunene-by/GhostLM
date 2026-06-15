@@ -1358,12 +1358,50 @@ The Unreleased section below tracks both.
 The next release will land whatever follow-ups arrive before the
 ghost-base v1.0 GPU run.
 
-### Generalist pivot (2026-06) — de-specializing beyond cybersecurity
+## [0.10.0] — 2026-06-16 — Generalist pivot: de-specialization, intra-document masking, corpus decontamination
+
+The release that turns GhostLM from a cybersecurity-only model into a
+small **generalist** with cybersecurity as its deepest specialty, plus
+two pieces of training-grade rigor: intra-document attention masking and
+a corpus-wide decontamination pass against every benchmark.
+
+### Training quality
+
+- **Intra-document attention masking** (`config.intra_doc_mask`, opt-in;
+  default on for the ghost-base run). The corpus is packed as
+  EOS-delimited documents sliced into fixed blocks, so a block usually
+  straddles a boundary and, under plain causal attention, tokens attend
+  back into the previous unrelated document. `build_intra_doc_bias`
+  derives per-document segments from the EOS positions and masks
+  attention so each token only attends within its own document
+  (GPT-3 / Llama / OLMo "no cross-contamination" packing). Wired through
+  `scripts/train.py --intra-doc-mask` and on by default in
+  `scripts/train_ghost_base.py`. Verified by an isolation test (perturbing
+  an earlier packed document does not change a later one's logits) and
+  flash/manual parity. Default-off elsewhere so existing checkpoints are
+  bit-for-bit unchanged.
+
+### Corpus rigor
+
+- **Decontamination pipeline.** `scripts/decontaminate.py` fingerprints
+  every benchmark (the cybersec MCQ sets plus the new ARC / OpenBookQA
+  general rulers) with exact-question and 12-word-shingle detectors, scans
+  the training corpus, reports contamination, and (`--write-clean`) removes
+  offending records. First run over the generalist corpus: **7 of 195,850
+  records contaminated (0.004%)**, so the benchmarks are essentially
+  uncontaminated and the eval numbers are not memorization-inflated.
+- `scripts/rebuild_corpus.py` excludes held-out eval/benchmark files
+  (`*_eval`, `*_bench`, `secqa`, `general_mcq_bench`) from the training
+  merge so a rebuild can never train on its own eval data.
+
+### Generalist pivot — de-specializing beyond cybersecurity
 
 GhostLM is broadening from a cybersecurity-only model into a small
 **generalist** that keeps cybersecurity as its deepest specialty. The
 corpus had been ~65-73% cybersec text, which is what makes the model a
-"cybersec parrot"; this is the rebalance away from that.
+"cybersec parrot"; this is the rebalance away from that. First realized
+mix over the initial pull: general_web 40%, knowledge 23.8%, math 23.8%,
+**cybersec 12.3%** (down from ~65-73%).
 
 - **Domain-budget corpus rebalancer.** `data/collect.py` adds
   `domain_of` / `SOURCE_DOMAINS` (maps each source to `cybersec`,
@@ -1376,10 +1414,13 @@ corpus had been ~65-73% cybersec text, which is what makes the model a
   (`cybersec` default / `generalist` / `balanced`) and repeatable
   `--domain-budget DOMAIN=TOKENS` (k/m/b suffixes). `generalist` caps
   cybersec below general web so code/math/knowledge carry real share.
-- **New general-domain collector.** `scripts/collect_wikipedia_general.py`
+- **New general-domain collectors.** `scripts/collect_wikipedia_general.py`
   streams a broad (non-cyber) Wikipedia sample for the `knowledge`
-  domain, directly targeting the free-form fact-recall floor. FineWeb-Edu
-  and open-web-math collector targets raised (150K / 60K records).
+  domain, directly targeting the free-form fact-recall floor;
+  `scripts/collect_instruction.py` pulls Dolly-15k (CC BY-SA) into the
+  `instruction` domain so the base model sees instruction -> response
+  structure. FineWeb-Edu and open-web-math collector targets raised
+  (150K / 60K records).
 - **Non-cybersec eval harness.** `scripts/fetch_general_mcq.py` pulls
   ARC-Easy, ARC-Challenge, and OpenBookQA into the MCQ schema, and
   `scripts/eval_text_scoring.py` gains `--prompt-style general` (records
@@ -1390,8 +1431,10 @@ corpus had been ~65-73% cybersec text, which is what makes the model a
   bills GhostLM as a cybersec-only specialist ("not a general
   assistant"); `data/raw/chat/general_knowledge.jsonl` broadened across
   history, reasoning, philosophy, science, and cross-domain identity.
-- Tests: `tests/test_corpus_rebalance.py`, `tests/test_general_eval.py`.
-  Full detail in [CORPUS.md](CORPUS.md#generalist-corpus-profile-de-specialization).
+- Tests: `tests/test_corpus_rebalance.py`, `tests/test_general_eval.py`,
+  `tests/test_instruction_collector.py`, `tests/test_decontaminate.py`,
+  `tests/test_intra_doc_mask.py`. Full detail in
+  [CORPUS.md](CORPUS.md#generalist-corpus-profile-de-specialization).
 
 - **GPU-run runbook.** `docs/ghost_base_gpu_runbook.md` is the
   start-to-finish script for the rented-box run: provision, corpus

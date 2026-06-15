@@ -56,6 +56,15 @@ class ChatTokenizerBase:
         """Return a set of all special token IDs."""
         return set(self._special_tokens.values())
 
+    @property
+    def eos_id(self) -> int:
+        """The EOS (document-separator) token id.
+
+        Used by the trainer to populate ``config.eos_token_id`` for
+        intra-document attention masking.
+        """
+        return self._special_tokens[self.EOS]
+
     def encode(self, text: str, add_bos: bool = False, add_eos: bool = False) -> List[int]:
         """Encode a text string into a list of token IDs.
 

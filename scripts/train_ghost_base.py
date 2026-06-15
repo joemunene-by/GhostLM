@@ -99,6 +99,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--grad-checkpoint", action="store_true",
                    help="Gradient checkpointing: large activation-memory "
                         "cut for ~25-30%% extra step time.")
+    p.add_argument("--no-intra-doc-mask", action="store_true",
+                   help="Disable intra-document attention masking (on by "
+                        "default for the v1.0 run). Tokens would then attend "
+                        "across packed document boundaries.")
     return p.parse_args()
 
 
@@ -121,6 +125,12 @@ def main() -> None:
     config.use_qk_norm = True
     config.use_flash_attention = True
     config.vocab_size = tokenizer.vocab_size
+    # Intra-document attention masking: the packed corpus is EOS-delimited,
+    # so without this a block straddling a boundary lets tokens attend into
+    # the previous, unrelated document. On by default for the v1.0 run;
+    # disable with --no-intra-doc-mask.
+    config.eos_token_id = tokenizer.eos_id
+    config.intra_doc_mask = not args.no_intra_doc_mask
     config.context_length = args.context_length
     config.batch_size = args.batch_size
     config.grad_accum_steps = args.grad_accum_steps

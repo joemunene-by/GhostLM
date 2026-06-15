@@ -144,6 +144,14 @@ def parse_args():
         "seed and same data should produce identical loss curves; use this "
         "to validate that a contributor's PR doesn't change training behavior.",
     )
+    parser.add_argument(
+        "--intra-doc-mask",
+        action="store_true",
+        help="Mask attention across document boundaries within a packed block "
+        "so each token only attends within its own EOS-delimited document "
+        "(GPT-3 / Llama / OLMo packing). Recommended for pretraining on the "
+        "packed corpus; off by default to keep existing runs reproducible.",
+    )
 
     return parser.parse_args()
 
@@ -215,6 +223,13 @@ def main():
     # (A stale hardcoded 50261 here once excluded the three chat-role
     # special tokens, whose ids 50261-50263 fell outside the embedding.)
     config.vocab_size = len(tokenizer)
+
+    # Record the EOS id so the model can build the intra-document attention
+    # mask (documents in a packed block are EOS-delimited), and enable the
+    # mask when requested on the CLI.
+    config.eos_token_id = tokenizer.eos_id
+    if args.intra_doc_mask:
+        config.intra_doc_mask = True
 
     # Print config
     print(repr(config))

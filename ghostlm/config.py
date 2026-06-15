@@ -37,6 +37,19 @@ class GhostLMConfig:
     # OLMo-2 style). Cheap insurance against attention-logit blowups on
     # long bf16 pretrains.
     use_qk_norm: bool = False
+    # Intra-document attention masking for packed pretraining. The dataset
+    # concatenates documents (EOS-separated) and slices fixed blocks, so a
+    # block usually straddles document boundaries; with plain causal
+    # attention, tokens attend back into the previous, unrelated document.
+    # When True (and ``eos_token_id`` is set), each token only attends
+    # within its own document, the "no cross-contamination" packing used by
+    # GPT-3 / Llama / OLMo. Off by default so existing checkpoints are
+    # bit-for-bit unchanged; only affects the full-sequence training path
+    # (skipped under KV-cache decoding and when a padding mask is present).
+    intra_doc_mask: bool = False
+    # Token id that terminates a document (the tokenizer's EOS). Required
+    # for ``intra_doc_mask``; the trainer sets it from the tokenizer.
+    eos_token_id: Optional[int] = None
 
     # Mixture-of-Experts (sparse FFN). Off by default; enable for
     # ghost-1B and beyond. With use_moe = True the FFN at every
