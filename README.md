@@ -12,31 +12,34 @@
 
 # GhostLM
 
-> An open-source language model built entirely from scratch in PyTorch. Purpose-built for cybersecurity, with code, general language, and math/reasoning folded into the v1.0 corpus.
+> An open-source, general-purpose language model built entirely from scratch in PyTorch. A generalist across general knowledge, code, and math/reasoning, with unusual depth in cybersecurity, the domain the corpus was originally built around.
 
 > **Sister project**: [`ghostloop`](https://github.com/joemunene-by/ghostloop) is the embodied-AI sibling — same `GhostAgent`-shaped tool-using runtime + fail-closed safety pipeline + GhostBench-shaped paired-comparison eval, applied to **robot motion primitives** instead of CVE / MITRE / CWE lookups. Shipped v0.3.0 on 2026-05-10 with PyBullet + MuJoCo backends, MuJoCo Menagerie loader, episode catalogue, trace replay, five policy gates (DenyList / RateLimit / Geofence / ForceCap / HITL), and a `python -m ghostloop` CLI. The thesis: as VLA models become the policy substrate, the runtime around them needs the same rigor we already apply to LLM tool use.
 
 > **Status (v0.9.34 — 2026-06-10):** training/inference stack hardened ahead of the ghost-base GPU run — KV-cached generation (5.4× faster decoding), memory-mapped pretokenized corpus, real DDP data sharding, LR-schedule and SwiGLU-init fixes, plus live wandb metrics, `--compile`, and `--grad-checkpoint` flags, all dress-rehearsed end-to-end on Mac. The v1.0 pretrain corpus stands at 768,741 train / 40,429 val records (~422M tokens), code share 11.6%, cybersec sources ~65% of text. The GhostAgent tool-using runtime, multi-vendor HTTP server (OpenAI / Anthropic / Gemini / Ollama wire formats), MCP integration, and the GhostBench statistical eval suite are all shipped. **ghost-base (~360M params) is the v1.0 training target, gated on rented GPU compute.** Dated, per-version detail lives in [CHANGELOG.md](CHANGELOG.md).
 
-GhostLM is a decoder-only transformer language model. Pretrained from scratch on CVE descriptions, CTF writeups, MITRE/CWE/OWASP/RFC reference material, NIST SP 800 publications, security research blogs, security tool source code, FineWeb-Edu educational web text, and open-web-math reasoning. No pretrained weights, no wrappers, every component written by hand.
+GhostLM is a decoder-only transformer language model. Pretrained from scratch on a multi-domain corpus: general-knowledge and educational web text (FineWeb-Edu, broad Wikipedia), source code across many languages, math and reasoning (open-web-math), and a deep cybersecurity layer (CVE descriptions, CTF writeups, MITRE/CWE/OWASP/RFC reference material, NIST SP 800 publications, security research blogs, security tool source). No pretrained weights, no wrappers, every component written by hand.
+
+> **Direction (2026-06):** GhostLM is broadening from a cybersecurity-only model into a small **generalist** that keeps cybersecurity as its deepest specialty. The corpus is being rebalanced so security is one strong domain among several rather than ~65-73% of tokens, via a domain-budget corpus profile (`scripts/rebuild_corpus.py --profile generalist`) plus new general-domain collectors and a non-cybersec eval harness (ARC / OpenBookQA). See [CORPUS.md](CORPUS.md#generalist-corpus-profile-de-specialization).
 
 ---
 
 ## Why GhostLM?
 
-Security researchers currently rely on generic models (GPT-4, Llama) that weren't trained with security context. GhostLM is purpose-built for:
+GhostLM is a small, transparent, general-purpose model you can read end to end. It aims to be genuinely useful across:
 
-- CVE analysis and vulnerability explanation
-- CTF challenge reasoning
-- Penetration testing assistance
-- Exploit and attack pattern understanding
-- Security concept explanation
+- General knowledge, explanation, and everyday questions
+- Programming help across languages
+- Math and step-by-step reasoning
+- And, as its deepest specialty, cybersecurity: CVE analysis, CTF reasoning, pentest assistance, exploit and attack-pattern understanding, and security-concept explanation
+
+That security depth is a feature, not a cage: the corpus was originally built around security, so the model knows that domain unusually well for its size, while the generalist corpus pivot brings the rest of its breadth up to par.
 
 ### Why from scratch and not a fine-tune?
 
-Two reasons. **First**, most offensive-security content that the best general models have seen was filtered or RLHF-nudged away during alignment, so a fine-tune on top fights that prior. Training the tokenizer and weights from zero with security text in the mix lets the model treat CVE IDs, shell one-liners, and exploit technique names as first-class tokens rather than something to refuse. **Second**, GhostLM is also a study project. Every layer (attention, positional encoding, LR schedule, BPE) is hand-written so the codebase doubles as a readable reference for how a transformer is actually put together. A fine-tune hides that behind `AutoModel.from_pretrained`.
+Two reasons. **First**, most offensive-security content that the best general models have seen was filtered or RLHF-nudged away during alignment, so a fine-tune on top fights that prior. Training the tokenizer and weights from zero with security text in the mix lets the model treat CVE IDs, shell one-liners, and exploit technique names as first-class tokens rather than something to refuse, while broad general data keeps it a generalist. **Second**, GhostLM is also a study project. Every layer (attention, positional encoding, LR schedule, BPE) is hand-written so the codebase doubles as a readable reference for how a transformer is actually put together. A fine-tune hides that behind `AutoModel.from_pretrained`.
 
-It is explicitly *not* trying to beat Llama on general benchmarks. It's trying to be the right tool for one narrow job, and a transparent one.
+It is not trying to beat Llama at its own scale, a model this small can't. It aims to be a capable, honest small generalist with real security depth, and a fully transparent one.
 
 ---
 

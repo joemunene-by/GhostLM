@@ -121,11 +121,20 @@ def load_jsonl(path: str) -> List[Dict]:
         List of dictionaries parsed from each line.
     """
     records = []
+    bad = 0
     with open(path, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 records.append(json.loads(line))
+            except json.JSONDecodeError:
+                # Tolerate a torn final line (file being appended live) or an
+                # occasional corrupt record rather than aborting the merge.
+                bad += 1
+    if bad:
+        print(f"  Warning: skipped {bad} unparseable line(s) in {path}")
     return records
 
 
@@ -1925,6 +1934,159 @@ def subsample_cve_records(records: List[Dict], max_cve_tokens: int) -> List[Dict
     return kept + other
 
 
+# ---------------------------------------------------------------------------
+# Domain-aware corpus rebalancing
+# ---------------------------------------------------------------------------
+
+# Maps each record ``source`` tag to a coarse training domain. The domain is
+# the unit the generalist rebalancer budgets against — many cybersec sources
+# (nvd, mitre, owasp, ...) collapse to one ``cybersec`` bucket so a single
+# per-domain cap controls their combined share, the way ``max_cve_tokens``
+# controls nvd alone. Unknown sources fall back to a substring heuristic and
+# finally to ``other`` (no budget, always passes through).
+SOURCE_DOMAINS: Dict[str, str] = {
+    # --- cybersecurity (text + security-tool source) ---
+    "nvd": "cybersec",
+    "cve": "cybersec",
+    "exploitdb": "cybersec",
+    "ctf": "cybersec",
+    "ctftime": "cybersec",
+    "ctf_repos": "cybersec",
+    "synthetic": "cybersec",
+    "papers": "cybersec",
+    "arxiv": "cybersec",
+    "arxiv_full": "cybersec",
+    "mitre_attack": "cybersec",
+    "mitre_full": "cybersec",
+    "cwe": "cybersec",
+    "capec": "cybersec",
+    "owasp": "cybersec",
+    "owasp_wstg": "cybersec",
+    "owasp_cheatsheets": "cybersec",
+    "owasp_asvs": "cybersec",
+    "owasp_top10": "cybersec",
+    "cisa_kev": "cybersec",
+    "cisa_advisories": "cybersec",
+    "rfcs": "cybersec",
+    "nist_sp800": "cybersec",
+    "security_blogs": "cybersec",
+    "vendor_research": "cybersec",
+    "wikipedia_cyber": "cybersec",
+    "fact_qa": "cybersec",
+    "misp": "cybersec",
+    "security_code": "cybersec",
+    "primus_seed": "cybersec",
+    "primus_fineweb": "cybersec",
+    # --- general (non-cybersec) domains: the breadth that de-specializes ---
+    "fineweb_edu": "general_web",
+    "code_corpus": "code",
+    "math_reasoning": "math",
+    "wikipedia": "knowledge",
+    "wikipedia_general": "knowledge",
+    "simple_wikipedia": "knowledge",
+    "openhermes": "instruction",
+    "instruction": "instruction",
+    "science": "knowledge",
+}
+
+
+def domain_of(source: str) -> str:
+    """Return the coarse training domain for a record ``source`` tag.
+
+    Falls back to a substring heuristic for sources not in the explicit
+    map (so future cyber/code/math collectors classify sensibly without a
+    code change), and finally to ``other`` for the genuinely unknown.
+    """
+    if source in SOURCE_DOMAINS:
+        return SOURCE_DOMAINS[source]
+    s = (source or "").lower()
+    if any(k in s for k in ("cve", "cwe", "nvd", "mitre", "owasp", "ctf", "exploit",
+                            "attack", "vuln", "malware", "threat", "cyber", "rfc",
+                            "nist", "capec", "cisa", "primus", "security")):
+        return "cybersec"
+    if any(k in s for k in ("code", "github", "repo", "stack")):
+        return "code"
+    if any(k in s for k in ("math", "proof", "arith", "gsm")):
+        return "math"
+    if any(k in s for k in ("wiki", "knowledge", "trivia", "science")):
+        return "knowledge"
+    if any(k in s for k in ("web", "edu", "fineweb", "c4")):
+        return "general_web"
+    if any(k in s for k in ("chat", "instruct", "hermes", "dolly", "oasst")):
+        return "instruction"
+    return "other"
+
+
+def rebalance_by_domain(
+    records: List[Dict],
+    domain_token_budgets: Dict[str, int],
+) -> List[Dict]:
+    """Cap each domain's token contribution by deterministic hash subsample.
+
+    The generalization of :func:`subsample_cve_records` from one source to
+    a whole domain. For every domain with a budget, that domain's records
+    are sorted by ``md5(text)`` and a prefix is kept until cumulative
+    ``chars/4`` reaches the budget. Domains without a budget (and the
+    ``other`` bucket) pass through untouched. Deterministic: same input +
+    same budgets ⇒ same kept set, so the merge stays reproducible.
+
+    This is the lever that turns a cybersec-dominant corpus into a
+    generalist one: cap ``cybersec`` while leaving ``general_web`` / ``code``
+    / ``math`` / ``knowledge`` uncapped (or at higher caps), and cybersec
+    stops owning the token budget.
+
+    Args:
+        records: All loaded records (mixed sources).
+        domain_token_budgets: Map of domain name -> token cap. A cap of 0
+            or negative drops the domain entirely. Domains absent from the
+            map are never subsampled.
+
+    Returns:
+        New list with each budgeted domain subsampled to its cap and every
+        other record preserved.
+    """
+    if not domain_token_budgets:
+        return records
+
+    by_domain: Dict[str, List[Dict]] = {}
+    for r in records:
+        d = domain_of(r.get("source", ""))
+        by_domain.setdefault(d, []).append(r)
+
+    out: List[Dict] = []
+    for domain, recs in by_domain.items():
+        budget = domain_token_budgets.get(domain)
+        if budget is None:
+            out.extend(recs)
+            continue
+        if budget <= 0:
+            print(f"  rebalance[{domain}]: dropped all {len(recs):,} records (budget 0)")
+            continue
+        total_chars = sum(len(r.get("text", "")) for r in recs)
+        target_chars = budget * 4
+        if total_chars <= target_chars:
+            print(f"  rebalance[{domain}]: kept all {len(recs):,} records "
+                  f"(~{total_chars // 4:,} tokens <= budget {budget:,})")
+            out.extend(recs)
+            continue
+        recs_sorted = sorted(
+            recs,
+            key=lambda r: hashlib.md5(r.get("text", "").encode("utf-8")).hexdigest(),
+        )
+        kept: List[Dict] = []
+        accumulated = 0
+        for rec in recs_sorted:
+            kept.append(rec)
+            accumulated += len(rec.get("text", ""))
+            if accumulated >= target_chars:
+                break
+        print(f"  rebalance[{domain}]: kept {len(kept):,} of {len(recs):,} records "
+              f"(~{accumulated // 4:,} tokens, budget {budget:,})")
+        out.extend(kept)
+
+    return out
+
+
 def merge_datasets(
     input_paths: List[str],
     output_path: str = "data/processed/train.jsonl",
@@ -1932,6 +2094,7 @@ def merge_datasets(
     shuffle: bool = True,
     seed: int = 42,
     max_cve_tokens: Optional[int] = None,
+    domain_token_budgets: Optional[Dict[str, int]] = None,
 ) -> None:
     """Merge multiple JSONL datasets and split into train/validation sets.
 
@@ -1951,6 +2114,11 @@ def merge_datasets(
             cumulative ``chars/4`` reaches the budget. Use to balance
             token share across sources. Default ``None`` keeps every
             CVE record.
+        domain_token_budgets: Optional map of training-domain -> token
+            cap (see :func:`rebalance_by_domain`). The generalist lever:
+            cap ``cybersec`` and leave ``general_web`` / ``code`` /
+            ``math`` / ``knowledge`` uncapped so cybersec stops owning the
+            corpus. Applied after ``max_cve_tokens`` and before dedup.
     """
     print("Merging datasets...")
     all_records: List[Dict] = []
@@ -1969,6 +2137,9 @@ def merge_datasets(
 
     if max_cve_tokens is not None:
         all_records = subsample_cve_records(all_records, max_cve_tokens)
+
+    if domain_token_budgets:
+        all_records = rebalance_by_domain(all_records, domain_token_budgets)
 
     all_records = deduplicate_records(all_records)
 
@@ -2001,6 +2172,16 @@ def merge_datasets(
     print(f"    Train: {len(train_records)}")
     print(f"    Validation: {len(val_records)}")
     print(f"    Leakage check: {leakage} val texts found in train (expected 0)")
+
+    # Domain-share report — the headline number for the generalist pivot.
+    domain_chars: Dict[str, int] = {}
+    for r in all_records:
+        d = domain_of(r.get("source", ""))
+        domain_chars[d] = domain_chars.get(d, 0) + len(r.get("text", ""))
+    total_chars = sum(domain_chars.values()) or 1
+    print(f"    Domain mix (~tokens / share):")
+    for d, c in sorted(domain_chars.items(), key=lambda kv: -kv[1]):
+        print(f"      {d:14s} ~{c // 4:>12,} tok  {100 * c / total_chars:5.1f}%")
 
 
 def main() -> None:

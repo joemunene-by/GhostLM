@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: all install test lint pretokenize data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-exploitdb data-exploitdb-audit data-arxiv-full data-diversity data-rebuild data-audit train-tiny train-small generate chat demo demo-compare benchmark eval-security eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security-all-phases eval-compare-phases eval-perplexity-by-source plot export clean help
+.PHONY: all install test lint pretokenize data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-exploitdb data-exploitdb-audit data-arxiv-full data-diversity data-rebuild data-general data-rebuild-generalist data-general-bench eval-general data-audit train-tiny train-small generate chat demo demo-compare benchmark eval-security eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security-all-phases eval-compare-phases eval-perplexity-by-source plot export clean help
 
 help:
 	@echo "GhostLM — Cybersecurity Language Model"
@@ -21,6 +21,10 @@ help:
 	@echo "  data-arxiv-full Pull arXiv cs.CR full-text PDFs (needs pymupdf, ~1 req/sec)"
 	@echo "  data-diversity  Run all the corpus-diversity collectors (mitre + capec)"
 	@echo "  data-rebuild    Re-merge data/raw/ into train/val (after a corpus pull)"
+	@echo "  data-general    Pull general-domain sources (web/math/wiki/instruction/code)"
+	@echo "  data-rebuild-generalist  Re-merge into a generalist mix (cybersec capped)"
+	@echo "  data-general-bench       Fetch general MCQ rulers (ARC, OpenBookQA)"
+	@echo "  eval-general    Score a checkpoint on general benches (CKPT=, LABEL=)"
 	@echo "  data-audit      Run pre-training corpus diagnostics + chart"
 	@echo "  train-tiny      Train ghost-tiny (14.7M params, CPU-friendly)"
 	@echo "  train-small     Train ghost-small (55M params, GPU recommended)"
@@ -81,6 +85,31 @@ data-diversity: data-mitre data-capec
 
 data-rebuild:
 	$(PYTHON) scripts/rebuild_corpus.py
+
+# --- generalist pivot: de-specialize the corpus beyond cybersecurity ---
+
+# Pull the general-domain sources that balance out the cybersec-heavy corpus.
+# Long-running (FineWeb-Edu / code corpus are the slow ones); run on the Mac.
+data-general:
+	$(PYTHON) scripts/collect_fineweb_edu.py --max-records 150000
+	$(PYTHON) scripts/collect_math_reasoning.py --max-records 60000
+	$(PYTHON) scripts/collect_wikipedia_general.py --max-records 50000 --sample-every 1
+	$(PYTHON) scripts/collect_instruction.py
+	$(PYTHON) scripts/collect_code_corpus.py
+
+# Re-merge into a generalist mix: cybersec capped below general web/code/math/knowledge.
+data-rebuild-generalist:
+	$(PYTHON) scripts/rebuild_corpus.py --profile generalist
+
+# Fetch the non-cybersec MCQ rulers (ARC-Easy/Challenge, OpenBookQA).
+data-general-bench:
+	$(PYTHON) scripts/fetch_general_mcq.py
+
+# Score a checkpoint on the general benches (general framing, not cybersec).
+# Usage: make eval-general CKPT=checkpoints/<run>/best_model.pt LABEL=<name>
+eval-general: data-general-bench
+	$(PYTHON) scripts/eval_text_scoring.py --checkpoint $(CKPT) --label $(LABEL) \
+		--bench-jsonl data/raw/general_mcq_bench.jsonl --prompt-style general
 
 data-audit:
 	$(PYTHON) scripts/data_audit.py --plot

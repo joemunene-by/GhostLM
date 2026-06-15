@@ -1358,6 +1358,41 @@ The Unreleased section below tracks both.
 The next release will land whatever follow-ups arrive before the
 ghost-base v1.0 GPU run.
 
+### Generalist pivot (2026-06) — de-specializing beyond cybersecurity
+
+GhostLM is broadening from a cybersecurity-only model into a small
+**generalist** that keeps cybersecurity as its deepest specialty. The
+corpus had been ~65-73% cybersec text, which is what makes the model a
+"cybersec parrot"; this is the rebalance away from that.
+
+- **Domain-budget corpus rebalancer.** `data/collect.py` adds
+  `domain_of` / `SOURCE_DOMAINS` (maps each source to `cybersec`,
+  `general_web`, `code`, `math`, `knowledge`, `instruction`, `other`)
+  and `rebalance_by_domain`, which deterministically hash-subsamples each
+  budgeted domain to a token cap, the `--max-cve-tokens` mechanism
+  generalized from one source to a whole domain. `merge_datasets` gains a
+  `domain_token_budgets` arg and prints a **Domain mix** report.
+- **Corpus profiles.** `scripts/rebuild_corpus.py` adds `--profile`
+  (`cybersec` default / `generalist` / `balanced`) and repeatable
+  `--domain-budget DOMAIN=TOKENS` (k/m/b suffixes). `generalist` caps
+  cybersec below general web so code/math/knowledge carry real share.
+- **New general-domain collector.** `scripts/collect_wikipedia_general.py`
+  streams a broad (non-cyber) Wikipedia sample for the `knowledge`
+  domain, directly targeting the free-form fact-recall floor. FineWeb-Edu
+  and open-web-math collector targets raised (150K / 60K records).
+- **Non-cybersec eval harness.** `scripts/fetch_general_mcq.py` pulls
+  ARC-Easy, ARC-Challenge, and OpenBookQA into the MCQ schema, and
+  `scripts/eval_text_scoring.py` gains `--prompt-style general` (records
+  tagged `"domain": "general"` auto-drop the cybersec framing) so the
+  generalist pivot is measurable, not assumed. The eval suite had been
+  100% cybersec.
+- **SFT persona reframe.** `data/raw/chat/small_talk.jsonl` no longer
+  bills GhostLM as a cybersec-only specialist ("not a general
+  assistant"); `data/raw/chat/general_knowledge.jsonl` broadened across
+  history, reasoning, philosophy, science, and cross-domain identity.
+- Tests: `tests/test_corpus_rebalance.py`, `tests/test_general_eval.py`.
+  Full detail in [CORPUS.md](CORPUS.md#generalist-corpus-profile-de-specialization).
+
 - **GPU-run runbook.** `docs/ghost_base_gpu_runbook.md` is the
   start-to-finish script for the rented-box run: provision, corpus
   rebuild on the box (the Mac no longer holds the seven big raw

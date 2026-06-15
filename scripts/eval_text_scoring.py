@@ -55,6 +55,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--bench-jsonl", default=None,
                    help="Path to a JSONL file with {question, choices, answer} "
                         "records. If unset, uses CTIBench MCQ.")
+    p.add_argument("--prompt-style", choices=["cybersec", "general"], default="cybersec",
+                   help="Instruction framing. 'cybersec' (default) keeps the historical "
+                        "wording so CTIBench/SecQA numbers stay comparable; 'general' drops "
+                        "the cybersec framing for general benches (ARC, OpenBookQA). A "
+                        "record-level 'domain':'general' also forces general framing.")
     return p.parse_args()
 
 
@@ -73,15 +78,27 @@ def load_jsonl_mcq(path: str) -> List[Dict]:
     return out
 
 
-def format_prompt(record: Dict, tokenizer: GhostTokenizer, *, chat_format: bool) -> List[int]:
+def format_prompt(record: Dict, tokenizer: GhostTokenizer, *, chat_format: bool,
+                  prompt_style: str = "cybersec") -> List[int]:
     """Build the prompt token ids that end with 'Answer:' (no letter yet).
+
+    ``prompt_style`` controls the instruction framing: ``cybersec`` (the
+    historical wording, kept so CTIBench/SecQA numbers stay comparable) or
+    ``general`` for non-cybersec benches (ARC, OpenBookQA, ...), where
+    asking a science/commonsense question as a "cybersecurity question"
+    would mis-frame it. A record-level ``"domain": "general"`` forces the
+    general framing regardless of the flag.
     Same as run_bench.py format_mcq_prompt without RAG."""
     question = record["question"]
     choices = record["choices"]
     body_lines = [f"{k}) {v}" for k, v in choices.items() if v]
+    if record.get("domain") == "general" or prompt_style == "general":
+        lead = "Pick the best answer (A, B, C, or D) for this multiple-choice question."
+    else:
+        lead = ("Pick the best answer (A, B, C, or D) for this multiple-choice "
+                "cybersecurity question.")
     body = (
-        f"Pick the best answer (A, B, C, or D) for this multiple-choice "
-        f"cybersecurity question.\n\nQuestion: {question}\n\n"
+        f"{lead}\n\nQuestion: {question}\n\n"
         + "\n".join(body_lines)
         + "\n\nAnswer:"
     )
@@ -158,6 +175,7 @@ def evaluate_one_perm(
     score_mode: str,
     perm: List[str],
     progress_label: str,
+    prompt_style: str = "cybersec",
 ) -> Tuple[int, int, Counter, List[int]]:
     """Score every record under one permutation.
 
@@ -175,7 +193,8 @@ def evaluate_one_perm(
             per_q.append(-1)
             continue
         permuted_rec, new_gold = permute_record(rec, perm)
-        prompt_ids = format_prompt(permuted_rec, tokenizer, chat_format=chat_format)
+        prompt_ids = format_prompt(permuted_rec, tokenizer, chat_format=chat_format,
+                                   prompt_style=prompt_style)
 
         scores: Dict[str, float] = {}
         for letter in CHOICES:
@@ -249,6 +268,7 @@ def main() -> None:
             chat_format=chat_format, device=args.device,
             score_mode=args.score_mode, perm=perm,
             progress_label=f"{args.label} perm{j}",
+            prompt_style=args.prompt_style,
         )
         per_perm_results.append((correct, total, pred_dist, per_q))
 

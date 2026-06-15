@@ -6,6 +6,56 @@ This document is the working record of what's currently in the corpus, what's kn
 
 ---
 
+## Generalist corpus profile (de-specialization)
+
+**Goal (2026-06):** broaden GhostLM from a cybersecurity-only model into a small generalist that keeps cybersecurity as its deepest specialty. Historically the corpus was ~65-73% cybersec text; that is what makes the model a "cybersec parrot" and caps its general usefulness. The fix is a corpus rebalance, not a rewrite: cybersec stays the largest single specialty, but it stops owning the token budget.
+
+**Mechanism.** `data/collect.py` maps every record `source` to a coarse training **domain** (`domain_of`, table `SOURCE_DOMAINS`): `cybersec`, `general_web`, `code`, `math`, `knowledge`, `instruction`, `other`. `rebalance_by_domain(records, domain_token_budgets)` then deterministically hash-subsamples each budgeted domain down to a token cap, the same content-hash subsample used for `--max-cve-tokens`, generalized from one source to a whole domain. Domains without a budget pass through whole. The merge prints a **Domain mix** report (tokens + share per domain) so the realized balance is visible.
+
+**Profiles** (`scripts/rebuild_corpus.py`, `CORPUS_PROFILES`):
+
+| Profile | Effect |
+|---|---|
+| `cybersec` (default) | No domain caps; legacy behaviour. Use `--max-cve-tokens` alone. |
+| `generalist` | Caps `cybersec` below `general_web`; brings code/math/knowledge to real share. The de-specialization lever. |
+| `balanced` | Every domain capped to a similar budget for an even mix. |
+
+```bash
+# Rebalance an existing raw/ pull into a generalist mix and read the Domain mix report:
+python3 scripts/rebuild_corpus.py --profile generalist
+# Override a single domain's cap (repeatable, accepts k/m/b suffixes):
+python3 scripts/rebuild_corpus.py --profile generalist --domain-budget cybersec=100m
+```
+
+Budgets are token *caps*, not exact shares: a domain contributes `min(collected, cap)` tokens, so the achieved mix depends on how much each collector pulled. Run a collection pass first, then rebuild and read the report.
+
+**First realized mix (2026-06-16, preview).** A `--profile generalist` rebuild over the first general-domain pull (FineWeb-Edu 78K, open-web-math 60K, broad Wikipedia 50K) against the on-disk cybersec sources produced 195,850 train / 10,248 val records (leakage check 0):
+
+| Domain | ~Tokens | Share |
+|---|---:|---:|
+| general_web | 75.7M | 40.0% |
+| knowledge | 45.0M | 23.8% |
+| math | 45.0M | 23.8% |
+| **cybersec** | 23.3M | **12.3%** |
+| code | pending pull | — |
+
+The headline: cybersec dropped from ~65-73% of the corpus to a minority domain. This snapshot under-represents cybersec (the large PRIMUS/NVD-full sources weren't on disk; with them present the `cybersec` cap of 120M binds) and excludes code (the `collect_code_corpus.py` pull was still running). The final v1.0 generalist corpus re-runs this once FineWeb-Edu reaches target and the code pull lands.
+
+**New general-domain collectors** feeding the non-cybersec domains:
+
+| Domain | Collector | Source / license |
+|---|---|---|
+| `general_web` | `scripts/collect_fineweb_edu.py` (target raised to 150K records) | HuggingFaceFW/fineweb-edu, ODC-BY |
+| `math` | `scripts/collect_math_reasoning.py` (target 60K records) | open-web-math/open-web-math, ODC-BY |
+| `code` | `scripts/collect_code_corpus.py` (120 permissive repos / 15 languages) | per-repo SPDX permissive allowlist |
+| `knowledge` | **NEW** `scripts/collect_wikipedia_general.py` | wikimedia/wikipedia (broad, not the cyber BFS slice), CC BY-SA 4.0 |
+
+**Measuring generalist capability.** The eval suite was 100% cybersec (CTIBench, SecQA, in-repo CTF, cybersec fact-recall). `scripts/fetch_general_mcq.py` adds non-cybersec rulers (ARC-Easy, ARC-Challenge, OpenBookQA), and `scripts/eval_text_scoring.py --prompt-style general` scores them with the same debiased multi-permutation text-scoring methodology (records tagged `"domain": "general"` auto-drop the cybersec framing). This is how the pivot is verified rather than assumed.
+
+The SFT persona was reframed in the same pass: `data/raw/chat/small_talk.jsonl` no longer introduces GhostLM as a cybersec-only specialist ("not a general assistant"), and `data/raw/chat/general_knowledge.jsonl` was broadened across history, reasoning, philosophy, science, and cross-domain identity.
+
+---
+
 ## v1.0 corpus, post-code-pull rebuild (2026-05-09, v0.9.32: 768,741 train / 40,429 val records, ~422M tokens)
 
 Per-source breakdown of `data/processed/train.jsonl` after the v0.9.31 code corpus was folded in via `scripts/rebuild_corpus.py`:
