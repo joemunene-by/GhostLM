@@ -83,6 +83,33 @@ def _load_records(spec: BenchSpec):
     return recs
 
 
+def bootstrap_ci(question_accs: List[float], n_resamples: int = 2000,
+                 seed: int = 0, alpha: float = 0.05) -> tuple:
+    """Percentile bootstrap CI on mean accuracy, resampling over questions.
+
+    ``question_accs`` is per-question accuracy (mean correctness across
+    permutations). Returns ``(lo, hi)`` as percentages at the (1-alpha)
+    level. Resampling questions (not individual perm outcomes) is the
+    honest unit, the questions are the sample, the permutations are just
+    de-biasing. Pure and deterministic given the seed.
+    """
+    import random as _random
+    if not question_accs:
+        return (0.0, 0.0)
+    rng = _random.Random(seed)
+    n = len(question_accs)
+    means = []
+    for _ in range(n_resamples):
+        s = 0.0
+        for _ in range(n):
+            s += question_accs[rng.randrange(n)]
+        means.append(s / n)
+    means.sort()
+    lo = means[int(alpha / 2 * n_resamples)]
+    hi = means[int((1 - alpha / 2) * n_resamples) - 1]
+    return (100 * lo, 100 * hi)
+
+
 def score_checkpoint(args) -> Dict[str, Dict]:
     """Score the checkpoint on every bench; return {key: {acc, n, perms}}."""
     import torch
@@ -125,35 +152,53 @@ def score_checkpoint(args) -> Dict[str, Dict]:
         if not recs:
             continue
         accs = []
+        per_q_sum = [0.0] * len(recs)   # summed correctness per question
+        per_q_cnt = [0] * len(recs)     # scored permutations per question
         for j, perm in enumerate(perms):
-            correct, total, _, _ = evaluate_one_perm(
+            correct, total, _, per_q = evaluate_one_perm(
                 model, tokenizer, recs, chat_format=chat_format, device=args.device,
                 score_mode="per-token-avg", perm=perm,
                 progress_label=f"{args.label}:{spec.key}", prompt_style=spec.prompt_style)
             if total:
                 accs.append(correct / total)
+            for i, c in enumerate(per_q):
+                if c >= 0:
+                    per_q_sum[i] += c
+                    per_q_cnt[i] += 1
         if accs:
             mean = 100 * sum(accs) / len(accs)
-            results[spec.key] = {"acc": mean, "n": len(recs), "perms": len(accs),
-                                 "label": spec.label}
-            print(f"  {spec.label}: {mean:.1f}% (n={len(recs)}, {len(accs)} perms)")
+            q_accs = [per_q_sum[i] / per_q_cnt[i] for i in range(len(recs)) if per_q_cnt[i] > 0]
+            lo, hi = bootstrap_ci(q_accs, seed=args.seed)
+            results[spec.key] = {"acc": mean, "ci": (lo, hi), "n": len(q_accs),
+                                 "perms": len(accs), "label": spec.label}
+            print(f"  {spec.label}: {mean:.1f}% (95% CI {lo:.1f}-{hi:.1f}, "
+                  f"n={len(q_accs)}, {len(accs)} perms)")
     return results
 
 
 def render_scorecard(label: str, results: Dict[str, Dict]) -> str:
     lines = [f"# GhostLM scorecard — {label}", "",
-             "Debiased multi-permutation text-scoring. Peer numbers are "
-             "published zero-shot references for the small-model class "
-             "(different harnesses; context, not exact comparison).", "",
-             "| Benchmark | n | GhostLM | Random | Competitive band | Peer reference |",
-             "|---|---:|---:|---:|---|---|"]
+             "Debiased multi-permutation text-scoring; 95% CI is a percentile "
+             "bootstrap over questions. A score whose CI lower bound is above "
+             "the 25% random baseline is significantly better than chance "
+             "(marked +). Peer numbers are published zero-shot references for "
+             "the small-model class (different harnesses; context, not exact "
+             "comparison).", "",
+             "| Benchmark | n | GhostLM | 95% CI | vs random | Competitive band | Peer reference |",
+             "|---|---:|---:|---:|:--:|---|---|"]
     for key, ref in PEER_REFERENCE.items():
         r = results.get(key)
-        gh = f"**{r['acc']:.1f}%**" if r else "—"
-        n = r["n"] if r else "—"
+        if r:
+            gh = f"**{r['acc']:.1f}%**"
+            lo, hi = r["ci"]
+            ci = f"{lo:.1f}-{hi:.1f}"
+            sig = "+" if lo > ref["random"] else ("~" if hi > ref["random"] else "-")
+            n = r["n"]
+        else:
+            gh, ci, sig, n = "—", "—", "", "—"
         band = COMPETITIVE_BAND.get(key, "")
         peers = ", ".join(f"{k}={v:.1f}" for k, v in ref.items() if k != "random" and v is not None)
-        lines.append(f"| {key} | {n} | {gh} | {ref['random']:.0f}% | {band} | {peers or '—'} |")
+        lines.append(f"| {key} | {n} | {gh} | {ci} | {sig} | {band} | {peers or '—'} |")
     return "\n".join(lines) + "\n"
 
 
