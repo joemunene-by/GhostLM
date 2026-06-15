@@ -1,6 +1,6 @@
 PYTHON ?= python3
 
-.PHONY: all install test lint pretokenize data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-exploitdb data-exploitdb-audit data-arxiv-full data-diversity data-rebuild data-general data-rebuild-generalist data-general-bench eval-general data-audit train-tiny train-small generate chat demo demo-compare benchmark eval-security eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security-all-phases eval-compare-phases eval-perplexity-by-source plot export clean help
+.PHONY: all install test lint pretokenize data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-exploitdb data-exploitdb-audit data-arxiv-full data-diversity data-rebuild data-general data-rebuild-generalist data-general-bench eval-general scorecard data-audit train-tiny train-small generate chat demo demo-compare benchmark eval-security eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security-all-phases eval-compare-phases eval-perplexity-by-source plot export clean help
 
 help:
 	@echo "GhostLM — Cybersecurity Language Model"
@@ -110,6 +110,12 @@ data-general-bench:
 eval-general: data-general-bench
 	$(PYTHON) scripts/eval_text_scoring.py --checkpoint $(CKPT) --label $(LABEL) \
 		--bench-jsonl data/raw/general_mcq_bench.jsonl --prompt-style general
+
+# Full generalist scorecard: all benches + peer baselines + bootstrap CIs.
+# Usage: make scorecard CKPT=checkpoints/<run>/best_model.pt LABEL=<name>
+scorecard: data-general-bench
+	$(PYTHON) scripts/scorecard.py --checkpoint $(CKPT) --label $(LABEL) \
+		--device $(or $(DEVICE),mps) --out docs/scorecard.md
 
 data-audit:
 	$(PYTHON) scripts/data_audit.py --plot
