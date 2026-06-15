@@ -2,6 +2,16 @@
 
 Each row is one (checkpoint × benchmark) score. Updated by `scripts/run_bench.py`.
 
+## Generalist evidence (v0.10+) — in progress
+
+The generalist pivot is measured with `scripts/scorecard.py`, which scores a checkpoint on the general rulers (ARC-Easy, ARC-Challenge, OpenBookQA) alongside the retained cybersec benches, using the same debiased multi-permutation text-scoring, and places each number next to published peer small-models.
+
+**Corpus de-specialization (achieved, 2026-06-16):** the v0.10 generalist corpus is 258.9M tokens, domain mix general_web 51.9% / knowledge 16.7% / math 16.7% / cybersec 8.6% / code 5.1% / instruction 1.1%. Cybersec fell from ~65-73% of tokens to 8.6%. Benchmark decontamination: 0.004% of records contaminated.
+
+**Peer reference band (50-360M class, published zero-shot %):** random 25; Pythia-160M ARC-Easy 43.5 / ARC-Challenge 18.8; ~111M OpenBookQA 27.8 / ARC-Easy 34.8; SmolLM2-360M ARC-Challenge 36.6. "Competitive for 50-100M": ARC-Easy 35-45%, OpenBookQA 25-35%.
+
+**First evidence run:** ghost-small-v0.5 (~45M) trained from scratch on the decontaminated generalist corpus with the modern recipe (intra-document attention masking + multi-stage domain curriculum), MPS. Scorecard numbers land here when the run completes.
+
 The first table preserves the **single-order** numbers (one fixed option ordering, log-prob of each letter token). These are the numbers in v0.5.0's release notes. As of v0.6.0 we know they're inflated by CTIBench's 15/32/37/15 gold-letter distribution combined with chat-v3's 98.6% C-emission, so a model that always emits "C" scores 37.1% on this metric. The single-order numbers stay here for historical comparison; the **debiased text-scoring** table below is the right read of real capability. See `docs/ctibench_bias_finding.md`.
 
 ## Single-order (biased)
