@@ -75,11 +75,13 @@ def default_benches(raw_dir: Path) -> List[BenchSpec]:
     ]
 
 
-def _load_records(spec: BenchSpec):
+def _load_records(spec: BenchSpec, limit: Optional[int] = None):
     from scripts.eval_text_scoring import load_jsonl_mcq
     recs = load_jsonl_mcq(spec.path)
     if spec.bench_filter:
         recs = [r for r in recs if r.get("bench") == spec.bench_filter]
+    if limit:
+        recs = recs[:limit]
     return recs
 
 
@@ -148,7 +150,7 @@ def score_checkpoint(args) -> Dict[str, Dict]:
     for spec in default_benches(Path(args.raw_dir)):
         if not Path(spec.path).exists():
             continue
-        recs = _load_records(spec)
+        recs = _load_records(spec, limit=args.limit_per_bench)
         if not recs:
             continue
         accs = []
@@ -210,6 +212,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--device", default="mps")
     p.add_argument("--raw-dir", default="data/raw")
     p.add_argument("--n-permutations", type=int, default=4)
+    p.add_argument("--limit-per-bench", type=int, default=None,
+                   help="Cap questions per bench (cheap mid-run reads; omit for full).")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--out", default="docs/scorecard.md")
     return p.parse_args()

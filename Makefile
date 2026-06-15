@@ -3,7 +3,7 @@ PYTHON ?= python3
 .PHONY: all install test lint pretokenize data data-nvd-full data-ctf-repos data-ctftime data-mitre data-capec data-exploitdb data-exploitdb-audit data-arxiv-full data-diversity data-rebuild data-general data-rebuild-generalist data-general-bench eval-general scorecard data-audit train-tiny train-small generate chat demo demo-compare benchmark eval-security eval-security-phase1 eval-security-phase2 eval-security-phase3 eval-security-all-phases eval-compare-phases eval-perplexity-by-source plot export clean help
 
 help:
-	@echo "GhostLM — Cybersecurity Language Model"
+	@echo "GhostLM — small generalist language model (deep in cybersecurity)"
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "  install         Install all dependencies"
@@ -25,6 +25,7 @@ help:
 	@echo "  data-rebuild-generalist  Re-merge into a generalist mix (cybersec capped)"
 	@echo "  data-general-bench       Fetch general MCQ rulers (ARC, OpenBookQA)"
 	@echo "  eval-general    Score a checkpoint on general benches (CKPT=, LABEL=)"
+	@echo "  scorecard       Full generalist scorecard vs peers + CIs (CKPT=, LABEL=)"
 	@echo "  data-audit      Run pre-training corpus diagnostics + chart"
 	@echo "  train-tiny      Train ghost-tiny (14.7M params, CPU-friendly)"
 	@echo "  train-small     Train ghost-small (55M params, GPU recommended)"
