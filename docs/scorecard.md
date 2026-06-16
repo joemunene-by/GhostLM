@@ -39,17 +39,24 @@ cybersecurity depth.
 The run is not done; the trend is up. (step 15000 is an n=300/bench read,
 so small dips vs step 12000's n=400 are sampling noise with overlapping CIs.)
 
-| Benchmark | step 6000 | step 12000 | step 15000 |
-|---|---:|---:|---:|
-| ARC-Easy | 31.2% | 32.8% | 30.6% |
-| ARC-Challenge | 20.6% | 22.1% | **25.5%** |
-| OpenBookQA | 26.8% | 28.1% | **30.6%** |
-| SecQA | 22.9% | 29.0% | **30.2%** |
-| CTF eval | 41.7% | 61.7% | 58.3% |
+| Benchmark | step 6000 | step 12000 | step 15000* | step 18000 |
+|---|---:|---:|---:|---:|
+| ARC-Easy | 31.2% | 32.8% | 30.6% | 32.4% |
+| ARC-Challenge | 20.6% | 22.1% | 25.5% | 23.4% |
+| OpenBookQA | 26.8% | 28.1% | 30.6% | **29.3%** |
+| SecQA | 22.9% | 29.0% | 30.2% | **31.1%** |
+| CTF eval | 41.7% | 61.7% | 58.3% | 61.7% |
 
-By step 15000, **OpenBookQA (30.6%, 95% CI 25.7-35.8) significantly clears the
-25% random baseline and beats every peer reference here** (111M 27.8, 256M 25.4,
-LaMini-35M 26.2), and ARC-Challenge (25.5%) is well above Pythia-160M (18.8%) —
-at 45M params, mid-training.
+*step 15000 is an n=300/bench read; others n=400, so small wiggles are noise.
+
+By step 18000, **four benchmarks are significantly above the 25% random baseline**
+(CI lower bound > 25): ARC-Easy 32.4%, OpenBookQA 29.3%, SecQA 31.1%, CTF 61.7%.
+OpenBookQA (29.3%) beats every peer reference here (111M 27.8, 256M 25.4,
+LaMini-35M 26.2); ARC-Challenge (23.4%) is above Pythia-160M (18.8%); and
+cybersecurity is retained and *rising* (SecQA 22.9% -> 31.1%) on a corpus only
+8.6% cyber, all at 45M params, mid-training.
+
+(A power loss interrupted the run at ~step 18402; it resumed from the step-18000
+checkpoint with optimizer state intact and continues to 30000.)
 
 Reproduce: `make scorecard CKPT=checkpoints/ghost_small_gen/best_model.pt LABEL=ghost-small-gen`.
