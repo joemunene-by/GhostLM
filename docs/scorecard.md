@@ -39,15 +39,21 @@ cybersecurity depth.
 The run is not done; the trend is up. (step 15000 is an n=300/bench read,
 so small dips vs step 12000's n=400 are sampling noise with overlapping CIs.)
 
-| Benchmark | step 6000 | step 12000 | step 15000* | step 18000 |
-|---|---:|---:|---:|---:|
-| ARC-Easy | 31.2% | 32.8% | 30.6% | 32.4% |
-| ARC-Challenge | 20.6% | 22.1% | 25.5% | 23.4% |
-| OpenBookQA | 26.8% | 28.1% | 30.6% | **29.3%** |
-| SecQA | 22.9% | 29.0% | 30.2% | **31.1%** |
-| CTF eval | 41.7% | 61.7% | 58.3% | 61.7% |
+| Benchmark | step 6000 | step 12000 | step 15000* | step 18000 | step 21000 |
+|---|---:|---:|---:|---:|---:|
+| ARC-Easy | 31.2% | 32.8% | 30.6% | 32.4% | **32.5%** |
+| ARC-Challenge | 20.6% | 22.1% | 25.5% | 23.4% | **23.6%** |
+| OpenBookQA | 26.8% | 28.1% | 30.6% | 29.3% | **32.0%** |
+| SecQA | 22.9% | 29.0% | 30.2% | 31.1% | **35.0%** |
+| CTF eval | 41.7% | 61.7% | 58.3% | 61.7% | **63.3%** |
 
 *step 15000 is an n=300/bench read; others n=400, so small wiggles are noise.
+
+At step 21000 (73% trained) all four of ARC-Easy (32.5%), OpenBookQA (32.0%),
+SecQA (35.0%), CTF (63.3%) are significantly above the 25% random baseline.
+Cybersecurity keeps rising (SecQA 22.9% -> 35.0%) even though it is only 8.6%
+of the corpus, while general knowledge climbs in parallel (OpenBookQA 26.8% ->
+32.0%) — the generalist pivot adds breadth without trading away the specialty.
 
 By step 18000, **four benchmarks are significantly above the 25% random baseline**
 (CI lower bound > 25): ARC-Easy 32.4%, OpenBookQA 29.3%, SecQA 31.1%, CTF 61.7%.
