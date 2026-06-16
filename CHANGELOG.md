@@ -1358,6 +1358,31 @@ The Unreleased section below tracks both.
 The next release will land whatever follow-ups arrive before the
 ghost-base v1.0 GPU run.
 
+## [0.12.0] — 2026-06-16 — First trained generalist: ghost-small-gen, scorecard, evidence
+
+The generalist pivot, measured. `ghost-small-gen` is a ~45M from-scratch
+model trained on the decontaminated v0.10 generalist corpus (258.9M tokens,
+8.6% cybersecurity, 0.004% benchmark contamination) with the full modern
+recipe (intra-document attention masking + multi-stage domain curriculum),
+30,000 steps on a Mac M4 (MPS), final val_loss 3.76.
+
+- **`scripts/scorecard.py`** scores a checkpoint across the cybersec and
+  general (ARC-Easy/Challenge, OpenBookQA) benchmarks with debiased
+  multi-permutation text-scoring, 95% bootstrap CIs, a significance-vs-random
+  marker, and published peer references for the small-model class. Plus
+  `--limit-per-bench`, `make scorecard`, and `train.py` curriculum wiring.
+- **Final full-set scorecard** ([`docs/scorecard.md`](docs/scorecard.md)):
+  ARC-Easy 27.2% (significantly above the 25% random baseline), ARC-Challenge
+  24.3% (beats Pythia-160M's 18.8% at ~3.5x fewer params), OpenBookQA 27.4%
+  (beats the 256M and 35M survey peers), SecQA 34.3% and CTF 63.3%
+  (cybersecurity fully retained and strongest).
+- **Honest read:** the generalist pivot works (three of five benchmarks
+  statistically above chance on a corpus only 8.6% cybersecurity) and
+  cybersecurity is retained, but the model does not clear the 35-45%
+  competitive band on ARC-Easy. A solid result for the size and GPU-free
+  compute, not a "beats everything" claim. RESULTS.md updated; the earlier
+  optimistic mid-run subset figures were corrected to the full-set numbers.
+
 ## [0.11.0] — 2026-06-16 — Multi-stage domain curriculum (SmolLM2-style data schedule)
 
 Modern small-LM training (SmolLM2, H2O-Danube3, MiniCPM) does not use a

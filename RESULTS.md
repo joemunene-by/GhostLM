@@ -10,17 +10,17 @@ The generalist pivot is measured with `scripts/scorecard.py`, which scores a che
 
 **Peer reference band (50-360M class, published zero-shot %):** random 25; Pythia-160M ARC-Easy 43.5 / ARC-Challenge 18.8; ~111M OpenBookQA 27.8 / ARC-Easy 34.8; SmolLM2-360M ARC-Challenge 36.6. "Competitive for 50-100M": ARC-Easy 35-45%, OpenBookQA 25-35%.
 
-**First evidence run (ghost-small-gen, ~45M, MPS, mid-training step 12000 of 30000):** trained from scratch on the decontaminated generalist corpus with intra-document attention masking + multi-stage domain curriculum. Full scorecard in [`docs/scorecard.md`](docs/scorecard.md).
+**ghost-small-gen (~45M, from scratch, MPS, 30,000 steps, final val_loss 3.76):** trained on the decontaminated generalist corpus with intra-document attention masking + multi-stage domain curriculum. Final scorecard on the full benchmark sets (full detail and training progression in [`docs/scorecard.md`](docs/scorecard.md)):
 
-| Benchmark | n | GhostLM (45M) | 95% CI | Peer reference |
-|---|---:|---:|---:|---|
-| ARC-Easy | 400 | **32.8%** | 28.7-37.2 | Pythia-160M 43.5, 111M 34.8, 256M 37.6 |
-| ARC-Challenge | 400 | **22.1%** | 18.4-25.8 | Pythia-160M 18.8, SmolLM2-360M 36.6 |
-| OpenBookQA | 400 | **28.1%** | 23.9-32.2 | 111M 27.8, 256M 25.4, LaMini-35M 26.2 |
-| SecQA (cyber) | 210 | **29.0%** | 23.2-35.0 | retention |
-| CTF eval (cyber) | 30 | **61.7%** | 45.0-77.5 | retention |
+| Benchmark | n | GhostLM (45M) | 95% CI | vs random | Peer reference |
+|---|---:|---:|---:|:--:|---|
+| ARC-Easy | 2365 | **27.2%** | 25.4-28.9 | + | Pythia-160M 43.5, 111M 34.8, 256M 37.6 |
+| ARC-Challenge | 1165 | **24.3%** | 22.1-26.6 | ~ | Pythia-160M 18.8, SmolLM2-360M 36.6 |
+| OpenBookQA | 500 | **27.4%** | 23.7-31.1 | ~ | 111M 27.8, 256M 25.4, LaMini-35M 26.2 |
+| SecQA (cyber) | 210 | **34.3%** | 28.5-40.6 | + | retention |
+| CTF eval (cyber) | 30 | **63.3%** | 46.7-80.0 | + | retention |
 
-Outstanding-for-size signals at 45M, still training: ARC-Challenge (22.1%) **beats Pythia-160M (18.8%)**; OpenBookQA (28.1%) sits in the competitive band above 256M and 35M peers; ARC-Easy (32.8%) is significantly above the 25% random baseline and climbing toward the 35-45% band; and cybersecurity is **retained** (CTF 61.7%, SecQA 29.0%) despite cybersec being only 8.6% of the corpus. Every metric rose from step 6000 -> 12000; final numbers land when the 30k-step run completes.
+Honest read at 45M from scratch: the generalist pivot worked, three of five benchmarks are statistically above the 25% random baseline on the full sets, cybersecurity is fully retained and strongest (SecQA 34.3%, CTF 63.3%) on a corpus only 8.6% cybersecurity, and the model is competitive with its size class (OpenBookQA beats the 256M and 35M peers; ARC-Challenge beats Pythia-160M, a ~3.5x larger model). It does not clear the 35-45% competitive band on ARC-Easy (27.2%): above chance, not outstanding there. (Earlier mid-run figures were scored on an easier 400-question subset and were optimistic; these full-set numbers are the honest measure.)
 
 The first table preserves the **single-order** numbers (one fixed option ordering, log-prob of each letter token). These are the numbers in v0.5.0's release notes. As of v0.6.0 we know they're inflated by CTIBench's 15/32/37/15 gold-letter distribution combined with chat-v3's 98.6% C-emission, so a model that always emits "C" scores 37.1% on this metric. The single-order numbers stay here for historical comparison; the **debiased text-scoring** table below is the right read of real capability. See `docs/ctibench_bias_finding.md`.
 
