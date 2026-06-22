@@ -24,7 +24,7 @@ ghost-3B → ghost-7B.**
 | Code — understanding | partial | `code_explain/security/write` | structured signal | strong at 360M+ |
 | Code — generation | floor | HumanEval/MBPP (to wire) | ~0 at this scale | needs 1B+ |
 | Cybersecurity | SecQA 34.3% / CTF 63.3% | `secqa`, `ctf_eval_bench` | **well above chance** | the standout; expert at scale |
-| Agentic / tool-use | format-level | `eval_agent` (strict/soft) | structure learned | reliable at 7B |
+| Agentic / tool-use | pretrain floor 0%/8.8% | `eval_agent` (strict/soft) | tool-use SFT required | reliable at 7B |
 | Instruction / format | partial | `eval_format_compliance` | structured outputs | solid at 1B+ |
 | Retrieval / RAG | system-level | `eval_rag_recall` | closes fact gap now | force-multiplier at every rung |
 
@@ -91,13 +91,17 @@ larger model. At 1B–7B with focus retained, expert-class on
 CTIBench/SecQA/CWE/MITRE — a domain-leading small model, not just competent.
 
 ### Agentic / tool-use
-**Today:** the structure is learned — the GhostAgent runtime + tool-use SFT
-(bets 1/9, provenance `<|cite|>` traces) teach the model to emit
-`<|tool_call|>` shapes; `eval_agent.py` scores strict/soft substring pass
-with a model-only vs model-with-tools paired baseline.
-**Ceiling & why:** *reliable* multi-step tool orchestration (pick the right
-tool, read the result, decide the next call) is an emergent-at-scale ability;
-45–81M gets the format, not robust planning.
+**Measured (control):** the `ghost-small-gen` *pretrain* (no tool-use SFT)
+scores **0/15 strict, 8.8% soft, mean iters 1.00** on `provenance_eval` — it
+never dispatches a tool. This is the honest floor, and it empirically
+confirms the thesis: **agentic ability is taught by the tool-use SFT, not the
+pretrain.** A tool-use-tuned chat checkpoint is required to score above floor
+(the GhostAgent runtime + bet-1/bet-9 SFT teach the `<|tool_call|>` /
+`<|cite|>` shapes); those weights are not currently on disk, so the tuned
+number is pending a re-tune.
+**Ceiling & why:** even with SFT, *reliable* multi-step orchestration (pick
+the right tool, read the result, decide the next call) is emergent-at-scale;
+45–81M learns the format, not robust planning.
 **Projection:** ~7B is the rough threshold where function-calling and
 multi-step agentic loops become dependable — the real payoff for the ghost
 ecosystem (drive **ghostloop**, call the security suite, RAG-then-act). The
