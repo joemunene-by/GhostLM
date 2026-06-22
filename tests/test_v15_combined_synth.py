@@ -36,6 +36,7 @@ def test_synth_files_complete():
         "synth_protocol_fields.jsonl",
         "synth_code_explain.jsonl",
         "synth_code_write.jsonl",
+        "synth_code_reasoning.jsonl",
     }
     assert set(m.SYNTH_FILES) == expected
 
@@ -63,6 +64,13 @@ def test_code_write_variants():
     expected = {"pretrain_prose", "write_function", "write_idiomatic",
                 "compare"}
     actual = {k[1] for k in m.CATEGORY_RULES if k[0] == "synth_code_write"}
+    assert actual == expected
+
+
+def test_code_reasoning_variants():
+    m = _load_module()
+    expected = {"prose", "find", "trace", "fix"}
+    actual = {k[1] for k in m.CATEGORY_RULES if k[0] == "synth_code_reasoning"}
     assert actual == expected
 
 
