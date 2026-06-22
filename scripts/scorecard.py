@@ -43,12 +43,14 @@ PEER_REFERENCE: Dict[str, Dict[str, Optional[float]]] = {
     "openbookqa":    {"random": 25.0, "small_111m": 27.8, "small_256m": 25.4, "lamini_35m": 26.2},
     "secqa":         {"random": 25.0},
     "ctf_eval_bench": {"random": 25.0},
+    "math":          {"random": 25.0},
 }
 
 # "Competitive for a 50-100M model" bands, from the survey discussion.
 COMPETITIVE_BAND = {
     "arc_easy": "35-45%", "openbookqa": "25-35%",
     "arc_challenge": ">25%", "secqa": ">25%", "ctf_eval_bench": ">25%",
+    "math": ">25%",
 }
 
 
@@ -72,6 +74,9 @@ def default_benches(raw_dir: Path) -> List[BenchSpec]:
         BenchSpec("secqa", str(raw_dir / "secqa.jsonl"), "cybersec", "SecQA"),
         BenchSpec("ctf_eval_bench", str(raw_dir / "ctf_eval_bench.jsonl"),
                   "cybersec", "CTF eval"),
+        # Math numeracy ruler (scripts/build_math_eval.py); single aggregate row.
+        BenchSpec("math", str(raw_dir / "math_mcq_bench.jsonl"), "general",
+                  "Math (numeracy)"),
     ]
 
 

@@ -6,6 +6,22 @@ Format: [Version] — Date — Description
 
 ---
 
+## [Unreleased] — 2026-06-22 — Capability atlas, math ruler, 7B data plan
+
+### Added
+- **`docs/capability_atlas.md`** — complete per-domain capability map for
+  GhostLM (general, reasoning, math, code, cybersecurity, agentic/tool-use,
+  instruction, RAG) with measured numbers and per-rung projections to 7B.
+- **Math numeracy ruler** — `scripts/build_math_eval.py` generates a
+  deterministic 120-question math MCQ bench; wired into `scripts/scorecard.py`
+  as a permanent row. ghost-small-gen scores **30.8%** (above the 25% floor,
+  consistent across permutations) — the first measured math number.
+- **`scripts/synth_code_reasoning.py`** — code-reasoning / debugging SFT
+  synth (12 bug patterns × 4 variants), filling the gap left by the
+  explain/write/security banks.
+- **`docs/data_scaling_7b.md`** — token targets per domain (~140B for a 7B),
+  sources, and phasing to actually earn the 7B rung.
+
 ## [0.1.0] — 2026-04-06 — Initial Release
 
 ### Added
