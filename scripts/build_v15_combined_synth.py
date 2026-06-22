@@ -123,6 +123,13 @@ CATEGORY_RULES = {
     ("synth_code_write", "write_function"):  "sft",
     ("synth_code_write", "write_idiomatic"): "sft",
     ("synth_code_write", "compare"):         "sft",
+
+    # Code-reasoning / debugging (synth_code_reasoning.py): prose is
+    # pretrain; find / trace / fix are chat-shape SFT.
+    ("synth_code_reasoning", "prose"):  "pretrain",
+    ("synth_code_reasoning", "find"):   "sft",
+    ("synth_code_reasoning", "trace"):  "sft",
+    ("synth_code_reasoning", "fix"):    "sft",
 }
 
 
@@ -137,6 +144,7 @@ SYNTH_FILES = [
     "synth_protocol_fields.jsonl",
     "synth_code_explain.jsonl",
     "synth_code_write.jsonl",
+    "synth_code_reasoning.jsonl",
 ]
 
 
