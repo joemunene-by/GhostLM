@@ -38,6 +38,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 
@@ -321,6 +322,21 @@ def _backend_lookup_cwe(args: Dict[str, Any]) -> Dict[str, Any]:
     return {"cwe_id": cwe, "found": False, "source": "offline_cache"}
 
 
+_RETRIEVER: Any = None
+
+
+def _get_retriever():
+    """Load the hybrid retriever once, if a RAG index exists (GHOSTLM_RAG_DIR or data/rag)."""
+    global _RETRIEVER
+    if _RETRIEVER is None:
+        rag_dir = Path(os.environ.get("GHOSTLM_RAG_DIR", "data/rag"))
+        if not (rag_dir / "index.npy").exists():
+            return None
+        from ghostlm.rag import HybridRetriever
+        _RETRIEVER = HybridRetriever.load(rag_dir)
+    return _RETRIEVER
+
+
 def _backend_rag_retrieve(args: Dict[str, Any]) -> Dict[str, Any]:
     """Retrieve top-K corpus passages by query.
 
@@ -334,6 +350,14 @@ def _backend_rag_retrieve(args: Dict[str, Any]) -> Dict[str, Any]:
     if not query:
         return {"error": "missing required arg 'query'"}
     k = int(args.get("k", 4))
+
+    retriever = _get_retriever()
+    if retriever is not None:
+        passages = retriever.search(query, k=k)
+        for p in passages:
+            p["id"] = f"{p['source']}:{p['ref']}"
+            p["text"] = p["text"][:400]
+        return {"query": query, "passages": passages, "source": "rag_index"}
 
     # Search offline caches by string match for a usable demo.
     passages: List[Dict[str, Any]] = []
