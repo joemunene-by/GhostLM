@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import os
 import sys
 import threading
 import urllib.error
@@ -82,3 +83,49 @@ def test_dashboard_status_and_token_gated_pause(bg):
         assert post("/api/resume", token) == 200 and not sup.PAUSE_FILE.exists()
     finally:
         server.shutdown()
+
+
+def test_backup_uploads_only_changed_files_once_a_day(bg, monkeypatch):
+    sup.LOG_DIR.mkdir()
+    (sup.CKPT_DIR / "best_model.pt").write_text("w1")
+    (sup.LOG_DIR / "training_log.json").write_text("[]")
+    launched = []
+
+    class FakeProc:
+        returncode = 0
+
+        def poll(self):
+            return 0
+
+    def fake_popen(cmd, **kwargs):
+        launched.append(cmd)
+        return FakeProc()
+
+    monkeypatch.setattr(sup.subprocess, "Popen", fake_popen)
+    monkeypatch.setitem(sup.BACKUP, "proc", None)
+    cfg = dict(sup.DEFAULT_CONFIG, backup_repo="user/backup")
+    state = {}
+
+    sup.maybe_backup(cfg, state)
+    assert launched and launched[0][6] == "user/backup"
+    assert {a.split("=")[1] for a in launched[0][7:]} == {"best_model.pt", "training_log.json"}
+
+    sup.maybe_backup(cfg, state)  # upload finished: mtimes recorded, clock reset
+    assert state["last_backup"] and len(launched) == 1
+
+    state["last_backup"] = 0
+    sup.maybe_backup(cfg, state)  # nothing changed since the upload
+    assert len(launched) == 1
+
+    state["last_backup"] = 0
+    (sup.CKPT_DIR / "best_model.pt").write_text("w2")
+
+    os.utime(sup.CKPT_DIR / "best_model.pt", (1, 1))
+    sup.maybe_backup(cfg, state)
+    assert [a.split("=")[1] for a in launched[1][7:]] == ["best_model.pt"]
+
+
+def test_backup_disabled_without_repo(bg, monkeypatch):
+    monkeypatch.setattr(sup.subprocess, "Popen", lambda *a, **k: pytest.fail("should not upload"))
+    monkeypatch.setitem(sup.BACKUP, "proc", None)
+    sup.maybe_backup(dict(sup.DEFAULT_CONFIG), {})

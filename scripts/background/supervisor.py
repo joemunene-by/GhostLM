@@ -68,9 +68,22 @@ DEFAULT_CONFIG = {
     "eval_every_steps": 1500,
     "eval_limit_per_bench": 200,
     "dashboard_port": 8090,
+    # Private Hugging Face repo (e.g. "user/ghost-base-backup") that receives the
+    # weights-only best model and other small artifacts; None disables backups.
+    "backup_repo": None,
+    "backup_every_hours": 24,
 }
 
 LIVE: dict = {"state": "starting"}
+BACKUP: dict = {"proc": None}
+
+UPLOAD_SNIPPET = (
+    "import sys; from huggingface_hub import HfApi; api = HfApi(); repo = sys.argv[1]\n"
+    "for pair in sys.argv[2:]:\n"
+    "    local, remote = pair.split('=', 1)\n"
+    "    api.upload_file(path_or_fileobj=local, path_in_repo=remote, repo_id=repo,\n"
+    "                    commit_message=f'backup {remote}')\n"
+)
 
 
 def now() -> str:
@@ -281,6 +294,52 @@ def average_tail() -> None:
                        cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
 
 
+def backup_files(state: dict) -> list:
+    """Artifacts that changed since their last upload, as local=remote pairs."""
+    candidates = {
+        CKPT_DIR / "best_model.pt": "best_model.pt",
+        CKPT_DIR / "pre_decay.pt": "pre_decay.pt",
+        CKPT_DIR / "averaged.pt": "averaged.pt",
+        LOG_DIR / "training_log.json": "training_log.json",
+        BG / "evals.jsonl": "evals.jsonl",
+        CONFIG: "train_config.json",
+    }
+    uploaded = state.setdefault("backed_up_mtimes", {})
+    pairs = []
+    for local, remote in candidates.items():
+        if local.exists() and uploaded.get(remote) != local.stat().st_mtime:
+            pairs.append((local, remote))
+    return pairs
+
+
+def maybe_backup(cfg: dict, state: dict) -> None:
+    proc = BACKUP["proc"]
+    if proc is not None:
+        if proc.poll() is None:
+            return
+        if proc.returncode == 0:
+            state["backed_up_mtimes"].update(BACKUP["pending"])
+            state["last_backup"] = time.time()
+        BACKUP["proc"] = None
+    if not cfg.get("backup_repo"):
+        return
+    if time.time() - state.get("last_backup", 0) < cfg["backup_every_hours"] * 3600:
+        return
+    pairs = backup_files(state)
+    if not pairs:
+        state["last_backup"] = time.time()
+        return
+    BACKUP["pending"] = {remote: local.stat().st_mtime for local, remote in pairs}
+    log = open(BG / "logs" / "backup.log", "a")
+    log.write(f"\n===== {now()} uploading {', '.join(r for _, r in pairs)} =====\n")
+    log.flush()
+    BACKUP["proc"] = subprocess.Popen(
+        ["nice", "-n", "15", str(PY), "-c", UPLOAD_SNIPPET, cfg["backup_repo"],
+         *[f"{local}={remote}" for local, remote in pairs]],
+        cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+    )
+
+
 def corpus_ready() -> bool:
     return TRAIN_BIN.exists() and VAL_BIN.exists()
 
@@ -363,6 +422,8 @@ def main() -> None:
         cfg = load_config()
 
         if state["finished"]:
+            maybe_backup(cfg, state)
+            save_state(state)
             refresh_status("finished", cfg, state)
             time.sleep(POLL_S * 10)
             continue
@@ -470,6 +531,7 @@ def main() -> None:
         if child is not None and child.poll() is None:
             snapshot_tail(cfg)
             prune()
+        maybe_backup(cfg, state)
         save_state(state)
         time.sleep(POLL_S)
 

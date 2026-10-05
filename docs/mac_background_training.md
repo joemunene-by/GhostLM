@@ -39,6 +39,9 @@ exists, then starts training on its own.
   into `checkpoints/ghost_base_mac/averaged.pt` when training ends.
 - Backs off after crashes, sends one evening progress notification and a
   notification on completion.
+- With `backup_repo` set, uploads `best_model.pt` (weights only), `pre_decay.pt`,
+  `averaged.pt`, the training log and evals to a private Hugging Face repo
+  once a day, only re-sending files that changed (`.bg/logs/backup.log`).
 - Once the corpus exists, runs `prepare_post_training.sh` on the CPU: RAG
   index (cybersec + knowledge), chat SFT set, RAFT set and tool-use set.
 
