@@ -303,7 +303,7 @@ class Trainer:
         elif "mlx_optimizer_state" in ck:
             self.opt.state = tree_unflatten([(k, mx.array(v)) for k, v in ck["mlx_optimizer_state"].items()])
         else:
-            print("  (no MLX optimizer state in checkpoint; AdamW moments restart from zero)")
+            print("  (no MLX optimizer state in checkpoint; optimizer moments restart from zero)")
         self.step = ck["step"]
         self.best_val_loss = ck.get("best_val_loss", ck["val_loss"])
         self._sync_model()

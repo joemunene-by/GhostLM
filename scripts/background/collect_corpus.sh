@@ -47,8 +47,10 @@ step data/raw/exploitdb.jsonl           $PY scripts/collect_exploitdb.py
 step data/raw/ctftime.jsonl             $PY scripts/collect_ctftime.py --config data/ctftime_events.json
 step data/raw/cve_full.jsonl            $PY scripts/collect_nvd_full.py
 step data/raw/primus_fineweb.jsonl      $PY scripts/collect_primus.py
+step data/raw/papers.jsonl              $PY -c "from data.collect import collect_security_papers; collect_security_papers()"
+step data/raw/ctf.jsonl                 $PY -c "from data.collect import collect_ctf_writeups; collect_ctf_writeups()"
 step data/raw/arxiv_full.jsonl          $PY scripts/collect_arxiv_full.py
-step data/raw/security_code.jsonl       $PY scripts/collect_security_code.py
+step data/raw/security_code.jsonl       $PY scripts/collect_security_code.py --config data/security_code_repos.json
 step data/raw/instruction.jsonl         $PY scripts/collect_instruction.py
 step data/raw/wikipedia_general.jsonl   $PY scripts/collect_wikipedia_general.py --max-records 50000 --sample-every 1
 step data/raw/math_reasoning.jsonl      $PY scripts/collect_math_reasoning.py --repo HuggingFaceTB/finemath --config finemath-4plus --max-records 60000
