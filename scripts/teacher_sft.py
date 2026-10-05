@@ -46,6 +46,10 @@ then there these they this those through under until very were what when where w
 also using used uses based allow allows within""".split())
 BANNED = ("as an ai", "the passage", "the text above", "the provided", "according to the passage",
           "the reference", "reference passage", "this passage")
+SOURCE_TALK = re.compile(r"\b(the|this) (extract|article|excerpt|document|source|passage|text|page|post|snippet)\b", re.I)
+FIRST_PERSON = re.compile(r"^(we|let's|let us|i|our)\b", re.I)
+EXAMPLE_QUESTIONS = {"What ports does the Mirai botnet scan for Telnet access?",
+                     "How does the TCP ISN greatest common divisor probe fingerprint an operating system?"}
 
 
 def content_words(text: str) -> set:
@@ -133,6 +137,12 @@ def validate(batch: str) -> tuple[list, list]:
             problems.append("question must be 10-300 characters")
         if any(b in (q + " " + a).lower() for b in BANNED):
             problems.append("do not mention 'the passage/text/reference'; write as if answering a user")
+        if q in EXAMPLE_QUESTIONS:
+            problems.append("that question is copied from the prompt's example; write your own")
+        if kind == "answer" and SOURCE_TALK.search(a):
+            problems.append("answer refers to 'the article/extract/document'; state the facts directly")
+        if kind == "answer" and FIRST_PERSON.match(a):
+            problems.append("answer starts in first person (we/let's/I); answer as an assistant would")
         if p is not None and kind == "answer":
             if not 40 <= len(a) <= 900:
                 problems.append("answer must be 40-900 characters")
@@ -236,7 +246,7 @@ def status() -> None:
 
 
 def merge() -> None:
-    records, rejected = [], 0
+    records, rejected, seen_questions = [], 0, set()
     for qp in sorted(QUEUE.glob("batch_*.jsonl")):
         num = qp.stem.split("_")[1]
         if not (OUT / qp.name).exists():
@@ -245,6 +255,12 @@ def merge() -> None:
         rejected += len(errors)
         passages = {json.loads(l)["pid"]: json.loads(l) for l in qp.read_text().splitlines() if l.strip()}
         for r in accepted:
+            # Re-check batches validated before these rules existed, and keep each question once.
+            if (r["question"] in EXAMPLE_QUESTIONS or r["question"] in seen_questions
+                    or (r["type"] == "answer" and (SOURCE_TALK.search(r["answer"]) or FIRST_PERSON.match(r["answer"])))):
+                rejected += 1
+                continue
+            seen_questions.add(r["question"])
             p = passages[r["pid"]]
             user = (f"Reference passages:\n[1] ({p['source']} {p['ref']}) {p['text']}\n\n"
                     f"Question: {r['question']}")
