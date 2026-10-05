@@ -72,3 +72,6 @@ checkpoints/
 
 # Weights & Biases local run data
 wandb/
+
+# Background-training runtime state (scripts/background/)
+.bg/
