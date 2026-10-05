@@ -119,3 +119,19 @@ def test_best_weights_only_drops_optimizer_state(tmp_path):
     latest = torch.load(tmp_path / "ckpt" / "checkpoint_step_0.pt", weights_only=False)
     assert "optimizer_state_dict" not in best and "model_state_dict" in best
     assert "optimizer_state_dict" in latest
+
+
+def test_eval_micro_batches_like_training(tmp_path):
+    cfg = _tiny_config(tmp_path, grad_accum_steps=4)
+    trainer = GhostTrainer(GhostLM(cfg), cfg, use_amp=False)
+    seen = []
+    original = trainer.model.forward
+
+    def spy(idx, targets=None, **kw):
+        seen.append(idx.size(0))
+        return original(idx, targets=targets, **kw)
+
+    trainer.model.forward = spy
+    x = torch.randint(0, 200, (8, 8))
+    trainer.eval_step([(x, x)])
+    assert seen == [2, 2, 2, 2]
