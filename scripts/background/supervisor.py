@@ -55,12 +55,17 @@ GAME_PATTERN = re.compile(r"wineserver|wine64-preloader|wine-preloader|\.exe(\s|
 
 DEFAULT_CONFIG = {
     "max_steps": 15_000,
-    "batch_size": 2,
+    # GhostTrainer splits batch_size sequences into grad_accum_steps micro-batches,
+    # so this is 64 x 1024 = 65,536 tokens per step in micro-batches of 2.
+    "batch_size": 64,
     "grad_accum_steps": 32,
     "context_length": 1024,
     "eval_interval": 75,
     "save_interval": 75,
+    # "mlx" trains about 2x faster than "torch" (PyTorch MPS) on an M4 at a third of the memory.
+    "backend": "mlx",
     "dtype": "float32",
+    "dropout": 0.0,
     "grad_checkpoint": True,
     "optimizer": "adamw",
     "lr_schedule": "wsd",
@@ -68,9 +73,22 @@ DEFAULT_CONFIG = {
     "eval_every_steps": 1500,
     "eval_limit_per_bench": 200,
     "dashboard_port": 8090,
+    # Private Hugging Face repo (e.g. "user/ghost-base-backup") that receives the
+    # weights-only best model and other small artifacts; None disables backups.
+    "backup_repo": None,
+    "backup_every_hours": 24,
 }
 
 LIVE: dict = {"state": "starting"}
+BACKUP: dict = {"proc": None}
+
+UPLOAD_SNIPPET = (
+    "import sys; from huggingface_hub import HfApi; api = HfApi(); repo = sys.argv[1]\n"
+    "for pair in sys.argv[2:]:\n"
+    "    local, remote = pair.split('=', 1)\n"
+    "    api.upload_file(path_or_fileobj=local, path_in_repo=remote, repo_id=repo,\n"
+    "                    commit_message=f'backup {remote}')\n"
+)
 
 
 def now() -> str:
@@ -106,11 +124,51 @@ def game_running() -> bool:
     return any(GAME_PATTERN.search(line) for line in out.splitlines())
 
 
+MEM = {"low_since": None, "ok_since": None, "paused": False, "free": None}
+# Training alone sits around 15-20% free on a 16GB Mac; pause only on a real squeeze.
+MEM_LOW, MEM_OK, MEM_LOW_S, MEM_OK_S = 10, 20, 30, 300
+WAKE = threading.Event()
+
+
+def free_memory_percent() -> int | None:
+    out = subprocess.run(["memory_pressure"], capture_output=True, text=True).stdout
+    m = re.search(r"free percentage:\s*(\d+)%", out)
+    return int(m.group(1)) if m else None
+
+
+def update_memory_state(free: int | None, now_s: float) -> None:
+    """Pause after free memory stays under MEM_LOW for MEM_LOW_S; lift after MEM_OK for MEM_OK_S."""
+    MEM["free"] = free
+    if free is None:
+        return
+    if free < MEM_LOW:
+        MEM["low_since"] = now_s if MEM["low_since"] is None else MEM["low_since"]
+    else:
+        MEM["low_since"] = None
+    if free >= MEM_OK:
+        MEM["ok_since"] = now_s if MEM["ok_since"] is None else MEM["ok_since"]
+    else:
+        MEM["ok_since"] = None
+    if not MEM["paused"] and MEM["low_since"] is not None and now_s - MEM["low_since"] >= MEM_LOW_S:
+        MEM["paused"] = True
+        WAKE.set()
+    elif MEM["paused"] and MEM["ok_since"] is not None and now_s - MEM["ok_since"] >= MEM_OK_S:
+        MEM["paused"] = False
+
+
+def watch_memory() -> None:
+    while True:
+        update_memory_state(free_memory_percent(), time.time())
+        time.sleep(5)
+
+
 def pause_reason() -> str:
     if PAUSE_FILE.exists():
         return "paused by you"
     if game_running():
         return "paused while a game is running"
+    if MEM["paused"]:
+        return f"paused: low memory ({MEM['free']}% free)"
     return ""
 
 
@@ -145,9 +203,11 @@ def training_log() -> list:
 
 
 def train_command(cfg: dict) -> list:
+    mlx = cfg.get("backend") == "mlx"
+    script = "scripts/train_ghost_base_mlx.py" if mlx else "scripts/train_ghost_base.py"
     cmd = [
-        "nice", "-n", "10", str(PY), "scripts/train_ghost_base.py",
-        "--run-name", RUN, "--device", "mps",
+        "nice", "-n", "10", str(PY), script,
+        "--run-name", RUN,
         "--train-data", str(TRAIN_BIN), "--val-data", str(VAL_BIN),
         "--max-steps", str(cfg["max_steps"]),
         "--batch-size", str(cfg["batch_size"]),
@@ -155,11 +215,14 @@ def train_command(cfg: dict) -> list:
         "--context-length", str(cfg["context_length"]),
         "--eval-interval", str(cfg["eval_interval"]),
         "--save-interval", str(cfg["save_interval"]),
-        "--dtype", cfg["dtype"],
         "--best-weights-only",
         "--optimizer", cfg["optimizer"],
         "--lr-schedule", cfg["lr_schedule"],
     ]
+    if mlx:
+        cmd += ["--dtype", "bfloat16" if cfg["dtype"] == "float32" else cfg["dtype"]]
+    else:
+        cmd += ["--device", "mps", "--dtype", cfg["dtype"], "--dropout", str(cfg["dropout"])]
     if cfg.get("learning_rate"):
         cmd += ["--learning-rate", str(cfg["learning_rate"])]
     if MANIFEST.exists():
@@ -207,8 +270,9 @@ def refresh_status(state_line: str, cfg: dict, state: dict) -> None:
         "state": state_line, "updated": now(), "step": step, "max_steps": cfg["max_steps"],
         "val_loss": last.get("val_loss"), "train_loss": last.get("train_loss"),
         "seconds_per_step": sps, "eta_hours": eta_h,
-        "tokens_per_step": cfg["batch_size"] * cfg["grad_accum_steps"] * cfg["context_length"],
+        "tokens_per_step": cfg["batch_size"] * cfg["context_length"],
         "paused": PAUSE_FILE.exists(), "finished": state.get("finished", False),
+        "free_memory": MEM["free"],
         "optimizer": cfg["optimizer"], "lr_schedule": cfg["lr_schedule"],
         "val_curve": [[e["step"], e["val_loss"]] for e in log][-400:],
         "evals": [{"step": e["step"], "results": {k: round(v["acc"], 1) for k, v in e["results"].items()}}
@@ -281,6 +345,52 @@ def average_tail() -> None:
                        cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
 
 
+def backup_files(state: dict) -> list:
+    """Artifacts that changed since their last upload, as local=remote pairs."""
+    candidates = {
+        CKPT_DIR / "best_model.pt": "best_model.pt",
+        CKPT_DIR / "pre_decay.pt": "pre_decay.pt",
+        CKPT_DIR / "averaged.pt": "averaged.pt",
+        LOG_DIR / "training_log.json": "training_log.json",
+        BG / "evals.jsonl": "evals.jsonl",
+        CONFIG: "train_config.json",
+    }
+    uploaded = state.setdefault("backed_up_mtimes", {})
+    pairs = []
+    for local, remote in candidates.items():
+        if local.exists() and uploaded.get(remote) != local.stat().st_mtime:
+            pairs.append((local, remote))
+    return pairs
+
+
+def maybe_backup(cfg: dict, state: dict) -> None:
+    proc = BACKUP["proc"]
+    if proc is not None:
+        if proc.poll() is None:
+            return
+        if proc.returncode == 0:
+            state["backed_up_mtimes"].update(BACKUP["pending"])
+            state["last_backup"] = time.time()
+        BACKUP["proc"] = None
+    if not cfg.get("backup_repo"):
+        return
+    if time.time() - state.get("last_backup", 0) < cfg["backup_every_hours"] * 3600:
+        return
+    pairs = backup_files(state)
+    if not pairs:
+        state["last_backup"] = time.time()
+        return
+    BACKUP["pending"] = {remote: local.stat().st_mtime for local, remote in pairs}
+    log = open(BG / "logs" / "backup.log", "a")
+    log.write(f"\n===== {now()} uploading {', '.join(r for _, r in pairs)} =====\n")
+    log.flush()
+    BACKUP["proc"] = subprocess.Popen(
+        ["nice", "-n", "15", str(PY), "-c", UPLOAD_SNIPPET, cfg["backup_repo"],
+         *[f"{local}={remote}" for local, remote in pairs]],
+        cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+    )
+
+
 def corpus_ready() -> bool:
     return TRAIN_BIN.exists() and VAL_BIN.exists()
 
@@ -343,6 +453,7 @@ def main() -> None:
     CKPT_DIR.mkdir(parents=True, exist_ok=True)
     state = load_state()
     start_dashboard(load_config()["dashboard_port"])
+    threading.Thread(target=watch_memory, daemon=True).start()
     child = None
     eval_child = None
     stopping_since = None
@@ -363,6 +474,8 @@ def main() -> None:
         cfg = load_config()
 
         if state["finished"]:
+            maybe_backup(cfg, state)
+            save_state(state)
             refresh_status("finished", cfg, state)
             time.sleep(POLL_S * 10)
             continue
@@ -470,8 +583,11 @@ def main() -> None:
         if child is not None and child.poll() is None:
             snapshot_tail(cfg)
             prune()
+        maybe_backup(cfg, state)
         save_state(state)
-        time.sleep(POLL_S)
+        # Woken early by the memory watcher so a squeeze is acted on within seconds.
+        WAKE.wait(POLL_S)
+        WAKE.clear()
 
 
 if __name__ == "__main__":

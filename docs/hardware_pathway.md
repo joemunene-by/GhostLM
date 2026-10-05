@@ -27,12 +27,16 @@ The M4's GPU sustains roughly 0.7-1.2 TFLOPS bf16 in PyTorch MPS, and
 its unified-memory pool is shared with system RAM so 360M-scale training
 will OOM at default batch sizes. Measured on a 16GB M4 mini (2026-10-05):
 the 349M ghost-base shape at batch 2 x 1024 with gradient checkpointing
-does one forward+backward micro-step in ~4.9 s, about **410 tokens/s**
-(~35M tokens/day), using ~7.5GB. bf16/fp16 autocast and batch 4 gave no
-speedup. A full optimizer step at `--batch-size 2 --grad-accum-steps 32`
-is therefore ~160 s, not seconds. That is roughly **8% of an RTX 6000
+does one forward+backward micro-step in about 4.9 s, about **410 tokens/s**
+(about 35M tokens/day), using about 7.5GB. bf16/fp16 autocast and batch 4 gave no
+speedup. A 65,536-token optimizer step (`--batch-size 64
+--grad-accum-steps 32`, i.e. 32 micro-batches of 2; accumulation splits the
+batch rather than multiplying it) is therefore about 160 s, not seconds. That is roughly **8% of an RTX 6000
 Ada's throughput** on the same shape. ghost-base on the M4 is a weeks-long
 background job (1B tokens is about a month), not an overnight run.
+The MLX trainer (`scripts/train_ghost_base_mlx.py`) runs the same shape at
+about 805 tokens/s (81 s per 65,536-token step, about 7.3GB), which halves
+that to about two weeks; see `docs/mac_background_training.md`.
 
 ## The card to buy
 

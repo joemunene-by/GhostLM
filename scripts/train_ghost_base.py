@@ -55,6 +55,7 @@ truth metric.
 """
 
 import argparse
+import json
 import signal
 from pathlib import Path
 
@@ -82,6 +83,9 @@ def parse_args() -> argparse.Namespace:
                         "normuon: Muon with per-neuron normalization.")
     p.add_argument("--cautious-wd", action="store_true",
                    help="Only decay weights whose update agrees in sign.")
+    p.add_argument("--dropout", type=float, default=None,
+                   help="Override the preset's dropout (0.1). Single-epoch pretraining "
+                        "has nothing to overfit; 0 is the modern default.")
     p.add_argument("--best-weights-only", action="store_true",
                    help="Save best_model.pt without optimizer state to save disk.")
     p.add_argument("--attn-gate", action="store_true",
@@ -164,6 +168,8 @@ def main() -> None:
     config.cautious_wd = args.cautious_wd
     config.attn_gate = args.attn_gate
     config.best_weights_only = args.best_weights_only
+    if args.dropout is not None:
+        config.dropout = args.dropout
     config.value_residual = args.value_residual
     config.lr_schedule = args.lr_schedule
     config.wsd_decay_frac = args.wsd_decay_frac

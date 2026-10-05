@@ -293,9 +293,15 @@ class GhostTrainer:
                 x = x.to(self.device)
                 y = y.to(self.device)
 
-                with torch.amp.autocast("cuda", dtype=self.amp_dtype, enabled=self.use_amp):
-                    _, loss = self.model(x, targets=y)
-                total_loss += loss.item()
+                # Same micro-batching as training: a full batch of logits
+                # (batch x context x vocab) can be many GB at ghost-base size.
+                size = max(1, x.size(0) // self.accum_steps)
+                losses = []
+                for mx_, my_ in zip(x.split(size), y.split(size)):
+                    with torch.amp.autocast("cuda", dtype=self.amp_dtype, enabled=self.use_amp):
+                        _, loss = self.model(mx_, targets=my_)
+                    losses.append(loss.item())
+                total_loss += sum(losses) / len(losses)
                 count += 1
 
         return total_loss / max(count, 1)

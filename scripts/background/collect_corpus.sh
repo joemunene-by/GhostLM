@@ -30,8 +30,12 @@ step data/raw/mitre_full.jsonl          $PY scripts/collect_mitre_full.py
 step data/raw/capec.jsonl               $PY -c "from data.collect import collect_capec; collect_capec()"
 step data/raw/owasp_top10.jsonl         $PY scripts/collect_owasp_top10.py
 step data/raw/owasp_asvs.jsonl          $PY scripts/collect_owasp_asvs.py
-step data/raw/owasp_cheatsheets.jsonl   $PY scripts/collect_owasp_cheatsheets.py
-step data/raw/owasp_wstg.jsonl          $PY scripts/collect_owasp_wstg.py
+mkdir -p data/raw/.src
+for repo in CheatSheetSeries wstg; do
+  [[ -d data/raw/.src/$repo ]] || git clone -q --depth 1 https://github.com/OWASP/$repo.git data/raw/.src/$repo
+done
+step data/raw/owasp_cheatsheets.jsonl   $PY scripts/collect_owasp_cheatsheets.py --src data/raw/.src/CheatSheetSeries
+step data/raw/owasp_wstg.jsonl          $PY scripts/collect_owasp_wstg.py --src data/raw/.src/wstg
 step data/raw/cisa_kev.jsonl            $PY scripts/collect_cisa_kev.py
 step data/raw/cisa_advisories.jsonl     $PY scripts/collect_cisa_advisories.py
 step data/raw/rfcs.jsonl                $PY scripts/collect_rfcs.py
