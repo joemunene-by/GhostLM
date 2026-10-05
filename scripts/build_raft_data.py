@@ -40,11 +40,11 @@ import json
 import random
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
-import numpy as np
 import torch
-import torch.nn.functional as F
+
+from ghostlm.rag import HybridRetriever, bge_embedder
 
 
 # Sources that pass through the RAFT augmentation unchanged. Started as
@@ -89,26 +89,6 @@ def resolve_device(arg: str) -> str:
     return "cpu"
 
 
-def load_embedder(device: str):
-    """Load BGE-small (matches the index builder's choice)."""
-    from transformers import AutoModel, AutoTokenizer
-    name = "BAAI/bge-small-en-v1.5"
-    tok = AutoTokenizer.from_pretrained(name)
-    model = AutoModel.from_pretrained(name).to(device).eval()
-    return tok, model
-
-
-def embed_query(tok, model, query: str, device: str) -> np.ndarray:
-    """Encode a query as an L2-normalized FP32 vector."""
-    text = "Represent this sentence for searching relevant passages: " + query
-    enc = tok(text, padding=True, truncation=True, max_length=512,
-              return_tensors="pt").to(device)
-    with torch.no_grad():
-        out = model(**enc)
-    emb = F.normalize(out.last_hidden_state[:, 0], p=2, dim=-1)
-    return emb.cpu().to(torch.float32).numpy().reshape(-1)
-
-
 def trim_passage(text: str, max_chars: int = 350) -> str:
     """Cap a passage near a word boundary."""
     text = text.strip()
@@ -128,11 +108,7 @@ def format_passages_block(passages: List[Dict]) -> str:
 
 def augment_record(
     record: Dict,
-    chunks: List[Dict],
-    matrix: np.ndarray,
-    e_tok,
-    e_model,
-    device: str,
+    retriever: HybridRetriever,
     *,
     top_k: int,
     mode: str,
@@ -142,10 +118,7 @@ def augment_record(
 
     Args:
         record: An existing chat record with ``turns``.
-        chunks: List of all chunk metadata dicts.
-        matrix: (N, dim) float32 L2-normalized embedding matrix.
-        e_tok / e_model: BGE tokenizer + model.
-        device: Torch device for embedding.
+        retriever: Hybrid retriever (exact CVE/CWE/CAPEC/ATT&CK IDs, then dense).
         top_k: Number of passages to attach.
         mode: One of "oracle", "distractor", "no_context".
         rng: Random source for distractor sampling.
@@ -160,10 +133,8 @@ def augment_record(
             f"Question: {user_q}"
         )
     else:
-        q_vec = embed_query(e_tok, e_model, user_q, device)
-        scores = matrix @ q_vec
-        top_idx = np.argsort(-scores)[:top_k]
-        passages = [chunks[i] for i in top_idx]
+        passages = retriever.search(user_q, k=top_k)
+        chunks = retriever.chunks
 
         if mode == "distractor":
             # Replace the top-1 with a random chunk from a different source —
@@ -224,15 +195,8 @@ def main() -> None:
     print(f"Device: {device}")
     print("Loading RAG index...")
     rag_dir = Path(args.rag_dir)
-    matrix = np.load(rag_dir / "index.npy")
-    chunks: List[Dict] = []
-    with (rag_dir / "chunks.jsonl").open("r", encoding="utf-8") as f:
-        for line in f:
-            chunks.append(json.loads(line))
-    print(f"  {len(chunks):,} chunks, dim={matrix.shape[1]}")
-
-    print("Loading embedder...")
-    e_tok, e_model = load_embedder(device)
+    retriever = HybridRetriever.load(rag_dir, embed=bge_embedder(device=device))
+    print(f"  {len(retriever.chunks):,} chunks, {len(retriever.id_index):,} exact IDs")
 
     for split, in_path, out_path in [
         ("train", args.in_train, args.out_train),
@@ -266,7 +230,7 @@ def main() -> None:
                 mode = "no_context"
 
             new_rec = augment_record(
-                r, chunks, matrix, e_tok, e_model, device,
+                r, retriever,
                 top_k=args.top_k, mode=mode, rng=rng,
             )
             out_records.append(new_rec)

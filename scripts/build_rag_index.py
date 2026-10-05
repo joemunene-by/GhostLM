@@ -119,6 +119,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--device", default="auto")
     p.add_argument("--limit", type=int, default=None,
                    help="Cap number of source records (for smoke tests)")
+    p.add_argument("--domains", default=None,
+                   help="Comma-separated training domains to index (e.g. cybersec,knowledge); "
+                        "default indexes every record.")
     return p.parse_args()
 
 
@@ -132,7 +135,12 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
 
     print("Loading corpus + chunking...")
-    records = list(load_corpus(Path(args.corpus)))
+    records = load_corpus(Path(args.corpus))
+    if args.domains:
+        from data.collect import domain_of
+        wanted = set(args.domains.split(","))
+        records = (r for r in records if domain_of(r.get("source", "")) in wanted)
+    records = list(records)
     if args.limit:
         records = records[: args.limit]
     chunks = make_chunks(records, args.chunk_tokens)
