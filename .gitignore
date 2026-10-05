@@ -75,3 +75,6 @@ wandb/
 
 # Background-training runtime state (scripts/background/)
 .bg/
+
+# Teacher-written SFT batches (scripts/teacher_sft.py)
+data/teacher/

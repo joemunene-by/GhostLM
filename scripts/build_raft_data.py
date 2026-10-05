@@ -139,12 +139,13 @@ def augment_record(
         if mode == "distractor":
             # Replace the top-1 with a random chunk from a different source —
             # most likely irrelevant to the question.
-            other_sources = [
-                i for i, c in enumerate(chunks)
-                if c.get("source") != passages[0].get("source")
-            ]
-            if other_sources:
-                passages[0] = chunks[rng.choice(other_sources)]
+            # Sample rather than scan: the index can hold hundreds of thousands
+            # of lazily-read chunks.
+            for _ in range(50):
+                candidate = chunks[rng.randrange(len(chunks))]
+                if candidate.get("source") != passages[0].get("source"):
+                    passages[0] = candidate
+                    break
 
         ref_block = format_passages_block(passages)
         new_user = (

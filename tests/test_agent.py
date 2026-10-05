@@ -142,7 +142,11 @@ class TestTools:
         b = dispatch("lookup_cwe", {"cwe_id": "CWE-89"})
         assert a.response["id"] == b.response["id"] == "CWE-89"
 
-    def test_rag_retrieve_finds_passages(self):
+    def test_rag_retrieve_finds_passages(self, monkeypatch, tmp_path):
+        # Exercise the offline cache, not whatever real index this machine has.
+        from ghostlm.agent import tools
+        monkeypatch.setenv("GHOSTLM_RAG_DIR", str(tmp_path / "no-index"))
+        monkeypatch.setattr(tools, "_RETRIEVER", None)
         result = dispatch("rag_retrieve",
                           {"query": "EternalBlue", "k": 2})
         assert result.error is None

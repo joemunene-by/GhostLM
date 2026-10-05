@@ -77,3 +77,18 @@ def test_agent_tool_falls_back_without_index(tmp_path, monkeypatch):
     monkeypatch.setattr(tools, "_RETRIEVER", None)
     out = tools._backend_rag_retrieve({"query": "EternalBlue", "k": 2})
     assert out["source"] == "offline_cache"
+
+
+def test_load_is_lazy_and_cached(tmp_path):
+    rag = tmp_path / "rag"
+    rag.mkdir()
+    np.save(rag / "index.npy", np.eye(len(CHUNKS), 8, dtype=np.float32))
+    (rag / "chunks.jsonl").write_text("\n".join(json.dumps(c) for c in CHUNKS) + "\n")
+    r = HybridRetriever.load(rag, embed=lambda q: np.eye(len(CHUNKS), 8, dtype=np.float32)[3])
+    assert isinstance(r.matrix, np.memmap)
+    assert len(r.chunks) == len(CHUNKS) and r.chunks[2]["ref"] == "T1059.001"
+    assert (rag / "id_index.json").exists() and (rag / "chunk_offsets.npy").exists()
+    again = HybridRetriever.load(rag, embed=r.embed)
+    assert again.id_index == r.id_index
+    hits = again.search("CVE-2021-44228 and xss", k=2)
+    assert hits[0]["ref"] == "CVE-2021-44228"

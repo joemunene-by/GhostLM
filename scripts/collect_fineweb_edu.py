@@ -20,6 +20,8 @@ as derived training data when shipping checkpoints.
 from __future__ import annotations
 
 import argparse
+import sys
+import os
 import json
 from pathlib import Path
 
@@ -117,3 +119,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    # HF streaming leaves non-daemon threads that can block interpreter exit
+    # after all output is written; exit explicitly once it is flushed.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)

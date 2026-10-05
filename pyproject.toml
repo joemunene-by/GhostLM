@@ -49,6 +49,9 @@ Homepage = "https://github.com/joemunene-by/GhostLM"
 Repository = "https://github.com/joemunene-by/GhostLM"
 Issues = "https://github.com/joemunene-by/GhostLM/issues"
 
+[tool.setuptools.package-data]
+ghostlm = ["app/static/*"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["ghostlm*"]

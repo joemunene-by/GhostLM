@@ -152,7 +152,7 @@ def _strip_md_badges(text: str) -> str:
 
 def build_nvd(records: List[dict], target: int, rng: random.Random) -> List[dict]:
     """Sample NVD records and template Q&A pairs from each."""
-    pool = [r for r in records if r.get("id", "").startswith("CVE-")]
+    pool = [r for r in records if str(r.get("id", "")).startswith("CVE-")]
     pool = rng.sample(pool, min(target, len(pool)))
     out: List[dict] = []
     for r in pool:
@@ -370,7 +370,7 @@ def build_synthetic(records: List[dict], rng: random.Random) -> List[dict]:
         text = _trim_to_paragraphs(text, max_chars=1500)
         if not text:
             continue
-        question = _sha_pick(SYNTHETIC_QUESTIONS, topic + r.get("id", "")).format(topic=topic)
+        question = _sha_pick(SYNTHETIC_QUESTIONS, topic + str(r.get("id", ""))).format(topic=topic)
         out.append({
             "turns": [
                 {"role": "user", "content": question},

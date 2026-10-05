@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GhostLM</title>
+<style>
+  :root {
+    --bg: #040404; --fg: #f3f3f3; --muted: #8c8c8c; --faint: #5a5a5a;
+    --line: rgba(255,255,255,0.10); --glass: rgba(255,255,255,0.04); --glass-2: rgba(255,255,255,0.08);
+    --radius: 18px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", sans-serif;
+    background-image:
+      radial-gradient(70rem 40rem at 10% -20%, rgba(255,255,255,0.07), transparent 60%),
+      radial-gradient(50rem 30rem at 110% 120%, rgba(255,255,255,0.05), transparent 60%);
+    background-attachment: fixed;
+  }
+  .app { display: grid; grid-template-columns: 260px minmax(0, 1fr) 320px; gap: 14px; height: 100vh; padding: 14px; }
+  .panel {
+    background: var(--glass); border: 1px solid var(--line); border-radius: var(--radius);
+    backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.05) inset, 0 30px 60px -40px rgba(0,0,0,0.9);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .side { padding: 16px; gap: 12px; }
+  .brand { font-weight: 650; letter-spacing: -0.02em; font-size: 18px; display: flex; align-items: center; gap: 10px; }
+  .brand .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--fg); box-shadow: 0 0 18px rgba(255,255,255,0.6); }
+  button, select {
+    font: inherit; color: var(--fg); background: var(--glass-2); border: 1px solid var(--line);
+    border-radius: 12px; padding: 9px 12px; cursor: pointer; transition: background .2s, transform .15s;
+  }
+  button:hover, select:hover { background: rgba(255,255,255,0.12); }
+  button:active { transform: scale(0.98); }
+  button.primary { background: var(--fg); color: var(--bg); border-color: transparent; font-weight: 600; }
+  button.primary:hover { opacity: .88; }
+  select { width: 100%; appearance: none; }
+  .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+  .chats { overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 2px; margin: 0 -6px; }
+  .chat-item { padding: 8px 10px; border-radius: 10px; cursor: pointer; color: var(--muted); font-size: 14px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .2s, color .2s; }
+  .chat-item:hover, .chat-item.active { background: var(--glass-2); color: var(--fg); }
+  .model-desc { color: var(--faint); font-size: 12px; margin-top: 6px; }
+  .toggle { display: flex; align-items: center; justify-content: space-between; font-size: 14px; color: var(--muted); }
+  .switch { width: 38px; height: 22px; border-radius: 99px; background: var(--glass-2); border: 1px solid var(--line); position: relative; cursor: pointer; transition: background .2s; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform .25s, background .25s; }
+  .switch.on { background: rgba(255,255,255,0.25); } .switch.on::after { transform: translateX(16px); background: var(--fg); }
+
+  .main { position: relative; }
+  .messages { flex: 1; overflow-y: auto; padding: 28px clamp(16px, 5vw, 64px) 12px; scroll-behavior: smooth; }
+  .empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; color: var(--muted); }
+  .empty h1 { color: var(--fg); font-size: 30px; font-weight: 650; letter-spacing: -0.03em; margin: 0; }
+  .suggest { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; max-width: 560px; }
+  .suggest button { font-size: 13px; color: var(--muted); }
+  .msg { max-width: 760px; margin: 0 auto 26px; animation: rise .35s ease both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .who { font-size: 12px; color: var(--faint); margin-bottom: 6px; letter-spacing: .04em; }
+  .user .bubble { background: var(--glass-2); border: 1px solid var(--line); border-radius: 16px; padding: 12px 16px; display: inline-block; }
+  .assistant .bubble { white-space: pre-wrap; word-wrap: break-word; }
+  .cite { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; margin: 0 1px;
+    font-size: 11px; border-radius: 6px; background: var(--glass-2); border: 1px solid var(--line); cursor: pointer; vertical-align: 1px; }
+  .cite:hover { background: var(--fg); color: var(--bg); }
+  .tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chip { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); padding: 4px 9px; border: 1px solid var(--line); border-radius: 99px; background: var(--glass); }
+  .caret { display: inline-block; width: 7px; height: 15px; background: var(--fg); vertical-align: -2px; margin-left: 2px; animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .facts { border: 1px solid var(--line); border-radius: 14px; background: var(--glass); padding: 12px 14px; margin-bottom: 12px; }
+  .facts .label { margin-bottom: 6px; }
+  .fact { font-size: 14px; color: #dcdcdc; margin: 4px 0; }
+  .notice { color: #d6d6d6; margin-bottom: 10px; }
+  details.attempt { margin-top: 4px; }
+  details.attempt summary { cursor: pointer; color: var(--faint); font-size: 12px; letter-spacing: .04em; list-style: none; }
+  details.attempt summary::before { content: "+ "; }
+  details.attempt[open] summary::before { content: "- "; }
+  details.attempt .bubble { margin-top: 8px; color: #bdbdbd; }
+  .gen-label { font-size: 11px; color: var(--faint); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; }
+  .error { color: var(--muted); border-left: 2px solid var(--muted); padding-left: 10px; }
+
+  .composer { padding: 14px clamp(16px, 5vw, 64px) 18px; }
+  .box { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; background: var(--glass-2); border: 1px solid var(--line); border-radius: 18px; padding: 8px 8px 8px 16px; transition: border-color .2s; }
+  .box:focus-within { border-color: rgba(255,255,255,0.3); }
+  textarea { flex: 1; resize: none; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; max-height: 180px; padding: 8px 0; }
+  textarea::placeholder { color: var(--faint); }
+  .hint { max-width: 760px; margin: 8px auto 0; color: var(--faint); font-size: 12px; text-align: center; }
+
+  .sources { padding: 16px; gap: 10px; overflow-y: auto; }
+  .src { border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: var(--glass); transition: border-color .25s, background .25s; }
+  .src.flash { border-color: rgba(255,255,255,0.6); background: var(--glass-2); }
+  .src-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .src-ref { color: var(--fg); font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .src-text { font-size: 13px; color: #c9c9c9; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+  .src.open .src-text { -webkit-line-clamp: unset; }
+  .train { margin-top: auto; border-top: 1px solid var(--line); padding-top: 12px; font-size: 13px; color: var(--muted); }
+  .train b { color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .bar { height: 4px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; margin: 8px 0; }
+  .bar > div { height: 100%; background: var(--fg); transition: width .8s ease; }
+  .menu { display: none; }
+
+  @media (max-width: 1100px) { .app { grid-template-columns: 230px minmax(0, 1fr); } .sources-wrap { display: none; } .sources-wrap.show { display: flex; position: fixed; inset: 14px 14px 14px auto; width: min(340px, 90vw); z-index: 5; } }
+  @media (max-width: 760px) {
+    .app { grid-template-columns: 1fr; padding: 0; gap: 0; }
+    .side { display: none; } .side.show { display: flex; position: fixed; inset: 0; z-index: 6; border-radius: 0; }
+    .main.panel { border-radius: 0; border: 0; }
+    .menu { display: inline-flex; }
+    .topbar { display: flex !important; }
+  }
+  .topbar { display: none; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel side" id="side">
+    <div class="brand"><span class="dot"></span>GhostLM <button class="menu" style="margin-left:auto" onclick="toggle('side')">Close</button></div>
+    <button class="primary" id="new">New chat</button>
+    <div class="label">Chats</div>
+    <div class="chats" id="chats"></div>
+    <div>
+      <div class="label" style="margin-bottom:6px">Model</div>
+      <select id="model"></select>
+      <div class="model-desc" id="modelDesc"></div>
+    </div>
+    <div class="toggle">Use sources <div class="switch on" id="rag" role="switch" aria-checked="true"></div></div>
+  </aside>
+
+  <main class="panel main">
+    <div class="topbar">
+      <button class="menu" onclick="toggle('side')">Chats</button>
+      <span class="brand"><span class="dot"></span>GhostLM</span>
+      <button class="menu" onclick="toggle('srcwrap')">Sources</button>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div class="composer">
+      <div class="box">
+        <textarea id="input" rows="1" placeholder="Ask about a CVE, an ATT&CK technique, some code..."></textarea>
+        <button class="primary" id="send">Send</button>
+      </div>
+      <div class="hint">Answers cite retrieved sources. GhostLM is small and still training, so check what it says against them.</div>
+    </div>
+  </main>
+
+  <aside class="panel sources sources-wrap" id="srcwrap">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div class="label">Sources</div>
+      <button class="menu" onclick="toggle('srcwrap')">Close</button>
+    </div>
+    <div id="sources" style="display:flex;flex-direction:column;gap:10px"><div class="model-desc">Sources for the latest answer appear here.</div></div>
+    <div class="train" id="train"></div>
+  </aside>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+let chatId = null, models = [], busy = false;
+const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const toggle = id => $(id).classList.toggle("show");
+
+function store(key, value) { try { value === undefined ? localStorage.removeItem(key) : localStorage.setItem(key, value); } catch (e) {} }
+function recall(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+
+function renderAnswer(text) {
+  return esc(text).replace(/\[(\d{1,2})\]/g, (m, n) => `<span class="cite" data-n="${n}">${n}</span>`);
+}
+
+function renderSources(list) {
+  const box = $("sources");
+  if (!list || !list.length) { box.innerHTML = '<div class="model-desc">No sources were retrieved for this answer.</div>'; return; }
+  box.innerHTML = list.map((s, i) => `
+    <div class="src" id="src-${i + 1}" onclick="this.classList.toggle('open')">
+      <div class="src-head"><span class="src-ref">[${i + 1}] ${esc(String(s.ref || s.source))}</span>
+        <span>${esc(s.source)} · ${s.match === "id" ? "exact match" : "similar"}</span></div>
+      <div class="src-text">${esc(s.text)}</div>
+    </div>`).join("");
+}
+
+function flash(n) {
+  const el = $("src-" + n); if (!el) return;
+  if (window.innerWidth <= 1100) $("srcwrap").classList.add("show");
+  el.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200);
+}
+document.addEventListener("click", e => { if (e.target.classList.contains("cite")) flash(e.target.dataset.n); });
+
+function emptyState() {
+  const ideas = ["What is CVE-2021-44228?", "Explain ATT&CK T1059.001", "How does SQL injection work?", "What is CWE-79?"];
+  $("messages").innerHTML = `<div class="empty"><h1>GhostLM</h1><div>A from-scratch model with deep security knowledge, grounded in its sources.</div>
+    <div class="suggest">${ideas.map(q => `<button onclick="ask(this.textContent)">${q}</button>`).join("")}</div></div>`;
+}
+
+function factsHtml(facts) {
+  if (!facts || !facts.length) return "";
+  return `<div class="facts"><div class="label">Answer from the sources</div>${facts.map(f =>
+    `<div class="fact">${esc(f.text)} <span class="cite" data-n="${f.cite}">${f.cite}</span></div>`).join("")}</div>`;
+}
+
+const ATTEMPT = '<details class="attempt"><summary>GhostLM\'s own attempt (experimental)</summary><div class="bubble"></div></details>';
+
+function addMessage(role, html, tools, facts, notice) {
+  if ($("messages").querySelector(".empty")) $("messages").innerHTML = "";
+  const el = document.createElement("div");
+  el.className = "msg " + role;
+  const chips = tools && tools.length ? `<div class="tools">${tools.map(t => `<span class="chip">${esc(t.name)} ${esc(t.detail)}</span>`).join("")}</div>` : "";
+  if (role === "user") {
+    el.innerHTML = `<div class="who">You</div><div class="bubble">${html}</div>`;
+  } else {
+    const note = notice ? `<div class="notice">${esc(notice)}</div>` : "";
+    const attempt = html === null ? "" : ATTEMPT;
+    el.innerHTML = `<div class="who">GhostLM</div>${chips}<div class="pre">${factsHtml(facts)}${note}</div>${attempt}`;
+    if (html) el.querySelector(".attempt .bubble").innerHTML = html;
+  }
+  $("messages").appendChild(el);
+  $("messages").scrollTop = $("messages").scrollHeight;
+  return el;
+}
+
+async function loadChats() {
+  const list = await (await fetch("/api/chats")).json();
+  $("chats").innerHTML = list.map(c => `<div class="chat-item ${c.id === chatId ? "active" : ""}" data-id="${c.id}" title="${esc(c.title)}">${esc(c.title)}</div>`).join("")
+    || '<div class="model-desc" style="padding:0 6px">No chats yet.</div>';
+  $("chats").querySelectorAll(".chat-item").forEach(el => el.onclick = () => openChat(el.dataset.id));
+}
+
+async function openChat(id) {
+  const c = await (await fetch("/api/chats/" + id)).json();
+  chatId = c.id; $("messages").innerHTML = "";
+  c.turns.forEach(t => { addMessage("user", esc(t.user));
+    const smallTalk = t.notice && !t.model;
+    addMessage("assistant", smallTalk ? null : renderAnswer(t.assistant), t.tools, t.facts, t.notice); });
+  renderSources(c.turns.length ? c.turns[c.turns.length - 1].sources : []);
+  $("side").classList.remove("show"); loadChats();
+}
+
+async function loadModels() {
+  models = await (await fetch("/api/models")).json();
+  const saved = recall("ghostlm_model");
+  $("model").innerHTML = models.map(m => `<option value="${m.key}" ${m.available ? "" : "disabled"}>${esc(m.label)}${m.available ? "" : " (not ready)"}</option>`).join("");
+  if (saved && models.some(m => m.key === saved && m.available)) $("model").value = saved;
+  describe();
+}
+function describe() { const m = models.find(m => m.key === $("model").value); $("modelDesc").textContent = m ? m.description : ""; }
+$("model").onchange = () => { store("ghostlm_model", $("model").value); describe(); };
+$("rag").onclick = () => { const on = $("rag").classList.toggle("on"); $("rag").setAttribute("aria-checked", on); };
+
+async function ask(text) {
+  text = (text ?? $("input").value).trim();
+  if (!text || busy) return;
+  busy = true; $("send").disabled = true; $("input").value = ""; grow();
+  addMessage("user", esc(text));
+  const msg = addMessage("assistant", '<span class="caret"></span>');
+  const bubble = msg.querySelector(".attempt .bubble"), pre = msg.querySelector(".pre");
+  let answer = "", tools = [];
+  try {
+    const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, chat_id: chatId, model: $("model").value, use_retrieval: $("rag").classList.contains("on") }) });
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 2);
+        if (!line.startsWith("data: ")) continue;
+        const ev = JSON.parse(line.slice(6));
+        if (ev.type === "chat") { chatId = ev.id; }
+        else if (ev.type === "tool") { tools.push(ev); msg.querySelector(".tools")?.remove(); pre.insertAdjacentHTML("beforebegin", `<div class="tools">${tools.map(t => `<span class="chip">${esc(t.name)} ${esc(t.detail)}</span>`).join("")}</div>`); }
+        else if (ev.type === "notice") { pre.insertAdjacentHTML("beforeend", `<div class="notice">${esc(ev.text)}</div>`); }
+        else if (ev.type === "sources") { renderSources(ev.passages); }
+        else if (ev.type === "facts") { pre.insertAdjacentHTML("afterbegin", factsHtml(ev.facts)); }
+        else if (ev.type === "token") { answer += ev.text; bubble.innerHTML = renderAnswer(answer) + '<span class="caret"></span>'; $("messages").scrollTop = $("messages").scrollHeight; }
+        else if (ev.type === "error") { pre.insertAdjacentHTML("beforeend", `<div class="error">${esc(ev.message)}</div>`); msg.querySelector(".attempt")?.remove(); }
+        else if (ev.type === "done") {
+          if (!ev.model) msg.querySelector(".attempt")?.remove();
+          else bubble.innerHTML = renderAnswer(ev.answer || "(no answer)");
+        }
+      }
+    }
+  } catch (e) {
+    pre.insertAdjacentHTML("beforeend", `<div class="error">Connection lost: ${esc(String(e))}</div>`);
+  }
+  busy = false; $("send").disabled = false; loadChats(); loadModels();
+}
+
+function grow() { const t = $("input"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 180) + "px"; }
+$("input").addEventListener("input", grow);
+$("input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } });
+$("send").onclick = () => ask();
+$("new").onclick = () => { chatId = null; emptyState(); renderSources([]); loadChats(); $("side").classList.remove("show"); };
+
+async function training() {
+  try {
+    const s = await (await fetch("/api/training")).json();
+    if (s.state === "offline" || s.step == null) { $("train").innerHTML = ""; return; }
+    const pct = 100 * s.step / s.max_steps;
+    const eta = s.eta_hours != null ? (s.eta_hours >= 48 ? (s.eta_hours / 24).toFixed(1) + " days" : s.eta_hours.toFixed(0) + " h") : "";
+    $("train").innerHTML = `<div class="label" style="margin-bottom:6px">ghost-base training</div>
+      <div>${esc(s.state)} · step <b>${s.step.toLocaleString()}</b> of ${s.max_steps.toLocaleString()}</div>
+      <div class="bar"><div style="width:${pct}%"></div></div>
+      <div>val loss <b>${s.val_loss != null ? s.val_loss.toFixed(3) : "-"}</b>${eta ? ` · ${eta} left` : ""}</div>`;
+  } catch (e) {}
+}
+
+emptyState(); loadChats(); loadModels(); training(); setInterval(training, 30000);
+</script>
+</body>
+</html>
