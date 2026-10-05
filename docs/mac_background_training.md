@@ -5,11 +5,18 @@ whenever the machine is otherwise idle, for as many weeks as it takes.
 
 ## What to expect
 
-Measured on a 16GB M4 mini: ghost-base (349M) trains at about 410 tokens/s,
-roughly 35M tokens per day of active training. One optimizer step at
-batch 2 x 32 accumulation x 1024 context (65,536 tokens) takes about 160 s.
-The default run is 15,000 steps, about 1B tokens: roughly a month of
-active training. A rented H100 does the same in a few hours; this path
+Measured on a 16GB M4 mini, ghost-base (349M) at 65,536 tokens per step
+(batch 64 x 1024 context, as 32 micro-batches of 2; `--grad-accum-steps`
+splits `--batch-size`, it does not multiply it):
+
+| Backend | Step time | Tokens/s | Memory |
+|---|---:|---:|---:|
+| MLX (`train_ghost_base_mlx.py`, bf16 compute, fp32 master weights) | 81 s | 805 | 7.3GB, 8.1GB peak |
+| PyTorch MPS (`train_ghost_base.py`, fp32) | 160 s | 410 | 7.5GB+ |
+
+The supervisor uses MLX by default (`"backend": "mlx"`). At about 70M tokens per
+day of active training, the default 15,000-step run (about 1B tokens) takes
+roughly two weeks. A rented H100 does the same in a few hours; this path
 trades time for zero cost.
 
 ## Setup
@@ -30,6 +37,8 @@ exists, then starts training on its own.
 
 - Pauses (the trainer checkpoints and exits on SIGTERM) while a wine/cellar
   game runs or `.bg/PAUSE` exists, and resumes 5 minutes after.
+- Pauses when free memory stays under 10% for 30 s (checked every 5 s) and
+  resumes once it has been above 20% for 5 minutes, so the Mac stays usable.
 - Every 1,500 steps, stops briefly to score the latest checkpoint
   (`scripts/scorecard.py`), appends to `.bg/evals.jsonl` and redraws
   `.bg/progress.png`.

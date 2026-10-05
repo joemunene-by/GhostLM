@@ -129,3 +129,27 @@ def test_backup_disabled_without_repo(bg, monkeypatch):
     monkeypatch.setattr(sup.subprocess, "Popen", lambda *a, **k: pytest.fail("should not upload"))
     monkeypatch.setitem(sup.BACKUP, "proc", None)
     sup.maybe_backup(dict(sup.DEFAULT_CONFIG), {})
+
+
+def test_memory_pause_hysteresis(bg, monkeypatch):
+    monkeypatch.setattr(sup, "MEM", {"low_since": None, "ok_since": None, "paused": False, "free": None})
+    monkeypatch.setattr(sup, "game_running", lambda: False)
+    sup.update_memory_state(5, 0)
+    sup.update_memory_state(5, 20)
+    assert not sup.MEM["paused"]  # a brief dip does not pause
+    sup.update_memory_state(5, 31)
+    assert sup.MEM["paused"] and "low memory" in sup.pause_reason()
+    sup.update_memory_state(15, 100)  # recovered a bit, but under the resume threshold
+    sup.update_memory_state(30, 200)
+    sup.update_memory_state(30, 400)
+    assert sup.MEM["paused"]  # needs 5 minutes above 20%
+    sup.update_memory_state(30, 501)
+    assert not sup.MEM["paused"] and sup.pause_reason() == ""
+
+
+def test_backend_selects_trainer_and_flags(bg):
+    mlx = sup.train_command(dict(sup.DEFAULT_CONFIG, backend="mlx"))
+    assert "scripts/train_ghost_base_mlx.py" in mlx and "--device" not in mlx
+    assert mlx[mlx.index("--dtype") + 1] == "bfloat16"
+    torch_cmd = sup.train_command(dict(sup.DEFAULT_CONFIG, backend="torch"))
+    assert "scripts/train_ghost_base.py" in torch_cmd and "--dropout" in torch_cmd
