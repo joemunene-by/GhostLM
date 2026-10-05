@@ -105,6 +105,8 @@ def create_app(engine: Optional[Engine] = None, chat_dir: Path = DEFAULT_CHAT_DI
                         turn["tools"].append(ev)
                     elif ev["type"] == "facts":
                         turn["facts"] = ev["facts"]
+                    elif ev["type"] == "notice":
+                        turn["notice"] = ev["text"]
                     elif ev["type"] == "done":
                         turn["assistant"] = ev["answer"]
                     yield _sse(ev)

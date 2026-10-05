@@ -80,3 +80,24 @@ def test_rejects_bad_input(tmp_path):
     assert client.post("/api/chat", json={"message": "  "}).status_code == 400
     assert client.post("/api/chat", json={"message": "hi", "model": "nope"}).status_code == 400
     assert client.get("/api/chats/..%2Fetc").status_code in (400, 404)
+
+
+def test_small_talk_detection():
+    from ghostlm.app.engine import is_small_talk
+    assert is_small_talk("hey") and is_small_talk("Thanks a lot!") and is_small_talk("ok")
+    assert not is_small_talk("How does cross-site scripting work?")
+    assert not is_small_talk("CVE-2021-44228")
+
+
+def test_best_sentences_picks_relevant_and_skips_questions():
+    import numpy as np
+    from ghostlm.app.engine import best_sentences
+    passages = [{"ref": "a", "text": "What is XSS really about here? XSS lets attackers inject script into pages users view. "
+                 "The weather was nice that day and nothing else happened at all."}]
+
+    def embed(text, query=True):
+        return np.array([1.0, 0.0]) if ("XSS" in text or "inject" in text) else np.array([0.0, 1.0])
+
+    out = best_sentences("XSS", passages, embed)
+    assert [f["text"] for f in out] == ["XSS lets attackers inject script into pages users view."]
+    assert out[0]["cite"] == 1

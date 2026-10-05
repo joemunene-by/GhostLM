@@ -40,8 +40,9 @@ def bge_embedder(name: str = "BAAI/bge-small-en-v1.5", device: str = "cpu") -> C
     tok = AutoTokenizer.from_pretrained(name)
     model = AutoModel.from_pretrained(name).to(device).eval()
 
-    def embed(query: str) -> np.ndarray:
-        enc = tok(QUERY_INSTRUCTION + query, truncation=True, max_length=512,
+    def embed(text: str, query: bool = True) -> np.ndarray:
+        # BGE wants the instruction prefix on queries only, not on passages.
+        enc = tok((QUERY_INSTRUCTION if query else "") + text, truncation=True, max_length=512,
                   return_tensors="pt").to(device)
         with torch.no_grad():
             emb = model(**enc).last_hidden_state[:, 0]

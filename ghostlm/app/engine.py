@@ -10,6 +10,7 @@ from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Iterator, List, Optional
 
+import numpy as np
 import torch
 
 from ghostlm.config import GhostLMConfig
@@ -20,6 +21,14 @@ from ghostlm.tokenizer import GhostTokenizer
 # Generation runs on the CPU so the app never competes with training for the GPU.
 DEVICE = "cpu"
 STOP_STRINGS = ("\nQuestion:", "\n\nQuestion", "<|ghost_eos|>")
+# BGE-small cosine on this index: greetings and off-topic text score about 0.64-0.71,
+# real questions 0.75-0.90.
+MIN_DENSE_SCORE = 0.73
+MIN_SENTENCE_SCORE = 0.6
+SMALL_TALK = re.compile(r"^(hi|hey|hello|yo|sup|thanks|thank you|ok|okay|cool|nice|bye|good (morning|evening|night))\b",
+                        re.I)
+INTRO = ("Hi, I'm GhostLM. Ask me about a CVE, an ATT&CK technique, a CWE, or a security concept "
+         "and I'll answer from my sources.")
 
 
 @dataclass
@@ -105,6 +114,29 @@ def key_facts(passages: List[dict], max_sentences: int = 2) -> List[dict]:
     return facts
 
 
+def is_small_talk(message: str) -> bool:
+    words = message.split()
+    return not extract_ids(message) and (len(words) <= 2 or bool(SMALL_TALK.match(message.strip())))
+
+
+def best_sentences(question: str, passages: List[dict], embed, k: int = 3) -> List[dict]:
+    """The passage sentences closest to the question, kept in reading order, with citations."""
+    candidates = []
+    for i, p in enumerate(passages):
+        for sent in re.split(r"(?<=[.!?])\s+", " ".join(p["text"].split())):
+            if 40 <= len(sent) <= 400 and not sent.endswith("?"):
+                candidates.append((i + 1, p["ref"], sent))
+    if not candidates:
+        return []
+    q = embed(question)
+    scored = [(float(np.dot(q, embed(sent, query=False))), cite, ref, sent) for cite, ref, sent in candidates]
+    top = sorted(scored, reverse=True)[:k]
+    keep = [t for t in top if t[0] >= MIN_SENTENCE_SCORE]
+    order = {c: n for n, c in enumerate(candidates)}
+    keep.sort(key=lambda t: order[(t[1], t[2], t[3])])
+    return [{"cite": cite, "ref": ref, "text": sent} for _, cite, ref, sent in keep]
+
+
 def _trim(text: str, n: int) -> str:
     text = " ".join(text.split())
     return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + "..."
@@ -172,11 +204,16 @@ class Engine:
 
     def retrieve(self, question: str, k: int = 4) -> List[dict]:
         r = self.retriever
-        return r.search(question, k=k) if r else []
+        hits = r.search(question, k=k) if r else []
+        return [h for h in hits if h["match"] == "id" or h["score"] >= MIN_DENSE_SCORE]
 
     def stream_answer(self, question: str, model_key: str, history: List[dict], use_retrieval: bool = True,
                       temperature: float = 0.7) -> Iterator[dict]:
         """Yield {"type": "tool"|"sources"|"token"|"done"} events."""
+        if is_small_talk(question):
+            yield {"type": "notice", "text": INTRO}
+            yield {"type": "done", "answer": INTRO, "model": None, "facts": []}
+            return
         with self._lock:
             self._ensure_model(model_key)
             model, tok = self._model, self.tokenizer
@@ -193,8 +230,14 @@ class Engine:
                  "score": round(p["score"], 3), "text": _trim(p["text"], 900)} for p in passages]}
 
             facts = key_facts(passages)
+            if passages and self.retriever is not None:
+                quoted = " ".join(f["text"] for f in facts)
+                facts += [f for f in best_sentences(question, passages, self.retriever.embed)
+                          if f["text"] not in quoted]
             if facts:
                 yield {"type": "facts", "facts": facts}
+            elif use_retrieval:
+                yield {"type": "notice", "text": "I couldn't find anything relevant in my sources for that."}
 
             ids_in_question = extract_ids(question)
             # Base models continue text better than they answer questions; start the

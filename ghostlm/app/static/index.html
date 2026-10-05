@@ -71,6 +71,12 @@
   .facts { border: 1px solid var(--line); border-radius: 14px; background: var(--glass); padding: 12px 14px; margin-bottom: 12px; }
   .facts .label { margin-bottom: 6px; }
   .fact { font-size: 14px; color: #dcdcdc; margin: 4px 0; }
+  .notice { color: #d6d6d6; margin-bottom: 10px; }
+  details.attempt { margin-top: 4px; }
+  details.attempt summary { cursor: pointer; color: var(--faint); font-size: 12px; letter-spacing: .04em; list-style: none; }
+  details.attempt summary::before { content: "+ "; }
+  details.attempt[open] summary::before { content: "- "; }
+  details.attempt .bubble { margin-top: 8px; color: #bdbdbd; }
   .gen-label { font-size: 11px; color: var(--faint); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; }
   .error { color: var(--muted); border-left: 2px solid var(--muted); padding-left: 10px; }
 
@@ -185,17 +191,25 @@ function emptyState() {
 
 function factsHtml(facts) {
   if (!facts || !facts.length) return "";
-  return `<div class="facts"><div class="label">From the sources</div>${facts.map(f =>
-    `<div class="fact">${esc(f.text)} <span class="cite" data-n="${f.cite}">${f.cite}</span></div>`).join("")}</div>
-    <div class="gen-label">GhostLM, experimental</div>`;
+  return `<div class="facts"><div class="label">Answer from the sources</div>${facts.map(f =>
+    `<div class="fact">${esc(f.text)} <span class="cite" data-n="${f.cite}">${f.cite}</span></div>`).join("")}</div>`;
 }
 
-function addMessage(role, html, tools, facts) {
+const ATTEMPT = '<details class="attempt"><summary>GhostLM\'s own attempt (experimental)</summary><div class="bubble"></div></details>';
+
+function addMessage(role, html, tools, facts, notice) {
   if ($("messages").querySelector(".empty")) $("messages").innerHTML = "";
   const el = document.createElement("div");
   el.className = "msg " + role;
   const chips = tools && tools.length ? `<div class="tools">${tools.map(t => `<span class="chip">${esc(t.name)} ${esc(t.detail)}</span>`).join("")}</div>` : "";
-  el.innerHTML = `<div class="who">${role === "user" ? "You" : "GhostLM"}</div>${chips}${factsHtml(facts)}<div class="bubble">${html}</div>`;
+  if (role === "user") {
+    el.innerHTML = `<div class="who">You</div><div class="bubble">${html}</div>`;
+  } else {
+    const note = notice ? `<div class="notice">${esc(notice)}</div>` : "";
+    const attempt = html === null ? "" : ATTEMPT;
+    el.innerHTML = `<div class="who">GhostLM</div>${chips}<div class="pre">${factsHtml(facts)}${note}</div>${attempt}`;
+    if (html) el.querySelector(".attempt .bubble").innerHTML = html;
+  }
   $("messages").appendChild(el);
   $("messages").scrollTop = $("messages").scrollHeight;
   return el;
@@ -211,7 +225,9 @@ async function loadChats() {
 async function openChat(id) {
   const c = await (await fetch("/api/chats/" + id)).json();
   chatId = c.id; $("messages").innerHTML = "";
-  c.turns.forEach(t => { addMessage("user", esc(t.user)); addMessage("assistant", renderAnswer(t.assistant), t.tools, t.facts); });
+  c.turns.forEach(t => { addMessage("user", esc(t.user));
+    const smallTalk = t.notice && !t.model;
+    addMessage("assistant", smallTalk ? null : renderAnswer(t.assistant), t.tools, t.facts, t.notice); });
   renderSources(c.turns.length ? c.turns[c.turns.length - 1].sources : []);
   $("side").classList.remove("show"); loadChats();
 }
@@ -233,7 +249,7 @@ async function ask(text) {
   busy = true; $("send").disabled = true; $("input").value = ""; grow();
   addMessage("user", esc(text));
   const msg = addMessage("assistant", '<span class="caret"></span>');
-  const bubble = msg.querySelector(".bubble");
+  const bubble = msg.querySelector(".attempt .bubble"), pre = msg.querySelector(".pre");
   let answer = "", tools = [];
   try {
     const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -250,16 +266,20 @@ async function ask(text) {
         if (!line.startsWith("data: ")) continue;
         const ev = JSON.parse(line.slice(6));
         if (ev.type === "chat") { chatId = ev.id; }
-        else if (ev.type === "tool") { tools.push(ev); msg.querySelector(".tools")?.remove(); bubble.insertAdjacentHTML("beforebegin", `<div class="tools">${tools.map(t => `<span class="chip">${esc(t.name)} ${esc(t.detail)}</span>`).join("")}</div>`); }
+        else if (ev.type === "tool") { tools.push(ev); msg.querySelector(".tools")?.remove(); pre.insertAdjacentHTML("beforebegin", `<div class="tools">${tools.map(t => `<span class="chip">${esc(t.name)} ${esc(t.detail)}</span>`).join("")}</div>`); }
+        else if (ev.type === "notice") { pre.insertAdjacentHTML("beforeend", `<div class="notice">${esc(ev.text)}</div>`); }
         else if (ev.type === "sources") { renderSources(ev.passages); }
-        else if (ev.type === "facts") { bubble.insertAdjacentHTML("beforebegin", factsHtml(ev.facts)); }
+        else if (ev.type === "facts") { pre.insertAdjacentHTML("afterbegin", factsHtml(ev.facts)); }
         else if (ev.type === "token") { answer += ev.text; bubble.innerHTML = renderAnswer(answer) + '<span class="caret"></span>'; $("messages").scrollTop = $("messages").scrollHeight; }
-        else if (ev.type === "error") { bubble.innerHTML = `<span class="error">${esc(ev.message)}</span>`; }
-        else if (ev.type === "done") { bubble.innerHTML = renderAnswer(ev.answer || "(no answer)"); }
+        else if (ev.type === "error") { pre.insertAdjacentHTML("beforeend", `<div class="error">${esc(ev.message)}</div>`); msg.querySelector(".attempt")?.remove(); }
+        else if (ev.type === "done") {
+          if (!ev.model) msg.querySelector(".attempt")?.remove();
+          else bubble.innerHTML = renderAnswer(ev.answer || "(no answer)");
+        }
       }
     }
   } catch (e) {
-    bubble.innerHTML = `<span class="error">Connection lost: ${esc(String(e))}</span>`;
+    pre.insertAdjacentHTML("beforeend", `<div class="error">Connection lost: ${esc(String(e))}</div>`);
   }
   busy = false; $("send").disabled = false; loadChats(); loadModels();
 }
