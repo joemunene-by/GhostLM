@@ -19,11 +19,15 @@ Use ``load_tokenizer(path)`` to pick the right backend automatically.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import List, Optional
 
 import tiktoken
 import torch
+
+
+_DIGIT_PIECES = re.compile(r"( ?\d)")
 
 
 class ChatTokenizerBase:
@@ -282,14 +286,21 @@ class GhostTokenizer(ChatTokenizerBase):
     ASSISTANT = "<|ghost_assistant|>"
     END = "<|ghost_end|>"
 
-    def __init__(self):
+    def __init__(self, digit_split: bool = False):
         """Initialize the GhostTokenizer with the GPT-2 BPE encoding.
 
         Loads the tiktoken gpt2 encoding and assigns special token IDs
         beyond the standard vocabulary for begin-of-sequence, end-of-sequence,
         padding, unknown, and chat role markers.
+
+        Args:
+            digit_split: Encode every digit as its own token (as Llama and
+                most modern tokenizers do), which makes arithmetic regular:
+                GPT-2 BPE otherwise merges "1234" and "1235" inconsistently.
+                Uses only existing GPT-2 tokens, so the vocabulary is unchanged.
         """
         self._encoder = tiktoken.get_encoding("gpt2")
+        self.digit_split = digit_split
         self._vocab_size = self._encoder.n_vocab
 
         # Assign special token IDs beyond the base vocabulary
@@ -316,7 +327,14 @@ class GhostTokenizer(ChatTokenizerBase):
         return self._vocab_size + len(self._special_tokens)
 
     def _encode_raw(self, text: str) -> List[int]:
-        return self._encoder.encode(text, allowed_special="all")
+        if not self.digit_split:
+            return self._encoder.encode(text, allowed_special="all")
+        ids: List[int] = []
+        # A leading space stays attached to the first digit (" 1" is one GPT-2 token).
+        for piece in _DIGIT_PIECES.split(text):
+            if piece:
+                ids.extend(self._encoder.encode(piece, allowed_special="all"))
+        return ids
 
     def _decode_raw(self, ids: List[int]) -> str:
         return self._encoder.decode(ids)

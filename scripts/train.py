@@ -71,6 +71,8 @@ def parse_args():
         default=None,
         help="Override config optimizer (muon: Muon on hidden matrices + AdamW on the rest)",
     )
+    parser.add_argument("--digit-split", action="store_true",
+                        help="Tokenize every digit separately (GPT-2 vocab unchanged)")
     parser.add_argument("--cautious-wd", action="store_true",
                         help="Only decay weights whose update agrees in sign")
     parser.add_argument("--attn-gate", action="store_true",
@@ -248,7 +250,7 @@ def main():
         config.log_dir = f"logs/{args.run_name}"
 
     # Initialize tokenizer
-    tokenizer = GhostTokenizer()
+    tokenizer = GhostTokenizer(digit_split=args.digit_split)
 
     # Derive vocab size from the tokenizer instead of hardcoding it.
     # (A stale hardcoded 50261 here once excluded the three chat-role

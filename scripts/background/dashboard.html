@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GhostLM Training</title>
+<style>
+  :root {
+    --bg: #050505;
+    --fg: #f4f4f4;
+    --muted: #8a8a8a;
+    --line: rgba(255, 255, 255, 0.12);
+    --glass: rgba(255, 255, 255, 0.045);
+    --glass-strong: rgba(255, 255, 255, 0.09);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--fg);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue", sans-serif;
+    background-image:
+      radial-gradient(60rem 40rem at 15% -10%, rgba(255,255,255,0.07), transparent 60%),
+      radial-gradient(50rem 30rem at 110% 110%, rgba(255,255,255,0.05), transparent 60%);
+    background-attachment: fixed;
+  }
+  main { max-width: 1040px; margin: 0 auto; padding: 40px 16px 64px; }
+  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
+  h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
+    background: var(--glass); border: 1px solid var(--line); backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px); font-size: 13px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg); }
+  .dot.live { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+  .card {
+    background: var(--glass); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px;
+    backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 20px 40px -24px rgba(0,0,0,0.8);
+    transition: transform 0.25s ease, background 0.25s ease;
+  }
+  .card:hover { transform: translateY(-2px); background: var(--glass-strong); }
+  .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .value { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .small { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .wide { grid-column: span 4; }
+  .bar { height: 6px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; margin-top: 14px; }
+  .bar > div { height: 100%; background: var(--fg); border-radius: 99px; transition: width 0.8s ease; }
+  svg { width: 100%; height: 260px; display: block; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+  th, td { text-align: right; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  button {
+    font: inherit; color: var(--bg); background: var(--fg); border: 0; border-radius: 999px;
+    padding: 9px 18px; cursor: pointer; transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  button:hover { opacity: 0.85; } button:active { transform: scale(0.97); }
+  .empty { color: var(--muted); font-size: 14px; padding: 16px 0; }
+  @media (max-width: 760px) {
+    .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .wide { grid-column: span 2; }
+    .value { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>GhostLM ghost-base</h1>
+      <div class="sub" id="sub">connecting</div>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <span class="pill"><span class="dot" id="dot"></span><span id="state">...</span></span>
+      <button id="toggle">Pause</button>
+    </div>
+  </header>
+
+  <section class="grid">
+    <div class="card wide">
+      <div class="label">Progress</div>
+      <div class="value" id="progress">0%</div>
+      <div class="small" id="steps"></div>
+      <div class="bar"><div id="bar" style="width:0%"></div></div>
+    </div>
+    <div class="card"><div class="label">Val loss</div><div class="value" id="val">-</div><div class="small" id="train"></div></div>
+    <div class="card"><div class="label">Time left</div><div class="value" id="eta">-</div><div class="small">of active training</div></div>
+    <div class="card"><div class="label">Speed</div><div class="value" id="speed">-</div><div class="small">seconds per step</div></div>
+    <div class="card"><div class="label">Tokens seen</div><div class="value" id="tokens">-</div><div class="small" id="recipe"></div></div>
+    <div class="card wide">
+      <div class="label">Validation loss</div>
+      <svg id="chart" viewBox="0 0 1000 260" preserveAspectRatio="none" aria-label="Validation loss over steps"></svg>
+    </div>
+    <div class="card wide">
+      <div class="label">Benchmarks (accuracy %, 25 is chance)</div>
+      <div id="evals"></div>
+    </div>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let paused = false;
+
+function fmtTokens(n) {
+  if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(0) + "M";
+  return n.toLocaleString();
+}
+
+function drawChart(points) {
+  const svg = $("chart");
+  if (points.length < 2) { svg.innerHTML = '<text x="20" y="40" fill="#8a8a8a" font-size="16">No validation points yet</text>'; return; }
+  const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const pad = 24, W = 1000, H = 260;
+  const sx = x => pad + (x - x0) / Math.max(1, x1 - x0) * (W - 2 * pad);
+  const sy = y => H - pad - (y - y0) / Math.max(1e-9, y1 - y0) * (H - 2 * pad);
+  const d = points.map((p, i) => (i ? "L" : "M") + sx(p[0]).toFixed(1) + " " + sy(p[1]).toFixed(1)).join(" ");
+  const grid = [0, 0.25, 0.5, 0.75, 1].map(f => {
+    const y = pad + f * (H - 2 * pad), v = (y1 - f * (y1 - y0)).toFixed(2);
+    return `<line x1="${pad}" x2="${W - pad}" y1="${y}" y2="${y}" stroke="rgba(255,255,255,0.08)"/>` +
+           `<text x="${W - pad}" y="${y - 4}" fill="#8a8a8a" font-size="12" text-anchor="end">${v}</text>`;
+  }).join("");
+  svg.innerHTML = grid +
+    `<path d="${d} L ${sx(x1)} ${H - pad} L ${sx(x0)} ${H - pad} Z" fill="rgba(255,255,255,0.05)"/>` +
+    `<path d="${d}" fill="none" stroke="#f4f4f4" stroke-width="2" vector-effect="non-scaling-stroke"/>`;
+}
+
+function drawEvals(evals) {
+  if (!evals.length) { $("evals").innerHTML = '<div class="empty">First benchmark run happens every 1,500 steps.</div>'; return; }
+  const benches = [...new Set(evals.flatMap(e => Object.keys(e.results)))].sort();
+  const head = "<tr><th>step</th>" + benches.map(b => `<th>${b}</th>`).join("") + "</tr>";
+  const rows = evals.slice().reverse().map(e =>
+    `<tr><td>${e.step.toLocaleString()}</td>` + benches.map(b => `<td>${e.results[b] ?? ""}</td>`).join("") + "</tr>").join("");
+  $("evals").innerHTML = `<table>${head}${rows}</table>`;
+}
+
+async function refresh() {
+  try {
+    const s = await (await fetch("/api/status", { cache: "no-store" })).json();
+    paused = s.paused;
+    const pct = s.max_steps ? 100 * s.step / s.max_steps : 0;
+    $("state").textContent = s.state;
+    $("dot").className = "dot" + (s.state === "training" ? " live" : "");
+    $("sub").textContent = `updated ${s.updated} · ${s.optimizer} · ${s.lr_schedule}`;
+    $("progress").textContent = pct.toFixed(1) + "%";
+    $("steps").textContent = `step ${s.step.toLocaleString()} of ${s.max_steps.toLocaleString()}`;
+    $("bar").style.width = pct + "%";
+    $("val").textContent = s.val_loss != null ? s.val_loss.toFixed(3) : "-";
+    $("train").textContent = s.train_loss != null ? `train ${s.train_loss.toFixed(3)}` : "";
+    $("eta").textContent = s.eta_hours != null ? (s.eta_hours >= 48 ? (s.eta_hours / 24).toFixed(1) + " d" : s.eta_hours.toFixed(1) + " h") : "-";
+    $("speed").textContent = s.seconds_per_step != null ? s.seconds_per_step.toFixed(0) : "-";
+    $("tokens").textContent = fmtTokens(s.step * s.tokens_per_step);
+    $("recipe").textContent = `${fmtTokens(s.tokens_per_step)} per step`;
+    $("toggle").textContent = paused ? "Resume" : "Pause";
+    $("toggle").style.display = s.finished ? "none" : "";
+    drawChart(s.val_curve || []);
+    drawEvals(s.evals || []);
+  } catch (e) {
+    $("state").textContent = "offline";
+    $("dot").className = "dot";
+  }
+}
+
+function getToken() {
+  let t = null;
+  try { t = localStorage.getItem("ghostlm_token"); } catch (e) {}
+  if (!t) {
+    t = prompt("Dashboard token (cat .bg/dashboard_token on the Mac)");
+    if (t) try { localStorage.setItem("ghostlm_token", t); } catch (e) {}
+  }
+  return t;
+}
+
+$("toggle").addEventListener("click", async () => {
+  const token = getToken();
+  if (!token) return;
+  const r = await fetch(paused ? "/api/resume" : "/api/pause", { method: "POST", headers: { "X-Token": token } });
+  if (r.status === 403) { try { localStorage.removeItem("ghostlm_token"); } catch (e) {} alert("Wrong token"); }
+  refresh();
+});
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>
