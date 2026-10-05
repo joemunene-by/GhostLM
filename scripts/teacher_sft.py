@@ -240,9 +240,12 @@ def run(model: str, batches: int, retries: int = 2, timeout: int = 600, reverse:
 
 def status() -> None:
     queue = sorted(QUEUE.glob("batch_*.jsonl"))
-    done = [p for p in queue if (OUT / p.name).exists() and not validate(p.stem.split("_")[1])[1]]
+    # A batch with a few flagged lines still contributes its good examples at merge.
+    accepted = {p.name: len(validate(p.stem.split("_")[1])[0]) for p in queue if (OUT / p.name).exists()}
+    done = sum(n >= 5 for n in accepted.values())
     nxt = next((p.stem.split("_")[1] for p in queue if not (OUT / p.name).exists()), None)
-    print(f"{len(done)}/{len(queue)} batches valid; next batch to do: {nxt or 'none'}")
+    print(f"{done}/{len(queue)} batches done, {sum(accepted.values())} examples accepted; "
+          f"next batch to do: {nxt or 'none'}")
 
 
 def merge() -> None:
