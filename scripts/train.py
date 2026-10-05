@@ -66,6 +66,18 @@ def parse_args():
         help="Override config learning_rate",
     )
     parser.add_argument(
+        "--optimizer",
+        choices=["adamw", "muon", "normuon"],
+        default=None,
+        help="Override config optimizer (muon: Muon on hidden matrices + AdamW on the rest)",
+    )
+    parser.add_argument("--cautious-wd", action="store_true",
+                        help="Only decay weights whose update agrees in sign")
+    parser.add_argument("--attn-gate", action="store_true",
+                        help="Per-head sigmoid gate on the attention output")
+    parser.add_argument("--value-residual", action="store_true",
+                        help="Mix first-layer values into later layers (ResFormer)")
+    parser.add_argument(
         "--grad-accum",
         type=int,
         default=4,
@@ -204,6 +216,11 @@ def main():
         config.batch_size = args.batch_size
     if args.lr is not None:
         config.learning_rate = args.lr
+    if args.optimizer is not None:
+        config.optimizer = args.optimizer
+    config.cautious_wd = config.cautious_wd or args.cautious_wd
+    config.attn_gate = config.attn_gate or args.attn_gate
+    config.value_residual = config.value_residual or args.value_residual
     config.grad_accum_steps = args.grad_accum
     if args.device != "auto":
         config.device = args.device
