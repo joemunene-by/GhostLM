@@ -188,6 +188,19 @@ class CausalSelfAttention(nn.Module):
             self.q_norm = RMSNorm(self.head_dim)
             self.k_norm = RMSNorm(self.head_dim)
 
+        # Gated attention (Qiu et al., 2025): a per-head sigmoid gate on the
+        # SDPA output, computed from the block input. Curbs attention sinks
+        # and loss spikes.
+        self.use_attn_gate = getattr(config, "attn_gate", False)
+        if self.use_attn_gate:
+            self.gate = nn.Linear(config.d_model, self.n_heads, bias=True)
+
+        # Value residual (ResFormer, Zhou et al., 2024): later layers mix the
+        # first layer's values into their own via a learned scalar.
+        self.value_residual = getattr(config, "value_residual", False)
+        if self.value_residual:
+            self.v_mix = nn.Parameter(torch.tensor(0.5))
+
         # Dropout applied to attention weights (manual path only)
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
@@ -251,7 +264,8 @@ class CausalSelfAttention(nn.Module):
         attn_mask: Optional[torch.Tensor] = None,
         past_kv: Optional[LayerKVCache] = None,
         use_cache: bool = False,
-    ) -> Tuple[torch.Tensor, Optional[LayerKVCache]]:
+        v_first: Optional[torch.Tensor] = None,
+    ):
         """Forward pass through causal self-attention.
 
         Args:
@@ -261,9 +275,13 @@ class CausalSelfAttention(nn.Module):
             past_kv: Optional (k, v) tensors from previous steps, each of
                 shape (B, n_kv_heads, past_len, head_dim).
             use_cache: If True, also return the updated (k, v) cache.
+            v_first: With ``value_residual``, the first layer's values for
+                these tokens; None on the first layer itself.
 
         Returns:
-            Tuple of (output of shape (B, T, d_model), updated cache or None).
+            Tuple of (output of shape (B, T, d_model), updated cache or None),
+            plus the first-layer values as a third item when
+            ``value_residual`` is on.
         """
         B, T, C = x.size()
         past_len = past_kv[0].size(2) if past_kv is not None else 0
@@ -277,6 +295,12 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         k = k.view(B, T, self.n_kv_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_kv_heads, self.head_dim).transpose(1, 2)
+
+        if self.value_residual:
+            if v_first is None:
+                v_first = v
+            else:
+                v = (1 - self.v_mix) * v + self.v_mix * v_first
 
         # QK-norm before RoPE, per head.
         if self.use_qk_norm:
@@ -342,10 +366,15 @@ class CausalSelfAttention(nn.Module):
             att = self.attn_dropout(att)
             y = att @ v
 
+        if self.use_attn_gate:
+            y = y * torch.sigmoid(self.gate(x)).transpose(1, 2).unsqueeze(-1)
+
         # Reassemble heads and project
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         y = self.resid_dropout(self.proj(y))
 
+        if self.value_residual:
+            return y, present, v_first
         return y, present
 
 
@@ -537,7 +566,8 @@ class TransformerBlock(nn.Module):
         attn_mask: Optional[torch.Tensor] = None,
         past_kv: Optional[LayerKVCache] = None,
         use_cache: bool = False,
-    ) -> Tuple[torch.Tensor, Optional[LayerKVCache]]:
+        v_first: Optional[torch.Tensor] = None,
+    ):
         """Forward pass through the transformer block.
 
         Args:
@@ -550,14 +580,14 @@ class TransformerBlock(nn.Module):
             Tuple of (output of shape (B, T, d_model), updated cache or None).
         """
         # Pre-norm + self-attention with residual
-        attn_out, present = self.attn(
+        out = self.attn(
             self.ln_1(x), attn_mask=attn_mask,
-            past_kv=past_kv, use_cache=use_cache,
+            past_kv=past_kv, use_cache=use_cache, v_first=v_first,
         )
-        x = x + attn_out
+        x = x + out[0]
         # Pre-norm + feed-forward with residual
         x = x + self.ffn(self.ln_2(x))
-        return x, present
+        return (x,) + tuple(out[1:])
 
 
 class GhostLM(nn.Module):
@@ -690,17 +720,22 @@ class GhostLM(nn.Module):
             and not use_cache
         )
         presents: Optional[List[LayerKVCache]] = [] if use_cache else None
+        v_first = None
         for i, block in enumerate(self.blocks):
             layer_past = past_kv[i] if past_kv else None
             if use_ckpt:
-                x, present = torch.utils.checkpoint.checkpoint(
-                    block, x, attn_mask, layer_past, use_cache,
+                out = torch.utils.checkpoint.checkpoint(
+                    block, x, attn_mask, layer_past, use_cache, v_first,
                     use_reentrant=False,
                 )
             else:
-                x, present = block(
+                out = block(
                     x, attn_mask=attn_mask, past_kv=layer_past, use_cache=use_cache,
+                    v_first=v_first,
                 )
+            x, present = out[0], out[1]
+            if len(out) > 2:
+                v_first = out[2]
             if use_cache:
                 presents.append(present)
 
@@ -825,6 +860,8 @@ class GhostLM(nn.Module):
                     decay.add(fpn)
                 elif pn.endswith("weight") and isinstance(m, blacklist):
                     no_decay.add(fpn)
+                elif p.ndim < 2:
+                    no_decay.add(fpn)  # learned scalars/gains, e.g. value-residual v_mix
 
         # Remove lm_head.weight from decay if present — it is tied to token_embedding.weight
         decay.discard("lm_head.weight")
@@ -835,6 +872,28 @@ class GhostLM(nn.Module):
         all_params = decay | no_decay
         uncategorized = {k for k in param_dict.keys() if k not in all_params and k != "lm_head.weight"}
         assert len(uncategorized) == 0, f"Parameters {uncategorized} not categorized"
+
+        if getattr(config, "optimizer", "adamw") in ("muon", "normuon"):
+            from ghostlm.muon import MuonWithAuxAdam
+
+            muon = sorted(pn for pn in decay if param_dict[pn].ndim == 2)
+            adam_decay = sorted(pn for pn in decay if param_dict[pn].ndim != 2)
+            groups = [
+                {"params": [param_dict[pn] for pn in muon],
+                 "weight_decay": config.weight_decay, "use_muon": True},
+                {"params": [param_dict[pn] for pn in adam_decay],
+                 "weight_decay": config.weight_decay},
+                {"params": [param_dict[pn] for pn in sorted(no_decay)],
+                 "weight_decay": 0.0},
+            ]
+            return MuonWithAuxAdam(
+                [g for g in groups if g["params"]],
+                lr=config.learning_rate,
+                betas=(config.beta1, config.beta2),
+                momentum=getattr(config, "muon_momentum", 0.95),
+                normuon=config.optimizer == "normuon",
+                cautious_wd=getattr(config, "cautious_wd", False),
+            )
 
         optim_groups = [
             {

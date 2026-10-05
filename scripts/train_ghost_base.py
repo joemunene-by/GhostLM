@@ -55,6 +55,7 @@ truth metric.
 """
 
 import argparse
+import signal
 from pathlib import Path
 
 import torch
@@ -76,6 +77,21 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-steps", type=int, default=30_000)
     p.add_argument("--warmup-steps", type=int, default=2_000)
     p.add_argument("--learning-rate", type=float, default=2e-4)
+    p.add_argument("--optimizer", default="adamw", choices=["adamw", "muon", "normuon"],
+                   help="muon: Muon on hidden matrices + AdamW on the rest; "
+                        "normuon: Muon with per-neuron normalization.")
+    p.add_argument("--cautious-wd", action="store_true",
+                   help="Only decay weights whose update agrees in sign.")
+    p.add_argument("--best-weights-only", action="store_true",
+                   help="Save best_model.pt without optimizer state to save disk.")
+    p.add_argument("--attn-gate", action="store_true",
+                   help="Per-head sigmoid gate on the attention output.")
+    p.add_argument("--value-residual", action="store_true",
+                   help="Mix first-layer values into later layers (ResFormer).")
+    p.add_argument("--lr-schedule", default="cosine", choices=["cosine", "wsd"],
+                   help="wsd: flat LR then a linear decay over the last --wsd-decay-frac "
+                        "of steps; saves pre_decay.pt so the run can be extended.")
+    p.add_argument("--wsd-decay-frac", type=float, default=0.2)
     p.add_argument("--batch-size", type=int, default=16,
                    help="Per-device batch (H100 default; lower for M4 smoke)")
     p.add_argument("--grad-accum-steps", type=int, default=4)
@@ -144,6 +160,13 @@ def main() -> None:
     config.batch_size = args.batch_size
     config.grad_accum_steps = args.grad_accum_steps
     config.learning_rate = args.learning_rate
+    config.optimizer = args.optimizer
+    config.cautious_wd = args.cautious_wd
+    config.attn_gate = args.attn_gate
+    config.best_weights_only = args.best_weights_only
+    config.value_residual = args.value_residual
+    config.lr_schedule = args.lr_schedule
+    config.wsd_decay_frac = args.wsd_decay_frac
     config.warmup_steps = args.warmup_steps
     config.max_steps = args.max_steps
     config.eval_interval = args.eval_interval
@@ -194,6 +217,10 @@ def main() -> None:
         print(f"Resuming from {args.resume}")
         trainer.load_checkpoint(args.resume)
 
+    def request_stop(signum, frame):
+        trainer.stop_requested = True
+
+    signal.signal(signal.SIGTERM, request_stop)
     trainer.train(train_loader, val_loader)
 
 

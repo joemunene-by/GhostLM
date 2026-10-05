@@ -37,6 +37,10 @@ class GhostLMConfig:
     # OLMo-2 style). Cheap insurance against attention-logit blowups on
     # long bf16 pretrains.
     use_qk_norm: bool = False
+    # Per-head sigmoid gate on the attention output (gated attention).
+    attn_gate: bool = False
+    # Mix the first layer's values into every later layer (ResFormer).
+    value_residual: bool = False
     # Intra-document attention masking for packed pretraining. The dataset
     # concatenates documents (EOS-separated) and slices fixed blocks, so a
     # block usually straddles document boundaries; with plain causal
@@ -70,11 +74,26 @@ class GhostLMConfig:
     beta1: float = 0.9
     beta2: float = 0.95
     grad_clip: float = 1.0
+    # "adamw", "muon" (Muon on hidden 2D matrices, AdamW on embeddings,
+    # norms and biases) or "normuon" (Muon + per-neuron normalization);
+    # see ghostlm/muon.py.
+    optimizer: str = "adamw"
+    muon_momentum: float = 0.95
+    # Decay only coordinates whose update agrees in sign with the weight.
+    cautious_wd: bool = False
+    # "cosine", or "wsd" (warmup-stable-decay: flat LR, then a linear decay
+    # over the last wsd_decay_frac of max_steps). WSD suits open-ended runs:
+    # the pre-decay checkpoint can be resumed with a larger max_steps.
+    lr_schedule: str = "cosine"
+    wsd_decay_frac: float = 0.2
     grad_accum_steps: int = 4
     warmup_steps: int = 2000
     max_steps: int = 100000
     eval_interval: int = 500
     save_interval: int = 1000
+    # Write best_model.pt without optimizer state (about 1/3 the size); it
+    # can then be evaluated or used, but not resumed from.
+    best_weights_only: bool = False
 
     # Paths
     data_dir: str = "data/processed"
@@ -247,11 +266,15 @@ class GhostLMConfig:
             f"  use_flash_attn:  {self.use_flash_attention}",
             f"  n_kv_heads:      {self.n_kv_heads if self.n_kv_heads is not None else f'{self.n_heads} (MHA)'}",
             f"  use_qk_norm:     {self.use_qk_norm}",
+            f"  attn_gate:       {self.attn_gate}",
+            f"  value_residual:  {self.value_residual}",
             f"  use_moe:         {self.use_moe}"
             + (f" ({self.n_experts} experts, top-{self.n_experts_active})"
                if self.use_moe else ""),
             "Training:",
             f"  batch_size:      {self.batch_size}",
+            f"  optimizer:       {self.optimizer}",
+            f"  lr_schedule:     {self.lr_schedule}",
             f"  learning_rate:   {self.learning_rate}",
             f"  weight_decay:    {self.weight_decay}",
             f"  beta1:           {self.beta1}",

@@ -15,6 +15,13 @@ from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM
 
 
+def _atomic_save(obj, path: Path) -> None:
+    """Write to a temp file then rename, so a kill mid-save never leaves a truncated checkpoint."""
+    tmp = path.with_name(path.name + ".tmp")
+    torch.save(obj, tmp)
+    os.replace(tmp, path)
+
+
 class GhostTrainer:
     """Manages the GhostLM training loop with evaluation, checkpointing, and logging.
 
@@ -135,6 +142,8 @@ class GhostTrainer:
         self.accum_steps = getattr(config, 'grad_accum_steps', 4)
         self.best_val_loss = float("inf")
         self.log: list = []
+        # Set from a signal handler; the loop saves a checkpoint and exits cleanly.
+        self.stop_requested = False
 
         # Weights & Biases — live metrics for long (paid) runs. Rank-0
         # only; degrades to a warning if wandb isn't installed or can't
@@ -186,11 +195,23 @@ class GhostTrainer:
         if step < warmup:
             return base_lr * (step + 1) / warmup
 
+        if getattr(self.config, "lr_schedule", "cosine") == "wsd":
+            decay_start = self.wsd_decay_start()
+            if step < decay_start:
+                return base_lr
+            frac = min(1.0, (step - decay_start) / max(1, max_steps - decay_start))
+            return base_lr + (min_lr - base_lr) * frac
+
         decay_ratio = (step - warmup) / max(1, max_steps - warmup)
         decay_ratio = min(decay_ratio, 1.0)
 
         cosine_decay = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
         return min_lr + (base_lr - min_lr) * cosine_decay
+
+    def wsd_decay_start(self) -> int:
+        """First step of the WSD decay phase."""
+        frac = getattr(self.config, "wsd_decay_frac", 0.2)
+        return int(self.config.max_steps * (1 - frac))
 
     def _set_lr(self) -> None:
         """Apply the current learning rate from get_lr() to all optimizer parameter groups."""
@@ -296,28 +317,41 @@ class GhostTrainer:
         if getattr(self, "is_distributed", False) and not self.is_main_process:
             return
 
-        # Unwrap DDP / torch.compile to keep checkpoints loadable anywhere
-        raw_model = self._unwrap_model()
+        is_best = val_loss < self.best_val_loss
+        if is_best:
+            self.best_val_loss = val_loss
 
-        checkpoint = {
+        checkpoint = self._checkpoint_state(val_loss)
+
+        filename = f"checkpoint_step_{self.step}.pt"
+        path = self.checkpoint_dir / filename
+        _atomic_save(checkpoint, path)
+        print(f"  Saved checkpoint: {path}")
+
+        if is_best:
+            best_path = self.checkpoint_dir / "best_model.pt"
+            if getattr(self.config, "best_weights_only", False):
+                checkpoint = {k: v for k, v in checkpoint.items()
+                              if k not in ("optimizer_state_dict", "grad_scaler_state_dict")}
+            _atomic_save(checkpoint, best_path)
+            print(f"  New best model saved: {best_path} (val_loss={val_loss:.4f})")
+
+    def _checkpoint_state(self, val_loss: float) -> dict:
+        # Unwrap DDP / torch.compile to keep checkpoints loadable anywhere
+        return {
             "step": self.step,
             "val_loss": val_loss,
-            "model_state_dict": raw_model.state_dict(),
+            "best_val_loss": self.best_val_loss,
+            "model_state_dict": self._unwrap_model().state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "grad_scaler_state_dict": self.grad_scaler.state_dict(),
             "config": asdict(self.config),
         }
 
-        filename = f"checkpoint_step_{self.step}.pt"
-        path = self.checkpoint_dir / filename
-        torch.save(checkpoint, path)
-        print(f"  Saved checkpoint: {path}")
-
-        if val_loss < self.best_val_loss:
-            self.best_val_loss = val_loss
-            best_path = self.checkpoint_dir / "best_model.pt"
-            torch.save(checkpoint, best_path)
-            print(f"  New best model saved: {best_path} (val_loss={val_loss:.4f})")
+    def _save_pre_decay(self) -> None:
+        """Keep the last flat-LR state so the run can later be extended past max_steps."""
+        _atomic_save(self._checkpoint_state(float("inf")), self.checkpoint_dir / "pre_decay.pt")
+        print(f"  Saved pre-decay checkpoint at step {self.step}")
 
     def load_checkpoint(self, path: str) -> None:
         """Load a model checkpoint from disk.
@@ -337,7 +371,10 @@ class GhostTrainer:
         if "grad_scaler_state_dict" in checkpoint:
             self.grad_scaler.load_state_dict(checkpoint["grad_scaler_state_dict"])
         self.step = checkpoint["step"]
-        self.best_val_loss = checkpoint["val_loss"]
+        # Older checkpoints only carry the val_loss at save time, which is not
+        # necessarily the best seen; restoring it as "best" let a worse model
+        # overwrite best_model.pt after a resume.
+        self.best_val_loss = checkpoint.get("best_val_loss", checkpoint["val_loss"])
 
         print(f"Loaded checkpoint from step {self.step} (val_loss={self.best_val_loss:.4f})")
 
@@ -447,6 +484,18 @@ class GhostTrainer:
 
                 if save_due:
                     self.save_checkpoint(val_loss)
+
+                if (getattr(self.config, "lr_schedule", "cosine") == "wsd"
+                        and self.step == self.wsd_decay_start()
+                        and self.is_main_process):
+                    self._save_pre_decay()
+
+                if self.stop_requested:
+                    if self.is_main_process:
+                        print(f"\nStop requested; saving step {self.step} and exiting.")
+                    # inf never counts as a new best, so this only writes a resume point.
+                    self.save_checkpoint(float("inf"))
+                    return
 
         # Final evaluation and checkpoint
         if self.is_main_process:
