@@ -302,3 +302,15 @@ def test_rope_base_flows_into_rotary_embedding():
     assert not torch.allclose(rope_default.inv_freq, rope_long.inv_freq)
     # Higher base means slower-rotating high dims (smaller frequencies).
     assert rope_long.inv_freq[-1] < rope_default.inv_freq[-1]
+
+
+def test_digit_split_tokenizer_is_lossless_and_only_changes_numbers():
+    from ghostlm.tokenizer import GhostTokenizer
+    plain, split = GhostTokenizer(), GhostTokenizer(digit_split=True)
+    text = "CVE-2021-44228 scored 10.0 in 2021; see <|ghost_eos|> later."
+    ids = split.encode(text)
+    assert split.decode(ids, skip_special=False) == text
+    digits = [split.decode([i]) for i in ids if any(c.isdigit() for c in split.decode([i]))]
+    assert all(len(d.strip()) == 1 for d in digits)
+    assert split.encode("no numbers here") == plain.encode("no numbers here")
+    assert split.vocab_size == plain.vocab_size
