@@ -17,6 +17,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import signal
 import subprocess
 import sys
@@ -186,6 +187,26 @@ def latest_step() -> int:
     return int(re.search(r"(\d+)", ckpts[0].name).group(1)) if ckpts else 0
 
 
+def log_event(msg: str) -> None:
+    print(f"[{now()}] {msg}", flush=True)
+
+
+def live_step() -> int:
+    """Newest step the trainer has printed (MLX "step N ..." or tqdm "N/M ["), else 0."""
+    try:
+        with TRAIN_LOG.open("rb") as f:
+            f.seek(max(0, TRAIN_LOG.stat().st_size - 8192))
+            tail = f.read().decode(errors="ignore")
+    except OSError:
+        return 0
+    found = re.findall(r"^step (\d+) ", tail, re.M) or re.findall(r"(\d+)/\d+ \[", tail)
+    return int(found[-1]) if found else 0
+
+
+def free_disk_gb() -> float:
+    return shutil.disk_usage(ROOT).free / 1e9
+
+
 def prune() -> None:
     for p in checkpoints()[KEEP_CHECKPOINTS:]:
         p.unlink(missing_ok=True)
@@ -249,7 +270,7 @@ def record_rate(state: dict, training: bool) -> None:
     if not training:
         state["rate_samples"] = []
         return
-    step = latest_step()
+    step = max(live_step(), latest_step())
     samples = state.setdefault("rate_samples", [])
     if not samples or samples[-1][1] != step:
         samples.append([time.time(), step])
@@ -259,9 +280,9 @@ def record_rate(state: dict, training: bool) -> None:
 def refresh_status(state_line: str, cfg: dict, state: dict) -> None:
     log = training_log()
     last = log[-1] if log else {}
-    step = max(last.get("step", 0), latest_step())
+    step = max(last.get("step", 0), latest_step(), live_step())
     sps = seconds_per_step(state)
-    eta_h = (cfg["max_steps"] - step) * sps / 3600 if sps else None
+    eta_h = max(0, cfg["max_steps"] - step) * sps / 3600 if sps else None
     evals = []
     if (BG / "evals.jsonl").exists():
         evals = [json.loads(line) for line in (BG / "evals.jsonl").read_text().splitlines() if line.strip()]
@@ -273,6 +294,7 @@ def refresh_status(state_line: str, cfg: dict, state: dict) -> None:
         "tokens_per_step": cfg["batch_size"] * cfg["context_length"],
         "paused": PAUSE_FILE.exists(), "finished": state.get("finished", False),
         "free_memory": MEM["free"],
+        "free_disk_gb": round(free_disk_gb(), 1),
         "optimizer": cfg["optimizer"], "lr_schedule": cfg["lr_schedule"],
         "val_curve": [[e["step"], e["val_loss"]] for e in log][-400:],
         "evals": [{"step": e["step"], "results": {k: round(v["acc"], 1) for k, v in e["results"].items()}}
@@ -492,6 +514,13 @@ def main() -> None:
             save_state(state)
 
         reason = pause_reason()
+        if reason != state.get("last_reason", ""):
+            log_event(f"pause: {reason}" if reason else "pause lifted")
+            state["last_reason"] = reason
+        if free_disk_gb() < 8 and time.time() - state.get("disk_warned", 0) > 6 * 3600:
+            log_event(f"low disk: {free_disk_gb():.1f}GB free")
+            notify(f"Only {free_disk_gb():.1f}GB disk free; checkpoints need about 4GB. Free some space.")
+            state["disk_warned"] = time.time()
 
         if eval_child is not None:
             if eval_child.poll() is None:
@@ -512,6 +541,7 @@ def main() -> None:
 
         if child is not None and child.poll() is not None:
             code = child.returncode
+            log_event(f"trainer exited with code {code} at step {max(latest_step(), live_step())}")
             child = None
             stopping_since = None
             step = max(latest_step(), training_log()[-1]["step"] if training_log() else 0)
@@ -568,6 +598,7 @@ def main() -> None:
                     # caffeinate does not forward signals to a wrapped command, so it
                     # watches the trainer's pid instead of wrapping it.
                     subprocess.Popen(["caffeinate", "-i", "-w", str(child.pid)])
+                    log_event(f"launched trainer (pid {child.pid}, resume {checkpoints()[0].name if checkpoints() else 'none'})")
                     state["launch_step"] = latest_step()
                     refresh_status("training", cfg, state)
                 else:

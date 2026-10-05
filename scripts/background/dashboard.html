@@ -145,7 +145,8 @@ async function refresh() {
     const pct = s.max_steps ? 100 * s.step / s.max_steps : 0;
     $("state").textContent = s.state;
     $("dot").className = "dot" + (s.state === "training" ? " live" : "");
-    const mem = s.free_memory != null ? ` · ${s.free_memory}% memory free` : "";
+    const mem = (s.free_memory != null ? ` · ${s.free_memory}% memory free` : "") +
+      (s.free_disk_gb != null ? ` · ${s.free_disk_gb}GB disk free` : "");
     $("sub").textContent = `updated ${s.updated} · ${s.optimizer} · ${s.lr_schedule}${mem}`;
     $("progress").textContent = pct.toFixed(1) + "%";
     $("steps").textContent = `step ${s.step.toLocaleString()} of ${s.max_steps.toLocaleString()}`;

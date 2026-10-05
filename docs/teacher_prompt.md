@@ -18,7 +18,7 @@ Each output line is:
 
 Per batch, write:
 - For every passage: one "answer" example. For a rich passage you may add a second one with a different question.
-- Exactly one "unanswerable" example: a realistic security question that none of the batch's passages answers. Use any pid from the batch and the answer exactly: My sources don't cover that.
+- Exactly one "unanswerable" example: a realistic security question that none of the batch's passages answers, different in every batch (never reuse the example's question). Use any pid from the batch and the answer exactly: My sources don't cover that.
 - For a passage that is junk (navigation text, a cookie banner, code with no explanation): {"pid": "...", "type": "skip"} instead. At most 3 per batch.
 
 Questions:
@@ -32,6 +32,7 @@ Answers:
 - Reuse the passage's exact terms, names, IDs, versions and numbers.
 - Put [1] right after the sentence that uses the passage's facts. Every answer cites [1] at least once.
 - Plain sentences. No headings, no bullet lists, no "As an AI", no hedging filler.
+- Never refer to the source ("the article", "the extract", "the document") and never answer in first person ("we", "let's"); state the facts directly.
 - If the passage only partly answers the question, answer the part it supports and say what it does not cover.
 
 Example (passage pid p123: "CAPEC-322: TCP (ISN) Greatest Common Divisor Probe. This OS fingerprinting probe sends a number of TCP SYN packets to an open port ... the smallest number that the target host uses when incrementing sequence numbers ..."):

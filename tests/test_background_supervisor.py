@@ -27,7 +27,8 @@ def bg(tmp_path, monkeypatch):
     ckpt.mkdir()
     for name, value in {"BG": bg, "CKPT_DIR": ckpt, "LOG_DIR": tmp_path / "logs", "STATUS": bg / "STATUS.txt",
                         "PAUSE_FILE": bg / "PAUSE", "TOKEN_FILE": bg / "dashboard_token",
-                        "CONFIG": bg / "train_config.json", "MANIFEST": tmp_path / "none.json"}.items():
+                        "CONFIG": bg / "train_config.json", "MANIFEST": tmp_path / "none.json",
+                        "TRAIN_LOG": bg / "logs" / "train.log"}.items():
         monkeypatch.setattr(sup, name, value)
     return bg
 
@@ -153,3 +154,13 @@ def test_backend_selects_trainer_and_flags(bg):
     assert mlx[mlx.index("--dtype") + 1] == "bfloat16"
     torch_cmd = sup.train_command(dict(sup.DEFAULT_CONFIG, backend="torch"))
     assert "scripts/train_ghost_base.py" in torch_cmd and "--dropout" in torch_cmd
+
+
+def test_live_step_reads_mlx_and_tqdm_logs(bg, monkeypatch, tmp_path):
+    log = tmp_path / "train.log"
+    monkeypatch.setattr(sup, "TRAIN_LOG", log)
+    assert sup.live_step() == 0
+    log.write_text("step 290 loss 6.1 lr 1e-4\nstep 291 loss 6.0 lr 1e-4\n")
+    assert sup.live_step() == 291
+    log.write_text("Training:   1%|  | 150/15000 [6:41:44<640:56:37, 155.38s/it]")
+    assert sup.live_step() == 150
