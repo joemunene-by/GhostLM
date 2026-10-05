@@ -221,6 +221,9 @@ def parse_args() -> argparse.Namespace:
                    help="Cap questions per bench (cheap mid-run reads; omit for full).")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--out", default="docs/scorecard.md")
+    p.add_argument("--json-out", default=None,
+                   help="Also append one JSON line {label, step, results} here, "
+                        "for tracking a run's evals over time.")
     return p.parse_args()
 
 
@@ -233,6 +236,17 @@ def main() -> int:
     out.write_text(md, encoding="utf-8")
     print("\n" + md)
     print(f"scorecard -> {out}")
+    if args.json_out:
+        import torch
+        # mmap avoids reading a multi-GB checkpoint again just for its step.
+        step = torch.load(args.checkpoint, map_location="cpu", weights_only=False,
+                          mmap=True).get("step")
+        row = {"label": args.label, "step": step, "checkpoint": args.checkpoint,
+               "results": {k: {"acc": v["acc"], "ci": list(v["ci"]), "n": v["n"]}
+                           for k, v in results.items()}}
+        Path(args.json_out).parent.mkdir(parents=True, exist_ok=True)
+        with open(args.json_out, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + "\n")
     return 0
 
 
