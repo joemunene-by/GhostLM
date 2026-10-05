@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -49,27 +50,71 @@ def bge_embedder(name: str = "BAAI/bge-small-en-v1.5", device: str = "cpu") -> C
     return embed
 
 
+class LazyChunks(Sequence):
+    """Read-only view of chunks.jsonl that loads one record at a time by byte offset."""
+
+    def __init__(self, path: Path, offsets: np.ndarray):
+        self.path = path
+        self.offsets = offsets
+        self._fh = path.open("rb")
+
+    def __len__(self) -> int:
+        return len(self.offsets)
+
+    def __getitem__(self, i):
+        if isinstance(i, slice):
+            return [self[j] for j in range(*i.indices(len(self)))]
+        self._fh.seek(int(self.offsets[i]))
+        return json.loads(self._fh.readline())
+
+
+def _scan_chunks(path: Path):
+    """Byte offsets of every line plus the exact-ID index, in one streaming pass."""
+    offsets, id_index, pos = [], {}, 0
+    with path.open("rb") as f:
+        for i, line in enumerate(f):
+            offsets.append(pos)
+            pos += len(line)
+            chunk = json.loads(line)
+            for ident in extract_ids(f"{chunk.get('ref', '')} {chunk.get('text', '')}"):
+                id_index.setdefault(ident, []).append(i)
+    return np.array(offsets, dtype=np.int64), id_index
+
+
 class HybridRetriever:
     """Exact identifier lookup first, then dense cosine search."""
 
-    def __init__(self, matrix: np.ndarray, chunks: List[dict],
-                 embed: Optional[Callable[[str], np.ndarray]] = None):
+    def __init__(self, matrix: np.ndarray, chunks: Sequence,
+                 embed: Optional[Callable[[str], np.ndarray]] = None,
+                 id_index: Optional[Dict[str, List[int]]] = None):
         self.matrix = matrix
         self.chunks = chunks
         self._embed = embed
-        self.id_index: Dict[str, List[int]] = {}
-        for i, chunk in enumerate(chunks):
-            for ident in extract_ids(f"{chunk.get('ref', '')} {chunk.get('text', '')}"):
-                self.id_index.setdefault(ident, []).append(i)
+        if id_index is None:
+            id_index = {}
+            for i, chunk in enumerate(chunks):
+                for ident in extract_ids(f"{chunk.get('ref', '')} {chunk.get('text', '')}"):
+                    id_index.setdefault(ident, []).append(i)
+        self.id_index = id_index
 
     @classmethod
     def load(cls, rag_dir: str | Path = "data/rag",
              embed: Optional[Callable[[str], np.ndarray]] = None) -> "HybridRetriever":
+        """Open an index without reading it into RAM: the matrix is memory-mapped and
+        passages are read on demand. Offsets and the ID index are cached beside it."""
         rag_dir = Path(rag_dir)
-        matrix = np.load(rag_dir / "index.npy")
-        with (rag_dir / "chunks.jsonl").open(encoding="utf-8") as f:
-            chunks = [json.loads(line) for line in f]
-        return cls(matrix, chunks, embed)
+        chunks_path = rag_dir / "chunks.jsonl"
+        matrix = np.load(rag_dir / "index.npy", mmap_mode="r")
+        stamp = f"{chunks_path.stat().st_size}:{int(chunks_path.stat().st_mtime)}"
+        cache, offsets_path = rag_dir / "id_index.json", rag_dir / "chunk_offsets.npy"
+        cached = json.loads(cache.read_text()) if cache.exists() else {}
+        if cached.get("stamp") == stamp and offsets_path.exists():
+            offsets, id_index = np.load(offsets_path), cached["id_index"]
+        else:
+            offsets, id_index = _scan_chunks(chunks_path)
+            np.save(offsets_path, offsets)
+            cache.write_text(json.dumps({"stamp": stamp, "id_index": id_index}))
+        return cls(matrix, LazyChunks(chunks_path, offsets), embed, id_index)
 
     @property
     def embed(self) -> Callable[[str], np.ndarray]:
@@ -95,7 +140,10 @@ class HybridRetriever:
 
         if len(hits) < k:
             scores = self.matrix @ self.embed(query)
-            for i in np.argsort(-scores):
+            # Partial sort: only the top few of hundreds of thousands are needed.
+            top = min(len(scores), k + len(taken))
+            candidates = np.argpartition(-scores, top - 1)[:top]
+            for i in candidates[np.argsort(-scores[candidates])]:
                 if len(hits) >= k:
                     break
                 i = int(i)
