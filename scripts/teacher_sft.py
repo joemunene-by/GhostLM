@@ -194,18 +194,25 @@ def _json_lines(text: str) -> list:
     return rows
 
 
-def run(model: str, batches: int, retries: int = 2, timeout: int = 600) -> None:
+def run(model: str, batches: int, retries: int = 2, timeout: int = 600, reverse: bool = False) -> None:
     """Drive the teacher non-interactively: one `opencode run` call per batch, validated, with retries."""
     OUT.mkdir(parents=True, exist_ok=True)
     rules = _rules()
-    todo = [p for p in sorted(QUEUE.glob("batch_*.jsonl")) if not (OUT / p.name).exists()][:batches]
+    # --reverse lets this run alongside an agent working front to back without collisions.
+    queue = sorted(QUEUE.glob("batch_*.jsonl"), reverse=reverse)
+    todo = [p for p in queue if not (OUT / p.name).exists()][:batches]
     for qp in todo:
+        if (OUT / qp.name).exists():
+            continue
         num = qp.stem.split("_")[1]
         prompt = (f"{rules}\n\nHere are the 10 passages, one JSON object per line:\n{qp.read_text()}\n"
                   "Reply with only the output JSON lines, nothing else.")
         errors = ["no attempt"]
         for attempt in range(retries + 1):
             rows = _json_lines(_ask(model, prompt, timeout))
+            if attempt == 0 and (OUT / qp.name).exists():
+                errors = []
+                break
             if not rows:
                 errors = ["model returned no JSON lines"]
                 continue
@@ -262,6 +269,7 @@ def main() -> int:
     r = sub.add_parser("run", help="generate batches unattended through `opencode run`")
     r.add_argument("--model", default="opencode/mimo-v2.6-flash-free")
     r.add_argument("--batches", type=int, default=10)
+    r.add_argument("--reverse", action="store_true", help="work from the last batch backwards")
     args = p.parse_args()
     if args.cmd == "queue":
         build_queue(args.batches, args.seed)
@@ -274,7 +282,7 @@ def main() -> int:
     elif args.cmd == "status":
         status()
     elif args.cmd == "run":
-        run(args.model, args.batches)
+        run(args.model, args.batches, reverse=args.reverse)
     else:
         merge()
     return 0
