@@ -18,7 +18,6 @@ import argparse
 import gc
 import json
 import math
-import os
 import signal
 import time
 from dataclasses import asdict
@@ -37,6 +36,7 @@ from ghostlm.dataset import build_curriculum_train_loader, build_dataloaders
 from ghostlm.mlx_model import GhostLMMLX, from_torch_state
 from ghostlm.model import GhostLM
 from ghostlm.tokenizer import GhostTokenizer
+from ghostlm.trainer import _atomic_save
 
 MIN_LR = 1e-5
 
@@ -288,10 +288,10 @@ class Trainer:
         is_best = val_loss < self.best_val_loss
         if is_best:
             self.best_val_loss = val_loss
-        _atomic_save(self._state(val_loss), self.ckpt_dir / f"checkpoint_step_{self.step}.pt")
-        print(f"  Saved checkpoint: {self.ckpt_dir / f'checkpoint_step_{self.step}.pt'}", flush=True)
-        if is_best:
-            _atomic_save(self._state(val_loss, not self.cfg.best_weights_only), self.ckpt_dir / "best_model.pt")
+        if _atomic_save(self._state(val_loss), self.ckpt_dir / f"checkpoint_step_{self.step}.pt"):
+            print(f"  Saved checkpoint: {self.ckpt_dir / f'checkpoint_step_{self.step}.pt'}", flush=True)
+        if is_best and _atomic_save(self._state(val_loss, not self.cfg.best_weights_only),
+                                    self.ckpt_dir / "best_model.pt"):
             print(f"  New best model saved (val_loss={val_loss:.4f})", flush=True)
 
     def load(self, path: str) -> None:
@@ -338,8 +338,8 @@ class Trainer:
             if save_due:
                 self.save(val_loss)
             if self.cfg.lr_schedule == "wsd" and self.step == int(self.cfg.max_steps * (1 - self.cfg.wsd_decay_frac)):
-                _atomic_save(self._state(float("inf")), self.ckpt_dir / "pre_decay.pt")
-                print(f"  Saved pre-decay checkpoint at step {self.step}", flush=True)
+                if _atomic_save(self._state(float("inf")), self.ckpt_dir / "pre_decay.pt"):
+                    print(f"  Saved pre-decay checkpoint at step {self.step}", flush=True)
             if self.stop_requested:
                 print(f"Stop requested; saving step {self.step} and exiting.", flush=True)
                 self.save(float("inf"))
@@ -354,12 +354,6 @@ class Trainer:
 def _cycle(loader):
     while True:
         yield from loader
-
-
-def _atomic_save(obj, path: Path) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    torch.save(obj, tmp)
-    os.replace(tmp, path)
 
 
 def main() -> None:

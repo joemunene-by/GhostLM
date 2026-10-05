@@ -15,11 +15,21 @@ from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM
 
 
-def _atomic_save(obj, path: Path) -> None:
-    """Write to a temp file then rename, so a kill mid-save never leaves a truncated checkpoint."""
+def _atomic_save(obj, path: Path) -> bool:
+    """Write to a temp file then rename, so a kill mid-save never leaves a truncated checkpoint.
+
+    A failed write (usually a full disk) is reported and returns False instead of
+    raising: losing one checkpoint is better than ending a weeks-long run.
+    """
     tmp = path.with_name(path.name + ".tmp")
-    torch.save(obj, tmp)
-    os.replace(tmp, path)
+    try:
+        torch.save(obj, tmp)
+        os.replace(tmp, path)
+        return True
+    except (OSError, RuntimeError) as e:
+        tmp.unlink(missing_ok=True)
+        print(f"  [warn] could not save {path.name} ({e}); training continues", flush=True)
+        return False
 
 
 class GhostTrainer:
@@ -331,16 +341,16 @@ class GhostTrainer:
 
         filename = f"checkpoint_step_{self.step}.pt"
         path = self.checkpoint_dir / filename
-        _atomic_save(checkpoint, path)
-        print(f"  Saved checkpoint: {path}")
+        if _atomic_save(checkpoint, path):
+            print(f"  Saved checkpoint: {path}")
 
         if is_best:
             best_path = self.checkpoint_dir / "best_model.pt"
             if getattr(self.config, "best_weights_only", False):
                 checkpoint = {k: v for k, v in checkpoint.items()
                               if k not in ("optimizer_state_dict", "grad_scaler_state_dict")}
-            _atomic_save(checkpoint, best_path)
-            print(f"  New best model saved: {best_path} (val_loss={val_loss:.4f})")
+            if _atomic_save(checkpoint, best_path):
+                print(f"  New best model saved: {best_path} (val_loss={val_loss:.4f})")
 
     def _checkpoint_state(self, val_loss: float) -> dict:
         # Unwrap DDP / torch.compile to keep checkpoints loadable anywhere
@@ -356,8 +366,8 @@ class GhostTrainer:
 
     def _save_pre_decay(self) -> None:
         """Keep the last flat-LR state so the run can later be extended past max_steps."""
-        _atomic_save(self._checkpoint_state(float("inf")), self.checkpoint_dir / "pre_decay.pt")
-        print(f"  Saved pre-decay checkpoint at step {self.step}")
+        if _atomic_save(self._checkpoint_state(float("inf")), self.checkpoint_dir / "pre_decay.pt"):
+            print(f"  Saved pre-decay checkpoint at step {self.step}")
 
     def load_checkpoint(self, path: str) -> None:
         """Load a model checkpoint from disk.

@@ -135,3 +135,17 @@ def test_eval_micro_batches_like_training(tmp_path):
     x = torch.randint(0, 200, (8, 8))
     trainer.eval_step([(x, x)])
     assert seen == [2, 2, 2, 2]
+
+
+def test_failed_save_does_not_end_training(tmp_path, monkeypatch):
+    cfg = _tiny_config(tmp_path, max_steps=4, eval_interval=2, save_interval=2)
+    trainer = GhostTrainer(GhostLM(cfg), cfg, use_amp=False)
+
+    def disk_full(obj, f, *a, **k):
+        Path(f).write_bytes(b"partial")
+        raise RuntimeError("[enforce fail at inline_container.cc:672] . unexpected pos 128 vs 0")
+
+    monkeypatch.setattr(torch, "save", disk_full)
+    trainer.train(_loader(), _loader(2))
+    assert trainer.step == 4
+    assert not list((tmp_path / "ckpt").glob("*"))
