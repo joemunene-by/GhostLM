@@ -85,3 +85,40 @@ def test_gradient_checkpointing_matches():
 def test_rejects_dropout():
     with pytest.raises(ValueError):
         GhostLMMLX(_cfg(dropout=0.1))
+
+
+def test_moe_matches_torch_sparse_moe():
+    import mlx.nn as nn
+    torch.manual_seed(0)
+    cfg = _cfg(use_moe=True, n_experts=4, n_experts_active=2, moe_aux_loss_coef=0.01)
+    tm = GhostLM(cfg).eval()
+    mm = GhostLMMLX(cfg)
+    from_torch_state(mm, tm.state_dict())
+
+    idx = _tokens()
+    with torch.no_grad():
+        t_logits, t_loss = tm(torch.tensor(idx), torch.tensor(idx))
+    m_logits = np.array(mm(mx.array(idx)))
+    assert np.abs(m_logits - t_logits.numpy()).max() < 2e-3
+    assert abs(mm.loss(mx.array(idx), mx.array(idx)).item() - t_loss.item()) < 1e-4
+
+    # Router gradients must flow through the top-k weights and the balancing loss.
+    tm.train()
+    _, loss = tm(torch.tensor(idx), torch.tensor(idx))
+    loss.backward()
+    g = nn.value_and_grad(mm, lambda m: m.loss(mx.array(idx), mx.array(idx)))(mm)[1]
+    t_gate = tm.blocks[1].ffn.gate.weight.grad.numpy()
+    assert np.abs(np.array(g["blocks"][1]["ffn"]["gate"]["weight"]) - t_gate).max() < 1e-4
+
+
+def test_moe_state_round_trips_per_expert_names():
+    cfg = _cfg(use_moe=True, n_experts=3, n_experts_active=2)
+    mm = GhostLMMLX(cfg)
+    state = to_torch_state(mm)
+    assert "blocks.0.ffn.experts.2.fc3.weight" in state and "blocks.0.ffn.fc3" not in state
+    tm = GhostLM(cfg)
+    tm.load_state_dict({k: torch.from_numpy(v) for k, v in state.items()})
+    back = GhostLMMLX(cfg)
+    from_torch_state(back, tm.state_dict())
+    idx = mx.array(_tokens())
+    assert np.abs(np.array(back(idx)) - np.array(mm(idx))).max() < 1e-5
