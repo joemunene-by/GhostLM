@@ -11,6 +11,7 @@ twice as fast as PyTorch MPS.
 from __future__ import annotations
 
 import math
+import re
 from typing import Optional
 
 import mlx.core as mx
@@ -88,18 +89,69 @@ class SwiGLU(nn.Module):
         return self.fc3(nn.silu(self.fc1(x)) * self.fc2(x))
 
 
+class MoE(nn.Module):
+    """Top-k routed SwiGLU experts, numerically matching ghostlm.model.SparseMoE.
+
+    Expert weights are stacked (n_experts, out, in) so ``mx.gather_mm`` runs each
+    token through only its chosen experts. ``to_torch_state``/``from_torch_state``
+    map them to torch's per-expert ``experts.{i}.fc*.weight`` names.
+    """
+
+    def __init__(self, config: GhostLMConfig):
+        super().__init__()
+        self.n_experts = int(config.n_experts)
+        self.top_k = int(config.n_experts_active)
+        hidden = (int(config.d_ff * 2 / 3) + 63) // 64 * 64
+        d, e = config.d_model, self.n_experts
+        self.gate = nn.Linear(d, e, bias=False)
+        self.fc1 = mx.random.normal((e, hidden, d)) * 0.02
+        self.fc2 = mx.random.normal((e, hidden, d)) * 0.02
+        self.fc3 = mx.random.normal((e, d, hidden)) * 0.02
+
+    def __call__(self, x):
+        shape = x.shape
+        flat = x.reshape(-1, shape[-1])
+        logits = self.gate(flat).astype(mx.float32)
+        idx = mx.stop_gradient(mx.argpartition(-logits, kth=self.top_k - 1, axis=-1)[:, :self.top_k])
+        weights = mx.softmax(mx.take_along_axis(logits, idx, axis=-1), axis=-1)
+
+        # Switch-style load balancing, as in SparseMoE: routed fraction x mean router probability.
+        routed = (idx[:, :, None] == mx.arange(self.n_experts)).sum(axis=1).astype(mx.float32)
+        aux = (routed.mean(axis=0) * mx.softmax(logits, axis=-1).mean(axis=0)).sum() * self.n_experts
+
+        # Group the (token, expert) pairs by expert so each gather_mm reads one expert's
+        # weights contiguously, as mlx-lm's SwitchGLU does; unsorted dispatch was ~7x slower.
+        n, k = idx.shape
+        flat_idx = idx.flatten()
+        order = mx.argsort(flat_idx)
+        inv_order = mx.argsort(order)
+        xs = flat[order // k][:, None, :]
+        sorted_idx = flat_idx[order]
+        h = (nn.silu(mx.gather_mm(xs, self.fc1.swapaxes(-1, -2), rhs_indices=sorted_idx, sorted_indices=True))
+             * mx.gather_mm(xs, self.fc2.swapaxes(-1, -2), rhs_indices=sorted_idx, sorted_indices=True))
+        out = mx.gather_mm(h, self.fc3.swapaxes(-1, -2), rhs_indices=sorted_idx, sorted_indices=True)
+        out = out.reshape(n * k, -1)[inv_order].reshape(n, k, -1)
+        out = (out * weights[..., None].astype(out.dtype)).sum(axis=1)
+        return out.reshape(shape), aux
+
+
 class Block(nn.Module):
     def __init__(self, config: GhostLMConfig):
         super().__init__()
         self.ln_1 = RMSNorm(config.d_model)
         self.attn = Attention(config)
         self.ln_2 = RMSNorm(config.d_model)
-        self.ffn = SwiGLU(config)
+        self.ffn = MoE(config) if getattr(config, "use_moe", False) else SwiGLU(config)
 
     def __call__(self, x, mask, v_first=None):
         a, v_first = self.attn(self.ln_1(x), mask, v_first)
         x = x + a
-        return x + self.ffn(self.ln_2(x)), v_first
+        out = self.ffn(self.ln_2(x))
+        if isinstance(out, tuple):
+            out, aux = out
+        else:
+            aux = mx.array(0.0)
+        return x + out, v_first, aux
 
 
 def intra_doc_mask(idx: mx.array, eos_token_id: int) -> mx.array:
@@ -118,7 +170,6 @@ class GhostLMMLX(nn.Module):
         unsupported = [name for name, ok in [
             ("use_rope", config.use_rope), ("use_swiglu", config.use_swiglu),
             ("use_rmsnorm", config.use_rmsnorm), ("dropout == 0", config.dropout == 0),
-            ("use_moe off", not getattr(config, "use_moe", False)),
         ] if not ok]
         if unsupported:
             raise ValueError(f"MLX port requires: {', '.join(unsupported)}")
@@ -132,23 +183,32 @@ class GhostLMMLX(nn.Module):
         self._ckpt_calls = [nn.utils.checkpoint(b) for b in self.blocks] if gradient_checkpointing else None
 
     def __call__(self, idx: mx.array) -> mx.array:
+        return self.forward(idx)[0]
+
+    def forward(self, idx: mx.array):
+        """Logits plus the summed MoE load-balancing loss (0 for dense models)."""
         cfg = self.config
         if getattr(cfg, "intra_doc_mask", False) and cfg.eos_token_id is not None:
             mask = intra_doc_mask(idx, cfg.eos_token_id)
         else:
             mask = "causal"
         x = self.token_embedding(idx)
-        v_first = None
+        v_first, aux = None, mx.array(0.0)
         for i, block in enumerate(self.blocks):
             call = self._ckpt_calls[i] if self._ckpt_calls else block
-            x, v_first = call(x, mask, v_first)
-        return self.token_embedding.as_linear(self.ln_f(x))
+            x, v_first, layer_aux = call(x, mask, v_first)
+            aux = aux + layer_aux
+        return self.token_embedding.as_linear(self.ln_f(x)), aux
 
     def loss(self, idx: mx.array, targets: mx.array) -> mx.array:
-        logits = self(idx).astype(mx.float32)
+        logits, aux = self.forward(idx)
+        logits = logits.astype(mx.float32)
         valid = targets != -1
         ce = nn.losses.cross_entropy(logits, mx.where(valid, targets, 0), reduction="none")
-        return (ce * valid).sum() / mx.maximum(valid.sum(), 1)
+        loss = (ce * valid).sum() / mx.maximum(valid.sum(), 1)
+        if getattr(self.config, "use_moe", False):
+            loss = loss + self.config.moe_aux_loss_coef * aux
+        return loss
 
 
 def _flatten(tree, prefix=""):
@@ -164,9 +224,21 @@ def _flatten(tree, prefix=""):
     return out
 
 
+_STACKED = re.compile(r"^(blocks\.\d+\.ffn)\.(fc[123])$")
+_PER_EXPERT = re.compile(r"^(blocks\.\d+\.ffn)\.experts\.(\d+)\.(fc[123])\.weight$")
+
+
 def to_torch_state(model: GhostLMMLX) -> dict:
     """MLX parameters as a torch-style state dict (numpy float32), incl. the tied lm_head."""
-    state = {k: np.array(v.astype(mx.float32)) for k, v in _flatten(model.parameters()).items()}
+    state = {}
+    for k, v in _flatten(model.parameters()).items():
+        arr = np.array(v.astype(mx.float32))
+        m = _STACKED.match(k)
+        if m:
+            for e in range(arr.shape[0]):
+                state[f"{m.group(1)}.experts.{e}.{m.group(2)}.weight"] = arr[e]
+        else:
+            state[k] = arr
     state["lm_head.weight"] = state["token_embedding.weight"]
     return state
 
@@ -174,12 +246,19 @@ def to_torch_state(model: GhostLMMLX) -> dict:
 def from_torch_state(model: GhostLMMLX, state: dict, dtype=mx.float32) -> None:
     """Load a torch state dict (tensors or arrays) into the MLX model by name."""
     expected = set(_flatten(model.parameters()))
-    weights = []
+    weights, stacks = [], {}
     for name, value in state.items():
+        arr = value.detach().float().cpu().numpy() if hasattr(value, "detach") else np.asarray(value)
+        m = _PER_EXPERT.match(name)
+        if m:
+            stacks.setdefault(f"{m.group(1)}.{m.group(3)}", {})[int(m.group(2))] = arr
+            continue
         if name == "lm_head.weight" or name not in expected:
             continue
-        arr = value.detach().float().cpu().numpy() if hasattr(value, "detach") else np.asarray(value)
         weights.append((name, mx.array(arr, dtype=dtype)))
+    for name, experts in stacks.items():
+        if name in expected:
+            weights.append((name, mx.array(np.stack([experts[e] for e in sorted(experts)]), dtype=dtype)))
     missing = expected - {n for n, _ in weights}
     if missing:
         raise ValueError(f"missing parameters: {sorted(missing)[:5]}")

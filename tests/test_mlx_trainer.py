@@ -121,3 +121,51 @@ def test_muon_resume_restores_optimizer_state(tmp_path):
     assert abs(resumed.train_step(x, x) - mtr.train_step(x, x)) < 1e-5
     for name, value in mt.tree_flatten(mtr.master):
         assert np.abs(np.array(value) - np.array(dict(mt.tree_flatten(resumed.master))[name])).max() < 1e-6
+
+
+@pytest.mark.parametrize("opt", ["adamw", "normuon"])
+def test_moe_steps_match_ghosttrainer(tmp_path, opt):
+    torch.manual_seed(0)
+    cfg = _cfg(tmp_path, optimizer=opt, use_moe=True, n_experts=3, n_experts_active=2)
+    tm = GhostLM(cfg)
+    mm = GhostLMMLX(cfg)
+    from_torch_state(mm, tm.state_dict())
+    tt = GhostTrainer(tm, cfg, use_amp=False)
+    mtr = mt.Trainer(cfg, mm, mx.float32)
+    rng = np.random.default_rng(5)
+    for _ in range(2):
+        x = rng.integers(0, 127, size=(8, 32))
+        assert abs(tt.train_step((torch.tensor(x), torch.tensor(x))) - mtr.train_step(x, x)) < 1e-4
+    saved = mt.torch_state_dict(dict(mt.tree_flatten(mtr.master)))
+    for name, value in tm.state_dict().items():
+        assert torch.allclose(saved[name].float(), value, atol=1e-4), name
+
+
+def test_frozen_experts_stay_fixed_and_save_as_bf16_torch_checkpoint(tmp_path):
+    cfg = _cfg(tmp_path, use_moe=True, n_experts=2, n_experts_active=1, best_weights_only=True)
+    mm = GhostLMMLX(cfg)
+    from_torch_state(mm, GhostLM(cfg).state_dict())
+    mt.freeze_experts(mm)
+    gate_before = np.array(mm.blocks[0].ffn.gate.weight)
+    mtr = mt.Trainer(cfg, mm, mx.bfloat16)
+    # Frozen experts are cast to bf16 once at start; after that they must not move at all.
+    before = np.array(mm.blocks[0].ffn.fc1.astype(mx.float32))
+    assert not any("ffn.fc" in n for n, _ in mt.tree_flatten(mtr.master))
+    x = np.random.default_rng(6).integers(0, 127, size=(8, 32))
+    for _ in range(3):
+        mtr.train_step(x, x)
+    after = np.array(mm.blocks[0].ffn.fc1.astype(mx.float32))
+    assert np.array_equal(before, after)
+    assert not np.allclose(np.array(mtr.master["blocks"][0]["ffn"]["gate"]["weight"]), gate_before)
+
+    mtr.save(4.0)
+    ck = torch.load(tmp_path / "ck" / "checkpoint_step_3.pt", weights_only=False)
+    assert ck["model_state_dict"]["blocks.0.ffn.experts.1.fc2.weight"].dtype == torch.bfloat16
+    GhostLM(cfg).load_state_dict(ck["model_state_dict"])
+
+    resumed_model = GhostLMMLX(cfg)
+    mt.freeze_experts(resumed_model)
+    resumed = mt.Trainer(cfg, resumed_model, mx.bfloat16)
+    resumed.load(str(tmp_path / "ck" / "checkpoint_step_3.pt"))
+    assert resumed.step == 3
+    assert abs(resumed.train_step(x, x) - mtr.train_step(x, x)) < 1e-3

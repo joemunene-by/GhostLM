@@ -33,7 +33,8 @@ from mlx.utils import tree_flatten, tree_map, tree_unflatten
 from ghostlm.config import GhostLMConfig
 from ghostlm.curriculum import DEFAULT_GENERALIST_CURRICULUM, parse_curriculum_spec
 from ghostlm.dataset import build_curriculum_train_loader, build_dataloaders
-from ghostlm.mlx_model import GhostLMMLX, from_torch_state
+from ghostlm.mlx_model import _STACKED as MOE_STACKED
+from ghostlm.mlx_model import GhostLMMLX, MoE, from_torch_state
 from ghostlm.model import GhostLM
 from ghostlm.tokenizer import GhostTokenizer
 from ghostlm.trainer import _atomic_save
@@ -69,6 +70,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--value-residual", action="store_true")
     p.add_argument("--optimizer", default="adamw", choices=["adamw", "muon", "normuon"])
     p.add_argument("--cautious-wd", action="store_true")
+    p.add_argument("--moe-from", default=None,
+                   help="Start from a BTX-merged MoE checkpoint (scripts/btx_merge.py): its config and "
+                        "weights, with a fresh optimizer and step 0.")
+    p.add_argument("--freeze-experts", action="store_true",
+                   help="With --moe-from: train only routers, attention, norms and embeddings.")
     p.add_argument("--memory-limit-gb", type=float, default=9.0,
                    help="MLX memory guideline; also caps the allocator cache at 1GB.")
     return p.parse_args()
@@ -112,18 +118,22 @@ def lr_at(step: int, cfg: GhostLMConfig) -> float:
 
 
 def newton_schulz5(g: mx.array, steps: int = 5) -> mx.array:
-    """Same quintic iteration as ghostlm.muon.zeropower_via_newtonschulz5 (fp32)."""
+    """Same quintic iteration as ghostlm.muon.zeropower_via_newtonschulz5 (fp32).
+
+    A 3D input (stacked MoE experts) is orthogonalized one matrix at a time, as torch
+    does for each expert's separate Linear layer.
+    """
     a, b, c = 3.4445, -4.7750, 2.0315
     x = g.astype(mx.float32)
-    transposed = x.shape[0] > x.shape[1]
+    transposed = x.shape[-2] > x.shape[-1]
     if transposed:
-        x = x.T
-    x = x / (mx.linalg.norm(x) + 1e-7)
+        x = x.swapaxes(-1, -2)
+    x = x / (mx.sqrt((x * x).sum(axis=(-2, -1), keepdims=True)) + 1e-7)
     for _ in range(steps):
-        A = x @ x.T
+        A = x @ x.swapaxes(-1, -2)
         B = b * A + c * (A @ A)
         x = a * x + B @ x
-    return x.T if transposed else x
+    return x.swapaxes(-1, -2) if transposed else x
 
 
 class MuonMLX:
@@ -156,14 +166,16 @@ class MuonMLX:
                 buf = st.get("momentum_buffer", mx.zeros_like(p)) * self.momentum + g
                 st["momentum_buffer"] = buf
                 update = newton_schulz5(g + self.momentum * buf)
+                rows, cols = p.shape[-2], p.shape[-1]
                 if self.normuon:
-                    row = st.get("row_sq", mx.zeros((p.shape[0], 1)))
-                    row = row + (1 - b2) * (mx.mean(update * update, axis=1, keepdims=True) - row)
+                    row = st.get("row_sq", mx.zeros((*p.shape[:-1], 1)))
+                    row = row + (1 - b2) * (mx.mean(update * update, axis=-1, keepdims=True) - row)
                     st["row_sq"] = row
                     update = update / (mx.sqrt(row) + eps)
-                    update = update * (0.2 * p.size ** 0.5 / (mx.linalg.norm(update) + eps))
+                    norm = mx.sqrt((update * update).sum(axis=(-2, -1), keepdims=True))
+                    update = update * (0.2 * (rows * cols) ** 0.5 / (norm + eps))
                 else:
-                    update = update * (0.2 * max(p.shape) ** 0.5)
+                    update = update * (0.2 * max(rows, cols) ** 0.5)
             else:
                 step = st.get("step", 0) + 1
                 st["step"] = step
@@ -193,7 +205,38 @@ class MuonMLX:
 def decay_mask(model: GhostLMMLX) -> dict:
     """True for Linear weights (decayed), False for embeddings, norms, biases and scalars."""
     linear_weights = {f"{name}.weight" for name, m in model.named_modules() if isinstance(m, nn.Linear)}
-    return {name: name in linear_weights for name, _ in tree_flatten(model.parameters())}
+    # Stacked MoE expert weights are torch Linear layers too (experts.{i}.fc*.weight).
+    return {name: name in linear_weights or bool(MOE_STACKED.match(name))
+            for name, _ in tree_flatten(model.trainable_parameters())}
+
+
+def freeze_experts(model: GhostLMMLX) -> None:
+    """Freeze MoE expert weights so only routers, attention, norms and embeddings train."""
+    for block in model.blocks:
+        if isinstance(block.ffn, MoE):
+            block.ffn.freeze(keys=["fc1", "fc2", "fc3"])
+
+
+def _to_torch(arr: mx.array) -> torch.Tensor:
+    # numpy has no bfloat16, so bf16 arrays cross as their raw 16-bit pattern.
+    if arr.dtype == mx.bfloat16:
+        return torch.from_numpy(np.asarray(arr.view(mx.uint16))).view(torch.bfloat16)
+    return torch.from_numpy(np.asarray(arr))
+
+
+def torch_state_dict(flat: dict) -> dict:
+    """MLX parameter names to torch's, splitting stacked MoE experts into experts.{i}.fc*.weight."""
+    out = {}
+    for name, value in flat.items():
+        tensor = _to_torch(value)
+        m = MOE_STACKED.match(name)
+        if m:
+            for e in range(tensor.shape[0]):
+                out[f"{m.group(1)}.experts.{e}.{m.group(2)}.weight"] = tensor[e]
+        else:
+            out[name] = tensor
+    out["lm_head.weight"] = out["token_embedding.weight"]
+    return out
 
 
 class Trainer:
@@ -201,8 +244,13 @@ class Trainer:
         self.cfg = cfg
         self.model = model
         self.compute_dtype = compute_dtype
-        self.master = tree_map(lambda p: p.astype(mx.float32), model.parameters())
+        self.master = tree_map(lambda p: p.astype(mx.float32), model.trainable_parameters())
         self.decay = decay_mask(model)
+        # Frozen weights (e.g. MoE experts) get no master copy and live in the compute dtype.
+        trainable = {n for n, _ in tree_flatten(self.master)}
+        frozen = [(n, v.astype(compute_dtype)) for n, v in tree_flatten(model.parameters()) if n not in trainable]
+        if frozen:
+            model.update(tree_unflatten(frozen))
         # MLX defaults to no bias correction; torch.optim.AdamW applies it, and
         # early updates would otherwise be ~0.45x the size.
         self.opt = optim.AdamW(learning_rate=cfg.learning_rate, betas=[cfg.beta1, cfg.beta2],
@@ -211,7 +259,7 @@ class Trainer:
         self.muon = None
         if cfg.optimizer in ("muon", "normuon"):
             # Same split as GhostLM.configure_optimizers: 2D decayed (Linear) weights.
-            muon_names = {n for n, v in tree_flatten(self.master) if self.decay.get(n) and v.ndim == 2}
+            muon_names = {n for n, v in tree_flatten(self.master) if self.decay.get(n) and v.ndim in (2, 3)}
             self.muon = MuonMLX(cfg, muon_names, self.decay)
         self.step = 0
         self.best_val_loss = float("inf")
@@ -273,8 +321,9 @@ class Trainer:
     def _state(self, val_loss: float, with_optimizer: bool = True) -> dict:
         # np.asarray on an evaluated MLX array is zero-copy (unified memory), so a
         # save does not briefly double the multi-GB weight and optimizer state.
-        model_state = {k: torch.from_numpy(np.asarray(v)) for k, v in tree_flatten(self.master)}
-        model_state["lm_head.weight"] = model_state["token_embedding.weight"]
+        flat = dict(tree_flatten(self.model.parameters()))
+        flat.update(tree_flatten(self.master))
+        model_state = torch_state_dict(flat)
         out = {
             "step": self.step, "val_loss": val_loss, "best_val_loss": self.best_val_loss,
             "model_state_dict": model_state, "config": asdict(self.cfg), "framework": "mlx",
@@ -296,8 +345,13 @@ class Trainer:
 
     def load(self, path: str) -> None:
         ck = torch.load(path, map_location="cpu", weights_only=False)
-        from_torch_state(self.model, ck["model_state_dict"])
-        self.master = tree_map(lambda p: p.astype(mx.float32), self.model.parameters())
+        from_torch_state(self.model, ck["model_state_dict"], dtype=self.compute_dtype)
+        # Master weights come straight from the fp32 checkpoint, not the compute-dtype copy;
+        # stacked expert weights (no single torch tensor) fall back to the loaded model.
+        state, current = ck["model_state_dict"], dict(tree_flatten(self.model.parameters()))
+        self.master = tree_unflatten([
+            (name, mx.array(state[name].float().numpy()) if name in state else current[name].astype(mx.float32))
+            for name, _ in tree_flatten(self.model.trainable_parameters())])
         if "mlx_optimizer_state" in ck and self.muon is not None:
             self.muon.load_state_arrays(ck["mlx_optimizer_state"])
         elif "mlx_optimizer_state" in ck:
@@ -364,14 +418,30 @@ def main() -> None:
     torch.manual_seed(args.seed)
     tokenizer = GhostTokenizer()
     cfg = ghost_base_config(args, tokenizer)
+    moe_ckpt = None
+    if args.moe_from:
+        moe_ckpt = torch.load(args.moe_from, map_location="cpu", weights_only=False)
+        saved = moe_ckpt["config"]
+        for key in ("use_moe", "n_experts", "n_experts_active", "moe_aux_loss_coef", "n_layers", "d_model",
+                    "n_heads", "n_kv_heads", "d_ff", "use_qk_norm", "attn_gate", "value_residual", "vocab_size"):
+            if key in saved:
+                setattr(cfg, key, saved[key])
     print(cfg, flush=True)
 
-    # Initialise through the PyTorch model so the init scheme (incl. the
-    # depth-scaled residual projections) is identical to train_ghost_base.py.
     model = GhostLMMLX(cfg, gradient_checkpointing=args.grad_checkpoint)
-    init_model = GhostLM(cfg)
-    from_torch_state(model, init_model.state_dict())
-    del init_model
+    if moe_ckpt is not None:
+        from_torch_state(model, moe_ckpt["model_state_dict"])
+        print(f"MoE from {args.moe_from}: experts {moe_ckpt.get('btx', {}).get('experts')}, "
+              f"top-{cfg.n_experts_active}", flush=True)
+        del moe_ckpt
+        if args.freeze_experts:
+            freeze_experts(model)
+    else:
+        # Initialise through the PyTorch model so the init scheme (incl. the
+        # depth-scaled residual projections) is identical to train_ghost_base.py.
+        init_model = GhostLM(cfg)
+        from_torch_state(model, init_model.state_dict())
+        del init_model
     gc.collect()
     n_params = sum(v.size for _, v in tree_flatten(model.parameters()))
     print(f"Model parameters: {n_params:,} ({n_params / 1e6:.1f}M), dtype {args.dtype}", flush=True)
