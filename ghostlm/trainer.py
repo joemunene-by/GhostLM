@@ -12,6 +12,7 @@ import torch
 from tqdm import tqdm
 
 from ghostlm.config import GhostLMConfig
+from ghostlm.dataset import reseed_for_resume
 from ghostlm.model import GhostLM
 
 
@@ -452,6 +453,7 @@ class GhostTrainer:
                     yield batch
                 epoch += 1
 
+        reseed_for_resume(train_loader, getattr(self.config, "seed", 42), self.step)
         train_iter = cycle(train_loader)
 
         with tqdm(initial=self.step, total=self.config.max_steps, desc="Training",

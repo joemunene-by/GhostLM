@@ -168,11 +168,13 @@ class MultiDomainBinDataset(IterableDataset):
         curriculum: DomainCurriculum,
         progress_fn: Callable[[], float],
         seed: int = 42,
+        start_sample_fn: Optional[Callable[[], int]] = None,
     ):
         self.context_length = config.context_length
         self.curriculum = curriculum
         self.progress_fn = progress_fn
         self.seed = seed
+        self.start_sample_fn = start_sample_fn
         self.domains: List[str] = []
         self.streams: Dict[str, np.memmap] = {}
         for domain, path in domain_bins.items():
@@ -202,9 +204,14 @@ class MultiDomainBinDataset(IterableDataset):
         info = torch.utils.data.get_worker_info()
         worker_id = info.id if info is not None else 0
         rank = int(os.environ.get("RANK", "0"))
-        rng = np.random.default_rng(self.seed + 1009 * rank + worker_id)
+        # Seed each sample by its global index, not once per iterator: a single seed
+        # replays the same opening samples after every resume, and a run that is
+        # paused and resumed often ends up memorizing them.
+        n = self.start_sample_fn() if self.start_sample_fn else 0
         ctx = self.context_length
         while True:
+            rng = np.random.default_rng([self.seed, rank, worker_id, n])
+            n += 1
             v = self._weight_vector(self.progress_fn())
             domain = self.domains[rng.choice(len(self.domains), p=v)]
             stream = self.streams[domain]
@@ -220,15 +227,19 @@ def build_curriculum_train_loader(
     curriculum: DomainCurriculum,
     progress_fn: Callable[[], float],
     seed: Optional[int] = None,
+    start_sample_fn: Optional[Callable[[], int]] = None,
 ) -> DataLoader:
     """Build an infinite, curriculum-weighted training DataLoader.
 
     Pair with a step-bounded training loop. The val loader stays the plain
-    ``GhostBinDataset`` so val loss remains comparable across runs.
+    ``GhostBinDataset`` so val loss remains comparable across runs. Pass
+    ``start_sample_fn`` (e.g. ``lambda: trainer.step * config.batch_size``) so a
+    resumed run continues the sample stream instead of restarting it.
     """
     ds = MultiDomainBinDataset(
         domain_bins, config, curriculum, progress_fn,
         seed=config.seed if seed is None else seed,
+        start_sample_fn=start_sample_fn,
     )
     pin = torch.cuda.is_available()
     return DataLoader(
@@ -294,6 +305,7 @@ def build_dataloaders(
         batch_size=config.batch_size,
         shuffle=train_sampler is None,
         sampler=train_sampler,
+        generator=torch.Generator().manual_seed(config.seed) if train_sampler is None else None,
         drop_last=True,
         num_workers=0,
         pin_memory=pin,
@@ -309,3 +321,14 @@ def build_dataloaders(
     )
 
     return train_loader, val_loader
+
+
+def reseed_for_resume(loader: DataLoader, seed: int, step: int) -> None:
+    """Give a resumed run a fresh shuffle order instead of replaying the first batches.
+
+    A no-op for loaders without their own generator (curriculum loaders continue
+    their stream through ``start_sample_fn`` instead).
+    """
+    gen = getattr(loader, "generator", None)
+    if gen is not None and step > 0:
+        gen.manual_seed(seed + 7919 * step)

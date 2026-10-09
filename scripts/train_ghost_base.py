@@ -217,6 +217,7 @@ def main() -> None:
         train_loader = build_curriculum_train_loader(
             manifest, config, curriculum,
             progress_fn=lambda: trainer.step / max(1, config.max_steps),
+            start_sample_fn=lambda: trainer.step * config.batch_size,
         )
 
     if args.resume:
