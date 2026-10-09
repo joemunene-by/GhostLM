@@ -32,7 +32,7 @@ from mlx.utils import tree_flatten, tree_map, tree_unflatten
 
 from ghostlm.config import GhostLMConfig
 from ghostlm.curriculum import DEFAULT_GENERALIST_CURRICULUM, parse_curriculum_spec
-from ghostlm.dataset import build_curriculum_train_loader, build_dataloaders
+from ghostlm.dataset import build_curriculum_train_loader, build_dataloaders, reseed_for_resume
 from ghostlm.mlx_model import _STACKED as MOE_STACKED
 from ghostlm.mlx_model import GhostLMMLX, MoE, from_torch_state
 from ghostlm.model import GhostLM
@@ -371,6 +371,7 @@ class Trainer:
         log_path = self.log_dir / "training_log.json"
         if log_path.exists():
             self.log = [e for e in json.loads(log_path.read_text()) if e.get("step", 0) <= self.step]
+        reseed_for_resume(train_loader, self.cfg.seed, self.step)
         it = iter(_cycle(train_loader))
         print(f"Training from step {self.step} to {self.cfg.max_steps}", flush=True)
         while self.step < self.cfg.max_steps:
@@ -456,7 +457,8 @@ def main() -> None:
                       if args.curriculum_spec else DEFAULT_GENERALIST_CURRICULUM)
         print(f"Curriculum:   {len(manifest)} domains from {args.curriculum_manifest}", flush=True)
         train_loader = build_curriculum_train_loader(
-            manifest, cfg, curriculum, progress_fn=lambda: trainer.step / max(1, cfg.max_steps))
+            manifest, cfg, curriculum, progress_fn=lambda: trainer.step / max(1, cfg.max_steps),
+            start_sample_fn=lambda: trainer.step * cfg.batch_size)
 
     if args.resume:
         trainer.load(args.resume)
