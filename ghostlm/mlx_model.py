@@ -119,10 +119,18 @@ class MoE(nn.Module):
         routed = (idx[:, :, None] == mx.arange(self.n_experts)).sum(axis=1).astype(mx.float32)
         aux = (routed.mean(axis=0) * mx.softmax(logits, axis=-1).mean(axis=0)).sum() * self.n_experts
 
-        xe = mx.expand_dims(flat, (-2, -3))
-        h = (nn.silu(mx.gather_mm(xe, self.fc1.swapaxes(-1, -2), rhs_indices=idx))
-             * mx.gather_mm(xe, self.fc2.swapaxes(-1, -2), rhs_indices=idx))
-        out = mx.gather_mm(h, self.fc3.swapaxes(-1, -2), rhs_indices=idx).squeeze(-2)
+        # Group the (token, expert) pairs by expert so each gather_mm reads one expert's
+        # weights contiguously, as mlx-lm's SwitchGLU does; unsorted dispatch was ~7x slower.
+        n, k = idx.shape
+        flat_idx = idx.flatten()
+        order = mx.argsort(flat_idx)
+        inv_order = mx.argsort(order)
+        xs = flat[order // k][:, None, :]
+        sorted_idx = flat_idx[order]
+        h = (nn.silu(mx.gather_mm(xs, self.fc1.swapaxes(-1, -2), rhs_indices=sorted_idx, sorted_indices=True))
+             * mx.gather_mm(xs, self.fc2.swapaxes(-1, -2), rhs_indices=sorted_idx, sorted_indices=True))
+        out = mx.gather_mm(h, self.fc3.swapaxes(-1, -2), rhs_indices=sorted_idx, sorted_indices=True)
+        out = out.reshape(n * k, -1)[inv_order].reshape(n, k, -1)
         out = (out * weights[..., None].astype(out.dtype)).sum(axis=1)
         return out.reshape(shape), aux
 
