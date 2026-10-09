@@ -314,3 +314,12 @@ def test_digit_split_tokenizer_is_lossless_and_only_changes_numbers():
     assert all(len(d.strip()) == 1 for d in digits)
     assert split.encode("no numbers here") == plain.encode("no numbers here")
     assert split.vocab_size == plain.vocab_size
+
+
+def test_tokenizer_uses_a_persistent_tiktoken_cache(monkeypatch):
+    import os
+    from pathlib import Path
+    from ghostlm.tokenizer import GhostTokenizer
+    monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+    GhostTokenizer()
+    assert os.environ["TIKTOKEN_CACHE_DIR"] == str(Path.home() / ".cache/ghostlm/tiktoken")
