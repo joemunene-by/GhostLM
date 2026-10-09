@@ -30,7 +30,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BG = ROOT / ".bg"
 PY = ROOT / ".venv/bin/python"
-RUN = "ghost_base_mac"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import phases  # noqa: E402
+
+RUN = phases.PRETRAIN_RUN
 CKPT_DIR = ROOT / "checkpoints" / RUN
 LOG_DIR = ROOT / "logs" / RUN
 TRAIN_LOG = BG / "logs" / "train.log"
@@ -90,6 +93,18 @@ UPLOAD_SNIPPET = (
     "    api.upload_file(path_or_fileobj=local, path_in_repo=remote, repo_id=repo,\n"
     "                    commit_message=f'backup {remote}')\n"
 )
+
+
+def set_run(run: str) -> None:
+    """Point checkpoint/log lookups at the current phase's run."""
+    global RUN, CKPT_DIR, LOG_DIR
+    RUN, CKPT_DIR, LOG_DIR = run, ROOT / "checkpoints" / run, ROOT / "logs" / run
+    CKPT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def current_phase(cfg: dict, state: dict) -> dict:
+    plan = phases.plan(cfg)
+    return plan[min(state.get("phase", 0), len(plan) - 1)]
 
 
 def now() -> str:
@@ -223,7 +238,8 @@ def training_log() -> list:
         return []
 
 
-def train_command(cfg: dict) -> list:
+def train_command(cfg: dict, phase: dict | None = None) -> list:
+    phase = phase or phases.plan(cfg)[0]
     mlx = cfg.get("backend") == "mlx"
     script = "scripts/train_ghost_base_mlx.py" if mlx else "scripts/train_ghost_base.py"
     cmd = [
@@ -251,9 +267,11 @@ def train_command(cfg: dict) -> list:
     for flag in ("grad_checkpoint", "cautious_wd", "attn_gate", "value_residual"):
         if cfg.get(flag):
             cmd.append("--" + flag.replace("_", "-"))
+    cmd += phases.phase_overrides(cfg, phase, ROOT)
     latest = checkpoints()
-    if latest:
-        cmd += ["--resume", str(latest[0])]
+    start = latest[0] if latest else phases.initial_resume(phase, ROOT)
+    if start:
+        cmd += ["--resume", str(start)]
     return cmd
 
 
@@ -295,7 +313,7 @@ def refresh_status(state_line: str, cfg: dict, state: dict) -> None:
         "paused": PAUSE_FILE.exists(), "finished": state.get("finished", False),
         "free_memory": MEM["free"],
         "free_disk_gb": round(free_disk_gb(), 1),
-        "optimizer": cfg["optimizer"], "lr_schedule": cfg["lr_schedule"],
+        "optimizer": cfg["optimizer"], "lr_schedule": cfg["lr_schedule"], "run": RUN,
         "val_curve": [[e["step"], e["val_loss"]] for e in log][-400:],
         "evals": [{"step": e["step"], "results": {k: round(v["acc"], 1) for k, v in e["results"].items()}}
                   for e in evals],
@@ -303,6 +321,7 @@ def refresh_status(state_line: str, cfg: dict, state: dict) -> None:
     lines = [
         f"GhostLM ghost-base background pretrain ({now()})",
         f"state:     {state_line}",
+        f"run:       {RUN}",
         f"progress:  step {step:,} / {cfg['max_steps']:,} ({100 * step / cfg['max_steps']:.1f}%)",
     ]
     if last:
@@ -413,6 +432,22 @@ def maybe_backup(cfg: dict, state: dict) -> None:
     )
 
 
+def advance_phase(cfg: dict, state: dict) -> None:
+    """Move to the next phase, or mark the whole plan finished."""
+    plan = phases.plan(cfg)
+    nxt = state.get("phase", 0) + 1
+    if nxt >= len(plan):
+        state["finished"] = True
+        notify("All training phases finished.")
+        return
+    state["phase"] = nxt
+    state["crashes"] = 0
+    state["rate_samples"] = []
+    state["last_eval_step"] = (phases.pretrain_decay_start(load_config())
+                               if plan[nxt]["name"].startswith("branch_") else 0)
+    log_event(f"starting phase {plan[nxt]['name']}")
+
+
 def corpus_ready() -> bool:
     return TRAIN_BIN.exists() and VAL_BIN.exists()
 
@@ -494,6 +529,24 @@ def main() -> None:
 
     while True:
         cfg = load_config()
+        phase = current_phase(cfg, state)
+        set_run(phase["run"])
+        cfg["pretrain_max_steps"] = cfg["max_steps"]
+        cfg["max_steps"] = phases.phase_max_steps(cfg, phase)
+
+        if phase["kind"] == "merge" and not state["finished"]:
+            refresh_status("merging branches into the MoE", cfg, state)
+            with open(BG / "logs" / "merge.log", "a") as log:
+                code = subprocess.run(phases.merge_command(cfg, ROOT, PY), cwd=ROOT,
+                                      stdout=log, stderr=subprocess.STDOUT).returncode
+            log_event(f"merge exited with code {code}")
+            if code == 0:
+                advance_phase(cfg, state)
+            else:
+                notify("BTX merge failed; see .bg/logs/merge.log")
+                state["finished"] = True
+            save_state(state)
+            continue
 
         if state["finished"]:
             maybe_backup(cfg, state)
@@ -548,11 +601,15 @@ def main() -> None:
             if step > state.get("launch_step", 0):
                 state["crashes"] = 0
             if code == 0 and not reason and step >= cfg["max_steps"]:
-                state["finished"] = True
-                save_state(state)
-                refresh_status("finished, averaging tail checkpoints", cfg, state)
-                average_tail()
-                notify(f"ghost-base finished at step {step:,}. Averaged model: checkpoints/{RUN}/averaged.pt")
+                refresh_status(f"{phase['name']} finished, wrapping up", cfg, state)
+                if phase["name"] == "pretrain":
+                    average_tail()
+                    phases.finalize_run(CKPT_DIR, keep=("best_model.pt", "pre_decay.pt", "averaged.pt"))
+                else:
+                    phases.finalize_run(CKPT_DIR, keep=("best_model.pt",) if phase["name"] == "router" else ())
+                log_event(f"phase {phase['name']} finished at step {step}")
+                notify(f"{phase['name']} finished at step {step:,}.")
+                advance_phase(cfg, state)
             elif code != 0 and not reason:
                 # Restart the cooldown clock so the crash backoff below is actually waited out.
                 clear_since = time.time()
@@ -595,7 +652,7 @@ def main() -> None:
                         log.write(f"\n===== {now()} launching =====\n")
                         log.flush()
                         child = subprocess.Popen(
-                            train_command(cfg), cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+                            train_command(cfg, phase), cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                         )
                     # caffeinate does not forward signals to a wrapped command, so it
                     # watches the trainer's pid instead of wrapping it.
@@ -614,7 +671,8 @@ def main() -> None:
             save_state(state)
 
         if child is not None and child.poll() is None:
-            snapshot_tail(cfg)
+            if phase["name"] == "pretrain":
+                snapshot_tail(cfg)
             prune()
         maybe_backup(cfg, state)
         save_state(state)

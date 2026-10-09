@@ -74,3 +74,26 @@ checkpoint.
 
 Set a larger `max_steps` and resume from `checkpoints/ghost_base_mac/pre_decay.pt`:
 the WSD schedule keeps the learning rate flat until the new decay point.
+
+## Domain experts after pretraining (BTX)
+
+With `"btx": true` in `.bg/train_config.json`, the supervisor continues past the
+dense pretrain with Branch-Train-MiX (Sukhbaatar et al., 2024) instead of
+stopping (`scripts/background/phases.py`):
+
+1. **Branches.** Four copies resume from the pretrain's `pre_decay.pt` and each
+   trains on one domain only (cybersec, code, math, general web plus knowledge)
+   for 2,300 steps, about 150M tokens, with its own short decay at the end.
+   Branches never see each other's data, so none overwrites another. Each
+   finished branch is reduced to a weights-only `final.pt`.
+2. **Merge.** `scripts/btx_merge.py` turns the branches' feed-forward layers into
+   the experts of one MoE (top-2 of 4), averages every other weight and adds a
+   fresh router.
+3. **Router training.** 1,500 steps on mixed data with the experts frozen, so
+   only routers, attention, norms and embeddings train. That keeps the roughly
+   1B-parameter MoE trainable in 16GB.
+
+The dense model from step 1's starting point still finishes normally
+(`checkpoints/ghost_base_mac/final.pt` and `averaged.pt`), so the MoE is only
+kept if it beats it on the scorecard. Override any default with a dict, for
+example `"btx": {"branch_steps": 3000, "top_k": 2}`.
