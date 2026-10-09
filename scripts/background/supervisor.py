@@ -554,6 +554,8 @@ def main() -> None:
                 average_tail()
                 notify(f"ghost-base finished at step {step:,}. Averaged model: checkpoints/{RUN}/averaged.pt")
             elif code != 0 and not reason:
+                # Restart the cooldown clock so the crash backoff below is actually waited out.
+                clear_since = time.time()
                 state["crashes"] += 1
                 if state["crashes"] in (3, 10):
                     notify(f"Training crashed {state['crashes']} times. Check .bg/logs/train.log")
@@ -599,7 +601,7 @@ def main() -> None:
                     # watches the trainer's pid instead of wrapping it.
                     subprocess.Popen(["caffeinate", "-i", "-w", str(child.pid)])
                     log_event(f"launched trainer (pid {child.pid}, resume {checkpoints()[0].name if checkpoints() else 'none'})")
-                    state["launch_step"] = latest_step()
+                    state["launch_step"] = max(latest_step(), live_step())
                     refresh_status("training", cfg, state)
                 else:
                     refresh_status(f"resuming in {int(wait - (time.time() - clear_since))}s", cfg, state)

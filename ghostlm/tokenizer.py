@@ -19,6 +19,7 @@ Use ``load_tokenizer(path)`` to pick the right backend automatically.
 """
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import List, Optional
@@ -299,6 +300,9 @@ class GhostTokenizer(ChatTokenizerBase):
                 GPT-2 BPE otherwise merges "1234" and "1235" inconsistently.
                 Uses only existing GPT-2 tokens, so the vocabulary is unchanged.
         """
+        # tiktoken caches the GPT-2 BPE files in the OS temp dir, which macOS
+        # purges after a few idle days; the next start then needs the network.
+        os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(Path.home() / ".cache/ghostlm/tiktoken"))
         self._encoder = tiktoken.get_encoding("gpt2")
         self.digit_split = digit_split
         self._vocab_size = self._encoder.n_vocab
