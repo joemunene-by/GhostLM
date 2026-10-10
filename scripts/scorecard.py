@@ -184,7 +184,7 @@ def score_checkpoint(args) -> Dict[str, Dict]:
 
 
 def render_scorecard(label: str, results: Dict[str, Dict]) -> str:
-    lines = [f"# GhostLM scorecard — {label}", "",
+    lines = [f"# GhostLM scorecard, {label}", "",
              "Debiased multi-permutation text-scoring; 95% CI is a percentile "
              "bootstrap over questions. A score whose CI lower bound is above "
              "the 25% random baseline is significantly better than chance "
@@ -202,10 +202,10 @@ def render_scorecard(label: str, results: Dict[str, Dict]) -> str:
             sig = "+" if lo > ref["random"] else ("~" if hi > ref["random"] else "-")
             n = r["n"]
         else:
-            gh, ci, sig, n = "—", "—", "", "—"
+            gh, ci, sig, n = ", ", ", ", "", ", "
         band = COMPETITIVE_BAND.get(key, "")
         peers = ", ".join(f"{k}={v:.1f}" for k, v in ref.items() if k != "random" and v is not None)
-        lines.append(f"| {key} | {n} | {gh} | {ci} | {sig} | {band} | {peers or '—'} |")
+        lines.append(f"| {key} | {n} | {gh} | {ci} | {sig} | {band} | {peers or ', '} |")
     return "\n".join(lines) + "\n"
 
 

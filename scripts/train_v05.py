@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""GhostLM v0.5 from-scratch pretrain — RoPE + SwiGLU + RMSNorm + custom 32K BPE.
+"""GhostLM v0.5 from-scratch pretrain, RoPE + SwiGLU + RMSNorm + custom 32K BPE.
 
 Spins up the full v0.5 stack and starts pretraining ghost-small-v0.5 on
 the expanded v0.4.2 corpus (~58M tokens after the arxiv full-text pull).
-This is a from-scratch run — no checkpoint, random init.
+This is a from-scratch run, no checkpoint, random init.
 
 Defaults:
   - 60,000 steps, batch_size 8 × grad_accum 4 (effective 32)
@@ -13,7 +13,7 @@ Defaults:
 
 Wall-clock estimate on Mac M4 MPS at the existing 1.8s/step throughput:
 about 30 hours for 60K steps. That's a real overnight + half-a-day
-commitment — only kick this off when you can leave the Mac running.
+commitment, only kick this off when you can leave the Mac running.
 
 Outputs land under ``checkpoints/phase6_v05_pretrain/`` with periodic
 saves and the standard JSON training log.

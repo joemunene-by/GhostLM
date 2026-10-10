@@ -1,4 +1,4 @@
-"""GhostLM transformer model — decoder-only architecture built from scratch in PyTorch."""
+"""GhostLM transformer model, decoder-only architecture built from scratch in PyTorch."""
 
 import math
 from typing import List, Optional, Tuple
@@ -11,7 +11,7 @@ import torch.utils.checkpoint
 from ghostlm.config import GhostLMConfig
 
 # One transformer layer's cached keys and values, each of shape
-# (B, n_kv_heads, T_past, head_dim) — n_kv_heads == n_heads unless
+# (B, n_kv_heads, T_past, head_dim), n_kv_heads == n_heads unless
 # grouped-query attention is configured. A full-model cache is a list
 # with one entry per block, in block order.
 LayerKVCache = Tuple[torch.Tensor, torch.Tensor]
@@ -116,7 +116,7 @@ def apply_rotary_pos_emb(q, k, cos, sin):
 class RMSNorm(nn.Module):
     """Root-mean-square layer normalization (LLaMA-style, no mean subtraction).
 
-    Used by Llama-2 / Llama-3 / Mistral / Gemma — half the params of LayerNorm
+    Used by Llama-2 / Llama-3 / Mistral / Gemma, half the params of LayerNorm
     and matches its quality at this scale per the 2024 - 2026 small-LM
     literature. Toggled via ``GhostLMConfig.use_rmsnorm``.
     """
@@ -325,7 +325,7 @@ class CausalSelfAttention(nn.Module):
         v = _repeat_kv(v, self.n_rep)
 
         # A 4-D attn_mask is a precomputed additive bias (B, 1, T, total_len),
-        # e.g. the intra-document mask built in GhostLM.forward — use it
+        # e.g. the intra-document mask built in GhostLM.forward, use it
         # directly. A 2-D (B, total_len) attn_mask is the padding mask handled
         # by _attention_bias. None + no cache is the plain-causal fast path.
         precomputed_bias = attn_mask if (attn_mask is not None and attn_mask.dim() == 4) else None
@@ -413,7 +413,7 @@ class FeedForward(nn.Module):
 
 
 class SwiGLU(nn.Module):
-    """SwiGLU feed-forward — Llama / Mistral / Gemma style gated FFN.
+    """SwiGLU feed-forward, Llama / Mistral / Gemma style gated FFN.
 
     Two parallel projections from d_model to a 2/3 d_ff hidden, gated through
     SiLU. Matches GELU's parameter budget (we shrink the hidden dim by 2/3 to
@@ -617,7 +617,7 @@ class GhostLM(nn.Module):
             [TransformerBlock(config) for _ in range(config.n_layers)]
         )
 
-        # Final layer norm — RMSNorm or LayerNorm depending on config.
+        # Final layer norm, RMSNorm or LayerNorm depending on config.
         self.ln_f = make_norm(config, config.d_model)
 
         # Output head with weight tying (no bias)
@@ -630,7 +630,7 @@ class GhostLM(nn.Module):
         # Apply scaled residual initialization for deeper models. Only
         # the projections that feed the residual stream get the
         # depth-scaled std: attention output (proj), GELU FFN output
-        # (fc2), and SwiGLU output (fc3 — NOT fc2, which is the gate).
+        # (fc2), and SwiGLU output (fc3, NOT fc2, which is the gate).
         resid_std = 0.02 / math.sqrt(2 * config.n_layers)
         for module in self.modules():
             if isinstance(module, CausalSelfAttention):
@@ -710,8 +710,7 @@ class GhostLM(nn.Module):
             attn_mask = build_intra_doc_bias(idx, self.config.eos_token_id, x.dtype)
 
         # Transformer blocks. Gradient checkpointing recomputes each
-        # block's activations during backward instead of storing them —
-        # a large activation-memory cut for ~25-30% extra step time.
+        # block's activations during backward instead of storing them,        # a large activation-memory cut for ~25-30% extra step time.
         # Only sensible while training (and pointless with a KV cache).
         use_ckpt = (
             getattr(self.config, "gradient_checkpointing", False)
@@ -844,7 +843,7 @@ class GhostLM(nn.Module):
 
         whitelist = (nn.Linear,)
         # RMSNorm is custom (defined in this module), so we include it in the
-        # blacklist by class — its `.weight` should be no-decay just like
+        # blacklist by class, its `.weight` should be no-decay just like
         # LayerNorm's. Without this, the v0.5 ghost-small-v0.5 preset
         # crashes at optimizer setup with every block's ln_*.weight
         # uncategorized.
@@ -863,7 +862,7 @@ class GhostLM(nn.Module):
                 elif p.ndim < 2:
                     no_decay.add(fpn)  # learned scalars/gains, e.g. value-residual v_mix
 
-        # Remove lm_head.weight from decay if present — it is tied to token_embedding.weight
+        # Remove lm_head.weight from decay if present, it is tied to token_embedding.weight
         decay.discard("lm_head.weight")
         no_decay.discard("lm_head.weight")
 

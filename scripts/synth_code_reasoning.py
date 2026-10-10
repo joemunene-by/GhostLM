@@ -39,7 +39,7 @@ PATTERNS: List[Dict] = [
         "id": "recursion_base", "lang": "python", "bug": "missing base case",
         "buggy": "def fact(n):\n    return n * fact(n - 1)",
         "symptom": "RecursionError: maximum recursion depth exceeded.",
-        "diag": "There is no base case, so the recursion never terminates — `fact(0)` calls `fact(-1)`, and so on past the recursion limit. A correct factorial must stop at n <= 1 and return 1.",
+        "diag": "There is no base case, so the recursion never terminates, `fact(0)` calls `fact(-1)`, and so on past the recursion limit. A correct factorial must stop at n <= 1 and return 1.",
         "fix": "def fact(n):\n    if n <= 1:\n        return 1\n    return n * fact(n - 1)",
     },
     {

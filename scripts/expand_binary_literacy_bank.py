@@ -228,10 +228,10 @@ NEW_PATTERNS = [
         "longer_pattern": "C9 C3 (or 5D C3 if no enter)",
         "explanation": (
             "Standard x86_64 function epilogue:\n"
-            "  pop rbp        ; 5D — restore caller's frame ptr\n"
-            "  ret            ; C3 — return to caller\n"
+            "  pop rbp        ; 5D, restore caller's frame ptr\n"
+            "  ret            ; C3, return to caller\n"
             "Or with the legacy `leave` instruction:\n"
-            "  leave          ; C9 — equivalent of mov rsp,rbp + pop rbp\n"
+            "  leave          ; C9, equivalent of mov rsp,rbp + pop rbp\n"
             "  ret            ; C3\n"
             "Together with the prologue (push rbp / mov rbp, rsp = "
             "55 48 89 E5) these bracket every C function. Modern "
@@ -322,7 +322,7 @@ NEW_PATTERNS = [
             "(code) and one R-W PT_LOAD (data + bss). Modern PIE "
             "binaries also have a PT_DYNAMIC segment (p_type = 2) "
             "for the dynamic linker. A PT_LOAD with WX flags "
-            "together is suspicious — usually means JIT or "
+            "together is suspicious, usually means JIT or "
             "unpacker."
         ),
         "examples": ["readelf -l on /bin/ls",
@@ -340,7 +340,7 @@ NEW_PATTERNS = [
             "Standard paths: /lib64/ld-linux-x86-64.so.2 (glibc "
             "x86_64), /lib/ld-musl-x86_64.so.1 (musl x86_64), "
             "/system/bin/linker64 (Android). Statically-linked "
-            "binaries have no PT_INTERP — `file` reports "
+            "binaries have no PT_INTERP, `file` reports "
             "'statically linked'. Custom interpreter strings are "
             "a known anti-forensics technique to break analysis "
             "tools."
@@ -437,14 +437,14 @@ NEW_PATTERNS = [
     {
         "id": "BIN-036", "category": "hash",
         "name": "MD5 hex digest length recognition",
-        "hex_at_offset_0": "(N/A — string)",
+        "hex_at_offset_0": "(N/A, string)",
         "ascii_decode": "32 hex chars",
         "longer_pattern": "d41d8cd98f00b204e9800998ecf8427e",
         "explanation": (
             "MD5 produces a 128-bit (16-byte) hash. As a hex "
             "string it's exactly 32 lowercase chars from [0-9a-f]. "
             "Common contexts: file checksums, password hashes "
-            "(broken — never use for security), Git tree IDs (SHA1, "
+            "(broken, never use for security), Git tree IDs (SHA1, "
             "40 chars). Easy to spot a hash by length: 32 = MD5, "
             "40 = SHA1, 56 = SHA224, 64 = SHA256, 96 = SHA384, "
             "128 = SHA512, 64 with $argon2 prefix = Argon2 with "
@@ -456,7 +456,7 @@ NEW_PATTERNS = [
     {
         "id": "BIN-037", "category": "hash",
         "name": "SHA-256 hex digest length recognition",
-        "hex_at_offset_0": "(N/A — string)",
+        "hex_at_offset_0": "(N/A, string)",
         "ascii_decode": "64 hex chars",
         "longer_pattern": "e3b0c44298fc1c149afbf4c8996fb924"
                             "27ae41e4649b934ca495991b7852b855",
@@ -476,7 +476,7 @@ NEW_PATTERNS = [
     {
         "id": "BIN-038", "category": "hash",
         "name": "Common bcrypt password hash format",
-        "hex_at_offset_0": "(N/A — string)",
+        "hex_at_offset_0": "(N/A, string)",
         "ascii_decode": "$2b$12$22-char-salt-31-char-hash",
         "longer_pattern": "$2b$12$N9qo8uLOickgx2ZMRZoMy.Mrq"
                             "VNtJxWWmZbwFq.4jh6hHM6QK7T8.",

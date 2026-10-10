@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ingest OWASP Top 10 (2021) — the canonical web-app risk list.
+"""Ingest OWASP Top 10 (2021), the canonical web-app risk list.
 
 The Top 10 is OWASP's most cited document: ten categories of the most
 critical web-application security risks, each with description,

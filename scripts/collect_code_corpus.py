@@ -408,7 +408,7 @@ def main() -> None:
         print(f"  resuming with {len(repos)} repos to process")
 
     if args.dry_run:
-        print(f"\nDRY RUN — would process {len(repos)} repo(s):")
+        print(f"\nDRY RUN, would process {len(repos)} repo(s):")
         by_lang: dict[str, int] = defaultdict(int)
         for r in repos:
             by_lang[r.get("language", "?")] += 1

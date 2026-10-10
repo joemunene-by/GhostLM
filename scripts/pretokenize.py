@@ -5,7 +5,7 @@ Tokenizing the v1.0 corpus (~422M tokens) inside ``GhostDataset`` costs
 every training launch. This script does that work once, streaming each
 record (terminated with the EOS document separator) into a flat
 ``uint16``/``uint32`` array on disk. Training then memory-maps the file
-via ``GhostBinDataset`` — instant startup, near-zero resident memory.
+via ``GhostBinDataset``, instant startup, near-zero resident memory.
 
 Usage:
 

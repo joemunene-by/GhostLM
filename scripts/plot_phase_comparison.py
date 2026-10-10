@@ -1,9 +1,9 @@
 """Plot a final-state phase comparison for ghost-tiny.
 
-Auto-detects each phase's outputs (Phase 1 → Phase 3.5) and plots three
+Auto-detects each phase's outputs (Phase 1 to Phase 3.5) and plots three
 panels: final val_loss, perplexity vs. the GPT-2 baseline, and
 security-task accuracy. Phases without data for a given panel are
-skipped in that panel only — re-running this script after each new
+skipped in that panel only, re-running this script after each new
 benchmark/eval round picks up the new data automatically.
 
 Per-step training logs are too sparse to draw real curves, so this
@@ -31,10 +31,10 @@ PHASES = [
         # Score from the expanded 125-sample suite (5 tasks × 25 samples,
         # PMI scoring). Earlier 30-sample _pmi.json files and the
         # length-normalized eval_security.json are kept on disk for
-        # archaeology but not plotted — both had noise floors that masked
-        # cross-phase gains, particularly the Phase 2→3 +1.6 pp move.
+        # archaeology but not plotted, both had noise floors that masked
+        # cross-phase gains, particularly the Phase 2 to 3 +1.6 pp move.
         "sec": Path("logs/eval_security_phase1_expanded.json"),
-        "note": "leaky split — not directly comparable",
+        "note": "leaky split, not directly comparable",
     },
     {
         "name": "Phase 2",
@@ -61,7 +61,7 @@ PHASES = [
         "log": Path("logs/phase3.5_balanced/training_log.json"),
         "bench": Path("logs/benchmark_phase3.5.json"),
         "sec": Path("logs/eval_security_phase3.5_expanded.json"),
-        "note": "v0.3.5 — NVD subsampled to 6M tokens, diversity sources at ~35% share",
+        "note": "v0.3.5, NVD subsampled to 6M tokens, diversity sources at ~35% share",
     },
 ]
 
@@ -185,7 +185,7 @@ def print_summary(phases):
         if not bits:
             print(f"{p['name']}: (no data yet)")
         else:
-            print(f"{p['name']}: {' · '.join(bits)}  — {p['note']}")
+            print(f"{p['name']}: {' · '.join(bits)}, {p['note']}")
 
 
 def main():
@@ -195,7 +195,7 @@ def main():
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
     n_phases = sum(1 for p in phases if p["val_loss"] is not None)
     fig.suptitle(
-        f"ghost-tiny — final-state comparison ({n_phases} phases)",
+        f"ghost-tiny, final-state comparison ({n_phases} phases)",
         fontsize=13,
         y=1.02,
     )

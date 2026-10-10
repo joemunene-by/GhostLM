@@ -1,4 +1,4 @@
-"""GhostLM training visualizer — plots loss curves from training log."""
+"""GhostLM training visualizer, plots loss curves from training log."""
 
 import argparse
 import json
@@ -81,7 +81,7 @@ def main():
             arrowprops=dict(arrowstyle="->", color="#E8943A", lw=1.5),
         )
 
-    ax.set_title("GhostLM Training Loss — ghost-tiny", fontsize=14, fontweight="bold")
+    ax.set_title("GhostLM Training Loss, ghost-tiny", fontsize=14, fontweight="bold")
     ax.set_xlabel("Step", fontsize=12)
     ax.set_ylabel("Loss", fontsize=12)
     ax.legend(fontsize=11)

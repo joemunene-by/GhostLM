@@ -1,20 +1,19 @@
 #!/usr/bin/env python3
-"""GhostLM chat-tuning fine-tune — SFT on top of the Phase 4 ghost-small checkpoint.
+"""GhostLM chat-tuning fine-tune, SFT on top of the Phase 4 ghost-small checkpoint.
 
 Steps:
 1. Build the chat tokenizer (now includes <|ghost_user|>, <|ghost_assistant|>,
    <|ghost_end|>) and the chat dataset.
 2. Load the Phase 4 ghost-small checkpoint.
-3. Expand the token-embedding rows from 50261 → 50264 to accommodate the three
+3. Expand the token-embedding rows from 50261 to 50264 to accommodate the three
    new chat-role tokens, copying existing weights and initializing the new rows
    with small Gaussian noise. Because lm_head is weight-tied to token_embedding,
-   re-tying is enough — no separate head expansion needed.
+   re-tying is enough, no separate head expansion needed.
 4. Train with SFT-appropriate hyperparameters (lower LR, fewer steps, the loss
    is already masked to assistant tokens by ChatDataset's target -1 fill).
 5. Save to ``checkpoints/phase5_chat/`` with periodic checkpoints + best-val.
 
-This script does not modify ``scripts/train.py`` or ``ghostlm/trainer.py`` —
-it reuses GhostTrainer's training loop directly with overridden config.
+This script does not modify ``scripts/train.py`` or ``ghostlm/trainer.py``,it reuses GhostTrainer's training loop directly with overridden config.
 """
 
 import argparse
@@ -41,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--run-name", default="phase5_chat",
                    help="Subdir under checkpoints/ and logs/")
     p.add_argument("--learning-rate", type=float, default=2e-5,
-                   help="Lower than pretrain (3e-4) — SFT is delicate")
+                   help="Lower than pretrain (3e-4), SFT is delicate")
     p.add_argument("--max-steps", type=int, default=4000)
     p.add_argument("--warmup-steps", type=int, default=200)
     p.add_argument("--batch-size", type=int, default=8)
@@ -62,7 +61,7 @@ def expand_token_embedding(model: GhostLM, new_vocab_size: int) -> None:
     """Resize the model's tied embedding to ``new_vocab_size``.
 
     Copies existing rows verbatim. New rows are initialized to the *mean* of the
-    existing embeddings plus tiny N(0, 0.001²) jitter — sub-100M models destabilize
+    existing embeddings plus tiny N(0, 0.001²) jitter, sub-100M models destabilize
     when N(0, 0.02²) noise tokens hit the residual stream cold (research call:
     SmolLM2 retrospective + Komatsuzaki et al. on warm-start). Re-ties lm_head.
     """
@@ -123,7 +122,7 @@ def main() -> None:
     # original vocab_size, then override training-specific fields.
     base_cfg = ckpt.get("config", None)
     if base_cfg is None:
-        raise RuntimeError("Checkpoint missing 'config' — cannot infer architecture")
+        raise RuntimeError("Checkpoint missing 'config', cannot infer architecture")
     if isinstance(base_cfg, dict):
         config = GhostLMConfig(**base_cfg)
     else:
@@ -149,14 +148,14 @@ def main() -> None:
     state = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt["model"]
 
     # Pos embedding can be larger in the checkpoint (pretrain ctx 1024) than in
-    # the current model (SFT at smaller ctx). Slice down to match — chat data
+    # the current model (SFT at smaller ctx). Slice down to match, chat data
     # rarely needs > 512 tokens and shrinking ctx halves attention memory.
     pe_key = "pos_embedding.weight"
     if pe_key in state:
         ckpt_pe = state[pe_key]
         ctx_now = model.pos_embedding.weight.shape[0]
         if ckpt_pe.shape[0] > ctx_now:
-            print(f"  Slicing pos_embedding {ckpt_pe.shape[0]} → {ctx_now} for SFT ctx")
+            print(f"  Slicing pos_embedding {ckpt_pe.shape[0]} to {ctx_now} for SFT ctx")
             state[pe_key] = ckpt_pe[:ctx_now]
 
     missing, unexpected = model.load_state_dict(state, strict=False)
@@ -167,7 +166,7 @@ def main() -> None:
 
     # ---- Expand vocab to fit chat tokens ----
     new_vocab = tokenizer.vocab_size
-    print(f"Expanding token embedding {config.vocab_size} → {new_vocab}")
+    print(f"Expanding token embedding {config.vocab_size} to {new_vocab}")
     expand_token_embedding(model, new_vocab)
 
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
@@ -190,7 +189,7 @@ def main() -> None:
     if isinstance(tokenizer, GhostTokenizerV05):
         # V05 backend: copy the canonical tokenizer.json verbatim. The
         # save method on GhostTokenizer only writes special-token metadata,
-        # which doesn't capture the BPE state — for V05 we need the raw
+        # which doesn't capture the BPE state, for V05 we need the raw
         # HuggingFace tokenizers JSON.
         import shutil
         shutil.copy2(args.tokenizer, tok_save_path)

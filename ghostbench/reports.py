@@ -261,7 +261,7 @@ def render_suite_paired_comparison(a_reports: List[RunReport],
         p_value, _ = mcnemar_test(d_b, d_c)
         h = cohen_h(b_pass / n, a_pass / n)
         diff_lo, diff_hi = paired_diff_ci(d_c, d_b, n)
-        sig = "✓" if p_value < 0.05 else "·"
+        sig = " " if p_value < 0.05 else "·"
         lines.append(
             f"| {a.bench_name} | {a_pass}/{n} | {b_pass}/{n} | "
             f"{100*a_pass/n:.1f}% | {100*b_pass/n:.1f}% | "

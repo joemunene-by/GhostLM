@@ -43,7 +43,7 @@ def _phase_sort_key(path: Path) -> Tuple[float, str]:
     """Sort phase JSONs by phase number (3 before 3.5), unknowns at the end.
 
     Lexical sort on filenames puts "phase3.5" before "phase3" because the
-    dot sorts ahead of the underscore that starts "_expanded" — extracting
+    dot sorts ahead of the underscore that starts "_expanded", extracting
     the numeric phase fixes the column order.
     """
     m = re.search(r"eval_security_phase([0-9.]+)_(?:expanded|pmi)", path.stem)
@@ -81,13 +81,13 @@ def print_table(runs: List[Tuple[str, Path, Dict]]) -> None:
         sys.exit(1)
 
     # Use the first run's task list as the canonical ordering. Bail out if
-    # task lists drift between runs — that means the eval suite changed and
+    # task lists drift between runs, that means the eval suite changed and
     # the comparison would be misleading.
     canonical_tasks = [t["task"] for t in runs[0][2]["tasks"]]
     for name, path, data in runs[1:]:
         if [t["task"] for t in data["tasks"]] != canonical_tasks:
             print(
-                f"[warning] task list in {path} differs from {runs[0][1]} — "
+                f"[warning] task list in {path} differs from {runs[0][1]}, "
                 "skipping it from the comparison",
                 file=sys.stderr,
             )
@@ -126,7 +126,7 @@ def print_table(runs: List[Tuple[str, Path, Dict]]) -> None:
     print()
     print()
     print("Cell format: correct/total (accuracy) [most-common-share]")
-    print("Most-common-share above ~60% indicates the task is mode-collapsing —")
+    print("Most-common-share above ~60% indicates the task is mode-collapsing, ")
     print("treat the accuracy as suspect even when it looks above-random.")
 
 

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Pull CISA's Known Exploited Vulnerabilities catalog.
 
-CISA KEV is a curated list of CVEs being *actively* exploited in the wild —
-high-signal threat intelligence that anchors which vulnerabilities matter
+CISA KEV is a curated list of CVEs being *actively* exploited in the wild,high-signal threat intelligence that anchors which vulnerabilities matter
 in practice. The full catalog is one JSON file (~1300 entries as of 2026)
 that updates roughly weekly.
 
@@ -10,7 +9,7 @@ Each output record describes one actively-exploited CVE in a few sentences,
 formatted to match the existing pretrain corpus style::
 
     {"id": "CVE-2024-X", "source": "cisa_kev",
-     "text": "CISA KEV — CVE-2024-X (Vendor Product): name\\n\\nDescription...\\n\\nRequired remediation: ..."}
+     "text": "CISA KEV, CVE-2024-X (Vendor Product): name\\n\\nDescription...\\n\\nRequired remediation: ..."}
 
 Source: https://www.cisa.gov/known-exploited-vulnerabilities-catalog
 Bulk feed: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
@@ -51,7 +50,7 @@ def render_record(entry: dict) -> dict:
     ransomware = entry.get("knownRansomwareCampaignUse", "").strip()
     cwes = entry.get("cwes", []) or []
 
-    head = f"CISA KEV — {cve}"
+    head = f"CISA KEV, {cve}"
     if vendor or product:
         head += f" ({vendor} {product})".rstrip(" )") + ")"
         head = head.replace(" )", ")")  # cleanup if vendor empty

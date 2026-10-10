@@ -103,7 +103,7 @@ def _history_to_chat_turns(history: List[AgentMessage]) -> List[dict]:
         if m.role == MessageRole.SYSTEM:
             turns.append({"role": "user", "content": m.content})
             turns.append({"role": "assistant",
-                          "content": "Got it — I'll keep that in mind."})
+                          "content": "Got it, I'll keep that in mind."})
         elif m.role == MessageRole.USER:
             turns.append({"role": "user", "content": m.content})
         elif m.role == MessageRole.ASSISTANT:
@@ -213,7 +213,7 @@ def make_generator_from_loaded(
         # KV-cached decoding: prefill the prompt once, then feed only the
         # newly sampled token each step. If the sequence outgrows the
         # context window, drop the cache and re-prefill from the cropped
-        # tail (sliding window) — same semantics as the uncached loop.
+        # tail (sliding window), same semantics as the uncached loop.
         past_kv = None
         input_ids = ids[:, -ctx:]
         # Stop on either the chat end token OR a decoded "<|/tool_call|>"

@@ -4,7 +4,7 @@
 Replaces the generic GPT-2 BPE for the v0.5 retrain. Domain-specific
 tokenization typically buys 15-25% compression on technical text per
 recent measurements (BloombergGPT 2023 ~20% on finance, Med42 2024
-~22% on clinical, SciTokenizer 2024 ~18% on arXiv) — at fixed compute
+~22% on clinical, SciTokenizer 2024 ~18% on arXiv), at fixed compute
 that's equivalent to ~20-25% more *effective* training data, plus
 ~20% faster inference at the same context length.
 
@@ -12,7 +12,7 @@ The seven GhostLM special tokens get reserved at the end of the
 vocab so the chat-format machinery built around the existing
 tokenizer keeps working without ID changes.
 
-Output: ``data/tokenizer_v05/tokenizer.json`` — load via
+Output: ``data/tokenizer_v05/tokenizer.json``, load via
 ``tokenizers.Tokenizer.from_file`` or via the new
 ``GhostTokenizer.from_v05_file`` constructor (see ghostlm/tokenizer.py).
 """

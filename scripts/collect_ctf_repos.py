@@ -2,7 +2,7 @@
 
 Reads a JSON config listing the repos to clone (with their SPDX licenses)
 and dispatches to ``data.collect.collect_ctf_repos``. The JSON config keeps
-the "which repos to ingest" decision transparent and auditable — license
+the "which repos to ingest" decision transparent and auditable, license
 choices live in the config, not in code.
 
 Example config (``data/ctf_repos.example.json``):

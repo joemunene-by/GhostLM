@@ -4,15 +4,14 @@
 Takes the existing chat training set (built by ``build_chat_dataset.py``)
 and the RAG index (built by ``build_rag_index.py``), retrieves top-K
 passages per question, and emits a new dataset where each user turn is
-prefixed with the retrieved passages. Assistant turns are unchanged —
-they're already grounded in the same corpus.
+prefixed with the retrieved passages. Assistant turns are unchanged,they're already grounded in the same corpus.
 
 The output JSONL is the standard ``{"turns": [...]}`` chat format, so
 ``scripts/finetune_chat.py`` can train on it without modification.
 
 Why RAFT instead of vanilla retrieve-then-generate (the ``rag_chat.py``
 baseline): a chat model that wasn't trained to read retrieved passages
-treats them as noise — we measured 0pp lift on CTIBench from the baseline
+treats them as noise, we measured 0pp lift on CTIBench from the baseline
 (`bd95ada`). RAFT teaches the model to attend to the relevant passage
 and ignore distractors. Per Zhang et al. (ICML 2024) and follow-ups,
 typical lift is +10-25pp on factual MCQ benchmarks at the same model
@@ -29,7 +28,7 @@ Three augmentation modes per record:
   capable of answering without retrieval (graceful degradation when
   the index is offline or empty).
 
-Small-talk records skip retrieval entirely — pulling cybersec passages
+Small-talk records skip retrieval entirely, pulling cybersec passages
 for "hi" or "thanks" is noise.
 """
 
@@ -128,7 +127,7 @@ def augment_record(
 
     if mode == "no_context":
         new_user = (
-            "Answer the following from your own knowledge — no reference "
+            "Answer the following from your own knowledge, no reference "
             "passages are provided.\n\n"
             f"Question: {user_q}"
         )
@@ -137,8 +136,7 @@ def augment_record(
         chunks = retriever.chunks
 
         if mode == "distractor":
-            # Replace the top-1 with a random chunk from a different source —
-            # most likely irrelevant to the question.
+            # Replace the top-1 with a random chunk from a different source,            # most likely irrelevant to the question.
             # Sample rather than scan: the index can hold hundreds of thousands
             # of lazily-read chunks.
             for _ in range(50):
@@ -204,7 +202,7 @@ def main() -> None:
         ("val", args.in_val, args.out_val),
     ]:
         print()
-        print(f"=== {split}: {in_path} → {out_path} ===")
+        print(f"=== {split}: {in_path} to {out_path} ===")
         records = load_jsonl(Path(in_path))
         if args.limit:
             records = records[: args.limit]
@@ -216,7 +214,7 @@ def main() -> None:
 
         for r in records:
             if r.get("source") in SKIP_SOURCES:
-                # Pass through small_talk records unchanged — retrieving
+                # Pass through small_talk records unchanged, retrieving
                 # cybersec passages for "hi" is noise.
                 out_records.append(r)
                 skipped += 1

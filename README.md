@@ -1,22 +1,22 @@
 <p align="center">
-  <img src="assets/ghostlm_wordmark.png" alt="GhostLM" width="560">
+ <img src="assets/ghostlm_wordmark.png" alt="GhostLM" width="560">
 </p>
 
 <p align="center">
-  <img src="https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg" alt="CI">
-  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
-  <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python">
-  <img src="https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg" alt="PyTorch">
-  <img src="https://img.shields.io/badge/version-0.12.0-blue.svg" alt="Version">
+ <img src="https://github.com/joemunene-by/GhostLM/actions/workflows/ci.yml/badge.svg" alt="CI">
+ <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
+ <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python">
+ <img src="https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg" alt="PyTorch">
+ <img src="https://img.shields.io/badge/version-0.12.0-blue.svg" alt="Version">
 </p>
 
 # GhostLM
 
 > An open-source, general-purpose language model built entirely from scratch in PyTorch. A generalist across general knowledge, code, and math/reasoning, with unusual depth in cybersecurity, the domain the corpus was originally built around.
 
-> **Sister project**: [`ghostloop`](https://github.com/joemunene-by/ghostloop) is the embodied-AI sibling — same `GhostAgent`-shaped tool-using runtime + fail-closed safety pipeline + GhostBench-shaped paired-comparison eval, applied to **robot motion primitives** instead of CVE / MITRE / CWE lookups. Shipped v0.3.0 on 2026-05-10 with PyBullet + MuJoCo backends, MuJoCo Menagerie loader, episode catalogue, trace replay, five policy gates (DenyList / RateLimit / Geofence / ForceCap / HITL), and a `python -m ghostloop` CLI. The thesis: as VLA models become the policy substrate, the runtime around them needs the same rigor we already apply to LLM tool use.
+> **Sister project**: [`ghostloop`](https://github.com/joemunene-by/ghostloop) is the embodied-AI sibling, same `GhostAgent`-shaped tool-using runtime + fail-closed safety pipeline + GhostBench-shaped paired-comparison eval, applied to **robot motion primitives** instead of CVE / MITRE / CWE lookups. Shipped v0.3.0 on 2026-05-10 with PyBullet + MuJoCo backends, MuJoCo Menagerie loader, episode catalogue, trace replay, five policy gates (DenyList / RateLimit / Geofence / ForceCap / HITL), and a `python -m ghostloop` CLI. The thesis: as VLA models become the policy substrate, the runtime around them needs the same rigor we already apply to LLM tool use.
 
-> **Status (v0.9.34 — 2026-06-10):** training/inference stack hardened ahead of the ghost-base GPU run — KV-cached generation (5.4× faster decoding), memory-mapped pretokenized corpus, real DDP data sharding, LR-schedule and SwiGLU-init fixes, plus live wandb metrics, `--compile`, and `--grad-checkpoint` flags, all dress-rehearsed end-to-end on Mac. The v1.0 pretrain corpus stands at 768,741 train / 40,429 val records (~422M tokens), code share 11.6%, cybersec sources ~65% of text. The GhostAgent tool-using runtime, multi-vendor HTTP server (OpenAI / Anthropic / Gemini / Ollama wire formats), MCP integration, and the GhostBench statistical eval suite are all shipped. **ghost-base (~360M params) is the v1.0 training target, gated on rented GPU compute.** Dated, per-version detail lives in [CHANGELOG.md](CHANGELOG.md).
+> **Status (v0.9.34-2026-06-10):** training/inference stack hardened ahead of the ghost-base GPU run, KV-cached generation (5.4× faster decoding), memory-mapped pretokenized corpus, real DDP data sharding, LR-schedule and SwiGLU-init fixes, plus live wandb metrics, `--compile`, and `--grad-checkpoint` flags, all dress-rehearsed end-to-end on Mac. The v1.0 pretrain corpus stands at 768,741 train / 40,429 val records (~422M tokens), code share 11.6%, cybersec sources ~65% of text. The GhostAgent tool-using runtime, multi-vendor HTTP server (OpenAI / Anthropic / Gemini / Ollama wire formats), MCP integration, and the GhostBench statistical eval suite are all shipped. **ghost-base (~360M params) is the v1.0 training target, gated on rented GPU compute.** Dated, per-version detail lives in [CHANGELOG.md](CHANGELOG.md).
 
 GhostLM is a decoder-only transformer language model. Pretrained from scratch on a multi-domain corpus: general-knowledge and educational web text (FineWeb-Edu, broad Wikipedia), source code across many languages, math and reasoning (open-web-math), and a deep cybersecurity layer (CVE descriptions, CTF writeups, MITRE/CWE/OWASP/RFC reference material, NIST SP 800 publications, security research blogs, security tool source). No pretrained weights, no wrappers, every component written by hand.
 
@@ -202,7 +202,7 @@ The v1.0 corpus has **768,741 train records / 40,429 val / ~422M tokens** (post-
 
 | Domain | Tokens (M) | Share | Sources |
 |---|---:|---:|---|
-| Cybersec writeup-style | ~280 | 65% | PRIMUS-Seed/FineWeb (Trend Micro, ODC-BY) — 46.5% of train chars alone, NVD CVE (capped 6M tokens via deterministic-hash subsample), Exploit-DB (GPL-2.0), MITRE ATT&CK / CAPEC / CWE, OWASP family (cheatsheets / WSTG / ASVS / Top 10), CTFtime real writeups, arXiv cs.CR abstracts + full-text, fact-QA (Qwen-14B distilled), CISA KEV, IETF security RFCs |
+| Cybersec writeup-style | ~280 | 65% | PRIMUS-Seed/FineWeb (Trend Micro, ODC-BY), 46.5% of train chars alone, NVD CVE (capped 6M tokens via deterministic-hash subsample), Exploit-DB (GPL-2.0), MITRE ATT&CK / CAPEC / CWE, OWASP family (cheatsheets / WSTG / ASVS / Top 10), CTFtime real writeups, arXiv cs.CR abstracts + full-text, fact-QA (Qwen-14B distilled), CISA KEV, IETF security RFCs |
 | Code (open-source, v0.9.31 pull) | ~40 | 9.5% | **105 repos / 26,012 files**: cpython stdlib + numpy/scipy/pandas + sklearn/transformers + Flask/FastAPI/Django (Python, 7,469 files); golang stdlib + gin/cobra/k8s/terraform/docker/caddy (Go, 4,351); rustlang std + tokio/serde/clap/ripgrep/uv (Rust, 4,029); vue/svelte/next/typescript/vite/nestjs (TS, 2,318); express/koa/lodash/react/preact (JS, 1,507); redis/sqlite/curl/openssl/postgres (C, 2,299); protobuf/leveldb/grpc/folly (C++, 1,840); spring/commons-lang/guava (Java, 1,436); rails/sinatra/rspec (Ruby, 461); plus swift/elixir/phoenix. 100% permissive licenses. Per-source totals at [`data/code_corpus_manifest.json`](data/code_corpus_manifest.json). |
 | General language | ~46 | 11.0% | `HuggingFaceFW/fineweb-edu` (ODC-BY, classifier-filtered educational web) |
 | Math / reasoning | ~21 | 5.0% | `open-web-math/open-web-math` (ODC-BY, math-filtered web) |
@@ -268,8 +268,8 @@ On top of the pretrain corpus above, GhostLM ships a separate SFT (supervised fi
 | ghost-tiny Phase 2 (rebalanced corpus) | 10,000 | 2.66M | 3.7813 | Archived as `checkpoints/best_model_phase2.pt` |
 | ghost-tiny Phase 3 (post-NVD-pull corpus) | 30,000 | ~30M | 3.4458 | NVD-dominated (87%); preserved as `checkpoints/phase3_refresh/best_model.pt` |
 | ghost-tiny Phase 3.5 (rebalanced corpus) | 30,000 | ~8.8M | 3.5518 | Historical canonical for the existing PMI suite. NVD share 65%, six sources balanced. Hardware: Mac Mini M4 (CPU), ~3h13m wall-clock |
-| ghost-tiny Phase 3.6 (+Exploit-DB) | 30,000 | ~12.56M | 3.8556 | Regressed on the eval suite (31.2% → 16.8%); ghost-tiny capacity ceiling found. Preserved at `checkpoints/phase3.6_exploitdb/best_model.pt`, see CHANGELOG v0.3.7 |
-| **ghost-small Phase 4 (capacity reallocation)** | **30,000** | **~12.56M** | **2.3535** | **Current canonical model for density / generation.** ~45M params (6L / 512d / 8h) on the same Phase 3.6 corpus. **Per-source PPL 59-78% better than Phase 3.5 across every source**, overall PPL 66.05 → 11.12 (−83%). Hardware: Mac Mini M4 (MPS), ~15h wall-clock. See CHANGELOG v0.4.0 |
+| ghost-tiny Phase 3.6 (+Exploit-DB) | 30,000 | ~12.56M | 3.8556 | Regressed on the eval suite (31.2% to 16.8%); ghost-tiny capacity ceiling found. Preserved at `checkpoints/phase3.6_exploitdb/best_model.pt`, see CHANGELOG v0.3.7 |
+| **ghost-small Phase 4 (capacity reallocation)** | **30,000** | **~12.56M** | **2.3535** | **Current canonical model for density / generation.** ~45M params (6L / 512d / 8h) on the same Phase 3.6 corpus. **Per-source PPL 59-78% better than Phase 3.5 across every source**, overall PPL 66.05 to 11.12 (−83%). Hardware: Mac Mini M4 (MPS), ~15h wall-clock. See CHANGELOG v0.4.0 |
 
 > Cross-phase val_loss is **not directly comparable** between phases when the corpus changes: each phase from 3.5 onward has a different validation distribution. The eval-axis numbers below are the cleaner read.
 
@@ -281,20 +281,20 @@ A supervised fine-tune on top of the base ghost-small turns the completion model
 
 Each chat-tune is evaluated on three independent MCQ sources plus one free-form fact-recall set:
 
-- **CTIBench MCQ** (full test split, n=2500, 2 perms) — the AI4Sec/cti-bench benchmark.
-- **In-repo CTF eval** (n=30, 4 perms) — hand-written cybersec MCQ at `data/raw/ctf_eval_bench.jsonl`.
-- **SecQA** (n=210, 4 perms) — external benchmark, pulled via `scripts/fetch_secqa.py` from `zefang-liu/secqa` on HuggingFace.
-- **Free-form fact recall** (n=50) — single-line factual prompts at `data/raw/fact_recall_bench.jsonl`, substring-graded.
+- **CTIBench MCQ** (full test split, n=2500, 2 perms), the AI4Sec/cti-bench benchmark.
+- **In-repo CTF eval** (n=30, 4 perms), hand-written cybersec MCQ at `data/raw/ctf_eval_bench.jsonl`.
+- **SecQA** (n=210, 4 perms), external benchmark, pulled via `scripts/fetch_secqa.py` from `zefang-liu/secqa` on HuggingFace.
+- **Free-form fact recall** (n=50), single-line factual prompts at `data/raw/fact_recall_bench.jsonl`, substring-graded.
 
 All MCQ rows below use multi-permutation text-scoring: log P(option_text | prompt) per option under N option-letter orderings, no letter-token bias. Random baseline on 4-way MCQ is 25%. Fact-recall is free-form completion with substring grading; random baseline is ~0%.
 
 | Checkpoint | CTIBench (n=2500) | CTF eval (n=30) | SecQA (n=210) | Fact recall (n=50) |
 |---|---:|---:|---:|---:|
 | `phase5_chat_v3` (v0.4 base, canonical from v0.5.0) | 27.6% | 50.0% | 35.0% | 0/50 (0.0%) |
-| `phase10_chat_v06` (v0.6, BPE swap) | 28.2% | — | — | — |
+| `phase10_chat_v06` (v0.6, BPE swap) | 28.2% |, |, |, |
 | `phase15_chat_v07` (v0.7, 81M wide) | 27.2% | 50.0% | 37.6% | 1/50 (2.0%) |
-| `phase20_chat_v07_ctx1024` (v0.7 ctx-1024 extension) | 26.7% | 45.8% | — | — |
-| `phase17_chat_v08` (v0.8, 81M + fact-QA) | 27.4% | — | — | — |
+| `phase20_chat_v07_ctx1024` (v0.7 ctx-1024 extension) | 26.7% | 45.8% |, |, |
+| `phase17_chat_v08` (v0.8, 81M + fact-QA) | 27.4% |, |, |, |
 | **`phase19_chat_v09` (canonical, 273M-token corpus)** | **28.9%** | **59.2%** | **39.3%** | **1/50 (2.0%)** |
 
 **v0.9 wins every MCQ bench by 0.7-9.2 pp.** The corpus-density swing produced a real, consistent capability lift across CTIBench (+1.3-1.7 pp over v0.4/v0.7), the in-repo CTF eval (+9.2 pp), and the external SecQA bench (+1.7-4.3 pp). The ranking holds across all three independent sources.
@@ -317,7 +317,7 @@ The cyber-text benchmark is 10 hand-picked external samples that overlap none of
 | ghost-tiny, Phase 1 | 2,183.94 |
 | GPT-2 (124M baseline) | 26.76 |
 
-Phase 3 → Phase 3.5 dropped this benchmark **32%** (142.09 → 96.24) at fixed parameter count and 1/3 the training tokens. ghost-tiny is now ~3.6× behind GPT-2 on raw cyber-text perplexity, with ~8× less capacity. The trajectory matters more than the absolute number; full breakdown in [MODEL_CARD.md](MODEL_CARD.md#evaluation).
+Phase 3 to Phase 3.5 dropped this benchmark **32%** (142.09 to 96.24) at fixed parameter count and 1/3 the training tokens. ghost-tiny is now ~3.6× behind GPT-2 on raw cyber-text perplexity, with ~8× less capacity. The trajectory matters more than the absolute number; full breakdown in [MODEL_CARD.md](MODEL_CARD.md#evaluation).
 
 ### Per-source perplexity (val split)
 
@@ -336,9 +336,9 @@ The cleanest cross-phase read: does the model actually model each source it was 
 
 Three distinct phase-on-phase wins to read off this table:
 
-- **v0.3.3 → v0.3.5 (corpus rebalance, fixed model):** the 47-91% drops on MITRE / CTFtime / CAPEC came from those sources being added to training, the synthetic-CTF / arXiv drops from same data with parameter capacity redirected away from memorizing duplicate CVEs.
-- **v0.3.5 → v0.3.6 (corpus volume, fixed model):** every existing source got 28-42% worse, ghost-tiny ran out of capacity to hold seven sources at once. This is the result that diagnosed the ceiling.
-- **v0.3.6 → v0.4.0 (model capacity, fixed corpus):** every single source improved 68-80% relative to v0.3.6, and 59-78% relative to v0.3.5. ghost-small at 45M params absorbs the corpus that broke ghost-tiny without the per-source tradeoff. **Capacity-reallocation hypothesis confirmed.**
+- **v0.3.3 to v0.3.5 (corpus rebalance, fixed model):** the 47-91% drops on MITRE / CTFtime / CAPEC came from those sources being added to training, the synthetic-CTF / arXiv drops from same data with parameter capacity redirected away from memorizing duplicate CVEs.
+- **v0.3.5 to v0.3.6 (corpus volume, fixed model):** every existing source got 28-42% worse, ghost-tiny ran out of capacity to hold seven sources at once. This is the result that diagnosed the ceiling.
+- **v0.3.6 to v0.4.0 (model capacity, fixed corpus):** every single source improved 68-80% relative to v0.3.6, and 59-78% relative to v0.3.5. ghost-small at 45M params absorbs the corpus that broke ghost-tiny without the per-source tradeoff. **Capacity-reallocation hypothesis confirmed.**
 
 ### PMI-corrected security task accuracy
 
@@ -376,7 +376,7 @@ Per-source perplexity confirmed the diagnosis: every existing source got 28-42% 
 
 ghost-small (~45M params, 6 layers / 512 d_model / 8 heads) trained on the same Phase 3.6 corpus that broke ghost-tiny. 30k steps, MPS, 15h wall-clock. Final val_loss **2.3535**, a 1.20-nat (~3.3× perplexity) drop relative to Phase 3.5 ghost-tiny (3.5518), and the loss curve was still descending at the final step.
 
-The PMI security suite is more nuanced. Headline number drops vs Phase 3.5 (39/125 → 29/125, 31.2% → 23.2%), but with **logp scoring** (no PMI-correction) Phase 4 actually beats Phase 3.5 (24/125 vs 22/125, 19.2% vs 17.6%). The PMI advantage at Phase 3.5 is a calibration artifact, PMI subtracts the unconditional candidate log-prob to break ties, and a higher-capacity model with a tighter probability distribution gives PMI less separation to work with. On a 25-sample-per-task suite this can flip the headline.
+The PMI security suite is more nuanced. Headline number drops vs Phase 3.5 (39/125 to 29/125, 31.2% to 23.2%), but with **logp scoring** (no PMI-correction) Phase 4 actually beats Phase 3.5 (24/125 vs 22/125, 19.2% vs 17.6%). The PMI advantage at Phase 3.5 is a calibration artifact, PMI subtracts the unconditional candidate log-prob to break ties, and a higher-capacity model with a tighter probability distribution gives PMI less separation to work with. On a 25-sample-per-task suite this can flip the headline.
 
 | Task | P3.5 PMI | P3.5 logp | **P4 PMI** | **P4 logp** |
 |---|---:|---:|---:|---:|
@@ -396,7 +396,7 @@ Phase 4 is the new canonical for any density / generation use; Phase 3.5 stays o
 
 ## Sample Generations
 
-The samples below are historical, captured during v0.3.5 / chat-v3 (v0.6.0). They illustrate the "form but not facts" diagnosis that drove the project from a small-corpus parrot toward the v0.9.x bench-winning chat-tunes and the v0.9.11+ agent runtime that pushes factual answers through tool dispatch instead of memorisation. Newer chat-tunes win every MCQ benchmark by 0.7-9.2 pp but the 81M parameter rung still floors on free-form fact recall — the agent loop and ghost-base GPU run are the two complementary fixes for that. These older snapshots stay here as the cleanest demonstration of what the corpus-only path can and cannot produce.
+The samples below are historical, captured during v0.3.5 / chat-v3 (v0.6.0). They illustrate the "form but not facts" diagnosis that drove the project from a small-corpus parrot toward the v0.9.x bench-winning chat-tunes and the v0.9.11+ agent runtime that pushes factual answers through tool dispatch instead of memorisation. Newer chat-tunes win every MCQ benchmark by 0.7-9.2 pp but the 81M parameter rung still floors on free-form fact recall, the agent loop and ghost-base GPU run are the two complementary fixes for that. These older snapshots stay here as the cleanest demonstration of what the corpus-only path can and cannot produce.
 
 Real generations from the v0.3.5 best_model at `temperature=0.7, top_k=40`. The point of these isn't fluency, it's **register diversity**. v0.3.3 collapsed every prompt into CVE prose; v0.3.5 has multiple registers it can switch between depending on the prompt domain.
 
@@ -458,14 +458,14 @@ GhostLM/
 │ ├── dataset.py # PyTorch dataset
 │ ├── trainer.py # Training loop
 │ └── agent/ # GhostAgent: tool-using runtime over a checkpoint
-│   ├── runtime.py # GhostAgent loop + RuntimeConfig
-│   ├── parser.py # bet 1 tool-call + bet 9 cite-tag parser
-│   ├── tools.py # CVE / MITRE / CWE / RAG tool registry
-│   ├── messages.py # AgentMessage + AgentTrace primitives
-│   ├── runner.py # CLI: python -m ghostlm.agent --query ...
-│   ├── server.py # HTTP API: OpenAI / Anthropic / Gemini / Ollama
-│   ├── teacher.py # OpenAI-compat client: any teacher as a Generator
-│   └── web_ui.py # Static HTML demo UI served at GET /
+│ ├── runtime.py # GhostAgent loop + RuntimeConfig
+│ ├── parser.py # bet 1 tool-call + bet 9 cite-tag parser
+│ ├── tools.py # CVE / MITRE / CWE / RAG tool registry
+│ ├── messages.py # AgentMessage + AgentTrace primitives
+│ ├── runner.py # CLI: python -m ghostlm.agent --query ...
+│ ├── server.py # HTTP API: OpenAI / Anthropic / Gemini / Ollama
+│ ├── teacher.py # OpenAI-compat client: any teacher as a Generator
+│ └── web_ui.py # Static HTML demo UI served at GET /
 ├── scripts/ # CLI tools
 │ ├── train.py # Training entry point
 │ ├── generate.py # Text generation
@@ -482,13 +482,13 @@ GhostLM/
 ├── data/ # Data pipeline
 ├── demo/ # Gradio web demo (demo/app.py)
 ├── tests/ # 276 unit tests covering 12 differentiation bets +
-│           # GhostAgent runtime (47) + SFT prep (24) + GhostBench
-│           # agent runner (10) + HTTP server (24) + distillation (13) +
-│           # MCP agent (5) + bet 7 code-security expansion (9) +
-│           # bet 8 binary-literacy expansion (11) + general-knowledge
-│           # bank (11) + programming-Q&A bank (8) + math-reasoning
-│           # bank (9) + code-explain templated synth at 195 patterns
-│           # (8) + code-write templated synth at 195 patterns (8)
+│ # GhostAgent runtime (47) + SFT prep (24) + GhostBench
+│ # agent runner (10) + HTTP server (24) + distillation (13) +
+│ # MCP agent (5) + bet 7 code-security expansion (9) +
+│ # bet 8 binary-literacy expansion (11) + general-knowledge
+│ # bank (11) + programming-Q&A bank (8) + math-reasoning
+│ # bank (9) + code-explain templated synth at 195 patterns
+│ # (8) + code-write templated synth at 195 patterns (8)
 └── Makefile # One-command workflow
 ```
 
@@ -498,23 +498,23 @@ GhostLM/
 
 GhostLM is a multi-year effort. The honest framing is that ghost-tiny is a learning artifact and a working pipeline, *not* a useful cyber-task model. The path to "useful" is the scale ladder below, paired with a corpus that grows by ~100× from where it is today. See [ROADMAP.md](ROADMAP.md) for full milestones, compute estimates, and corpus targets.
 
-**Where we are (v0.9.32, 2026-05-09):** the ghost-small line saturated at ~28% on debiased CTIBench and 0-2% on free-form fact recall, register-matching parrot, not a fact-knower. v0.9 chat is the bench winner across CTIBench full / in-repo CTF eval / external SecQA but the truth metric is at floor for the whole 81M parameter rung. The bottleneck is generation capacity, not retrieval, and parameter scaling is the answer. **The v1.0 pretrain corpus is built**: 516,736 train / 27,049 val / ~363M tokens across six domains. **The SFT corpus is now ghost-base ready**: ~1,940 records of cybersec SFT across 12 differentiation bets, plus ~1,981 records of code SFT across two new templated-synth banks (code-explain + code-write) that surpass cybersec scale, plus ~375 records of cross-domain chat seeds. **Pretrain code expansion landed**: 120-repo collector pulled 105/120 successfully (4h11m on Mac), then `rebuild_corpus.py` re-merged train/val. Pretrain corpus now **422M tokens, 768K train records, code share 11.6%** (was 2.4%, 4.8x growth) — into the SmolLM2 / Phi training-mix band without losing the cybersec edge (~65% of corpus is still cybersec text). **Ghost-base (~360M)** is the v1.0 target, launcher and spec ready, gated on rented GPU. Strategic frame at [docs/differentiation.md](docs/differentiation.md).
+**Where we are (v0.9.32, 2026-05-09):** the ghost-small line saturated at ~28% on debiased CTIBench and 0-2% on free-form fact recall, register-matching parrot, not a fact-knower. v0.9 chat is the bench winner across CTIBench full / in-repo CTF eval / external SecQA but the truth metric is at floor for the whole 81M parameter rung. The bottleneck is generation capacity, not retrieval, and parameter scaling is the answer. **The v1.0 pretrain corpus is built**: 516,736 train / 27,049 val / ~363M tokens across six domains. **The SFT corpus is now ghost-base ready**: ~1,940 records of cybersec SFT across 12 differentiation bets, plus ~1,981 records of code SFT across two new templated-synth banks (code-explain + code-write) that surpass cybersec scale, plus ~375 records of cross-domain chat seeds. **Pretrain code expansion landed**: 120-repo collector pulled 105/120 successfully (4h11m on Mac), then `rebuild_corpus.py` re-merged train/val. Pretrain corpus now **422M tokens, 768K train records, code share 11.6%** (was 2.4%, 4.8x growth), into the SmolLM2 / Phi training-mix band without losing the cybersec edge (~65% of corpus is still cybersec text). **Ghost-base (~360M)** is the v1.0 target, launcher and spec ready, gated on rented GPU. Strategic frame at [docs/differentiation.md](docs/differentiation.md).
 
-**Infrastructure shipped this push session (v0.9.11 → v0.9.32):**
+**Infrastructure shipped this push session (v0.9.11 to v0.9.32):**
 
 1. **GhostAgent runtime** ([`ghostlm/agent/`](ghostlm/agent/)). Tool-using loop wrapping any GhostLM checkpoint. Bet-1 tool-call parser, bet-9 cite-tag emission, JSON-serialisable trace, three-state termination (answer_emitted / max_iterations / model_error). 9 cybersec tools (CVE / MITRE / CWE / RAG / CISA KEV / GreyNoise / VirusTotal / Shodan / OTX) with try-real-then-cache backends.
 2. **Multi-vendor HTTP server** ([`ghostlm/agent/server.py`](ghostlm/agent/server.py)). Speaks OpenAI Chat Completions, Anthropic Messages, Google Gemini, and Ollama wire formats. Any client SDK targeting one of those drops in unchanged. Static demo UI served at `GET /` so visitors can chat in a browser.
 3. **MCP server retrofit** ([`scripts/mcp_server.py`](scripts/mcp_server.py)). New `ghostlm_agent` tool exposes the full agent loop to Claude Desktop / Cursor / any MCP-compatible client.
 4. **Trace distillation** ([`ghostlm/agent/teacher.py`](ghostlm/agent/teacher.py)). `OpenAICompatGenerator` lets any OpenAI-compatible teacher (Ollama + Qwen-14B local, real OpenAI / Anthropic / vLLM / etc.) generate fresh bet-1+9 SFT records that drop into the SFT pipeline.
 5. **GhostBench agent runner** ([`scripts/ghostbench_agent_run.py`](scripts/ghostbench_agent_run.py)). Scores the agent loop end-to-end across all 7 bet evals with paired-comparison vs no-tools baseline. Wilson CIs, McNemar p-values via existing `python -m ghostbench compare`.
-6. **SFT pipeline** ([`scripts/prep_tool_use_sft.py`](scripts/prep_tool_use_sft.py) + [`eval_agent.py`](scripts/eval_agent.py)). M4-runnable end-to-end (synth → prep → fine-tune → eval) without GPU; closes the loop between corpus and trained model.
+6. **SFT pipeline** ([`scripts/prep_tool_use_sft.py`](scripts/prep_tool_use_sft.py) + [`eval_agent.py`](scripts/eval_agent.py)). M4-runnable end-to-end (synth to prep to fine-tune to eval) without GPU; closes the loop between corpus and trained model.
 7. **Code SFT expansion**. Bet 7 grew from 12 patterns (48 records) to 62 patterns / 11 languages (243 records). Bet 8 from 15 to 40 patterns. Two new templated-synth banks (code-explain at 195 patterns / 975 records, code-write at 195 patterns / 588 records) surpass cybersec SFT scale.
 8. **Cross-domain chat seeds**. Three new banks: `general_knowledge.jsonl` (98 records, 15 topics), `programming_qa.jsonl` (66 records, 12 topics), `math_reasoning.jsonl` (58 records, 10 topics). Cross-domain SFT floor moved from 0% to ~16% of unique records.
-9. **Open-source code corpus collector + landed pull** ([`scripts/collect_code_corpus.py`](scripts/collect_code_corpus.py) + [`data/code_corpus_repos.json`](data/code_corpus_repos.json) + [`data/code_corpus_manifest.json`](data/code_corpus_manifest.json)). 120-repo / 15-language config, permissive-license allowlist, per-repo + per-language caps, sha256 dedup, sidecar manifest, `--append` resume. **Pull executed on Mac (105/120 OK, 26K files, 168M chars). Rebuild folded into train/val: code share 2.4% → 11.6%, train 516K → 768K records / ~422M tokens.**
+9. **Open-source code corpus collector + landed pull** ([`scripts/collect_code_corpus.py`](scripts/collect_code_corpus.py) + [`data/code_corpus_repos.json`](data/code_corpus_repos.json) + [`data/code_corpus_manifest.json`](data/code_corpus_manifest.json)). 120-repo / 15-language config, permissive-license allowlist, per-repo + per-language caps, sha256 dedup, sidecar manifest, `--append` resume. **Pull executed on Mac (105/120 OK, 26K files, 168M chars). Rebuild folded into train/val: code share 2.4% to 11.6%, train 516K to 768K records / ~422M tokens.**
 
 **What's next (gated on rented GPU compute):**
 
-0. **(Optional) Re-pull failed mega-monorepos via `python3 scripts/collect_code_corpus.py --append`** to recover ~10-15M more tokens from pytorch / nodejs / kafka / etc. Not blocking — the bulk of the value is already on disk.
+0. **(Optional) Re-pull failed mega-monorepos via `python3 scripts/collect_code_corpus.py --append`** to recover ~10-15M more tokens from pytorch / nodejs / kafka / etc. Not blocking, the bulk of the value is already on disk.
 1. **Ghost-base v1.0 GPU run:** rented H100 hours, 360M params on the 363M-token pretrain corpus + the now-balanced SFT corpus. Acceptance gate: ≥40% CTIBench OR ≥65% CTF eval OR ≥30% on the 50-question fact-recall set. Spec at [docs/ghost_base_spec.md](docs/ghost_base_spec.md).
 2. **Run the SFT pipeline on v0.9 chat (M4, no GPU needed):** prep the bet-1+9 traces into chat-SFT shape, fine-tune v0.9 chat on top, score against the provenance eval. Tests whether the agent runtime can be fed a checkpoint that uses it correctly *before* ghost-base lands. Documented in CHANGELOG v0.9.10.
 3. **Bet 4 (long context to 16K):** RoPE NTK rebase + 3-5 GPU hours of long-form fine-tune. Unlocks IR triage where a 50K-token threat report goes in the prompt.

@@ -197,7 +197,7 @@ NEW_PATTERNS = [
             "if the page is cached. Razor's default `@expr` HTML-"
             "encodes its argument, so the same input becomes "
             "`&lt;script&gt;...` and renders as text. Use `Html.Raw` "
-            "only for trusted markup — content you control or have "
+            "only for trusted markup, content you control or have "
             "already validated through a whitelist."
         ),
         "cve_examples": [],
@@ -322,7 +322,7 @@ NEW_PATTERNS = [
             "Java's `+`. JdbcTemplate's overload accepts varargs that "
             "bind as positional parameters; `?` is the placeholder. "
             "If you find yourself using `$` in SQL, that is the "
-            "smell — switch to placeholders or use a higher-level "
+            "smell, switch to placeholders or use a higher-level "
             "library (Exposed, jOOQ) that prevents this."
         ),
         "cve_examples": [],

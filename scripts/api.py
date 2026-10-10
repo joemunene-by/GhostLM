@@ -1,4 +1,4 @@
-"""GhostLM FastAPI inference server — serves model predictions via REST API."""
+"""GhostLM FastAPI inference server, serves model predictions via REST API."""
 
 import os
 import sys
@@ -92,7 +92,7 @@ def load_model_on_startup(checkpoint_path: str = None):
         device = "cpu"
         print(f"  Loaded: {model.num_params():,} params, step={checkpoint.get('step', 0)}")
     else:
-        print("No checkpoint found — using random ghost-tiny weights.")
+        print("No checkpoint found, using random ghost-tiny weights.")
         config = GhostLMConfig.from_preset("ghost-tiny")
         config.vocab_size = 50261
         config.context_length = 128

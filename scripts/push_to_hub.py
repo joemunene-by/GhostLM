@@ -1,4 +1,4 @@
-"""GhostLM HuggingFace Hub uploader — pushes model weights and model card to HuggingFace."""
+"""GhostLM HuggingFace Hub uploader, pushes model weights and model card to HuggingFace."""
 
 import argparse
 import json

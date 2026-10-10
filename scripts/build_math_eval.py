@@ -9,7 +9,7 @@ with a computed gold answer and three plausible numeric distractors, so
 the set is reproducible and not scraped (zero contamination risk).
 
 Coverage: arithmetic, percentages, ratios/rates, simple linear algebra,
-sequences, and short word problems — the everyday numeracy band a small
+sequences, and short word problems, the everyday numeracy band a small
 model can plausibly reach, and a clean ruler to watch climb with scale.
 
 Usage:

@@ -1,9 +1,9 @@
 """Per-source perplexity for a GhostLM checkpoint.
 
 The standard val_loss is a single number averaged over the entire
-validation set. After Phase 3.5 the val set is heterogeneous — NVD
+validation set. After Phase 3.5 the val set is heterogeneous, NVD
 descriptions, MITRE technique entries, CAPEC patterns, real CTFtime
-writeups, arXiv abstracts — and a single average smears all of those
+writeups, arXiv abstracts, and a single average smears all of those
 together. The rebalance-vs-baseline question is *not* "which model
 has lower overall val_loss" but "which model models each source
 better, and how do those per-source numbers shift when the training
@@ -66,7 +66,7 @@ def score_record_chunk(
 
     Sequences longer than the model's context length are processed in
     non-overlapping chunks so every token is scored exactly once. (We
-    don't bother with sliding-window scoring — the per-source ranking
+    don't bother with sliding-window scoring, the per-source ranking
     is robust to that detail at this scale.)
     """
     if len(token_ids) < 2:

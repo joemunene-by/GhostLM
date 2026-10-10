@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GhostLM v0.9.33 from-scratch pretrain — ghost-small (81M wide) on the
+"""GhostLM v0.9.33 from-scratch pretrain, ghost-small (81M wide) on the
 422M-token v0.9.32 corpus.
 
 This is the truth experiment for the v0.9.30/31/32 push: did the open-source
@@ -15,13 +15,13 @@ Architecture parity with the v0.7 pretrain script:
   GPT-2 50K BPE (no surgery on the embedding rows).
 
 Steps budget: 30K (was 15K for the smaller v0.7 corpus). Roughly Chinchilla-
-proportional to the new corpus volume — 422M tokens / 273M = 1.55x growth.
+proportional to the new corpus volume, 422M tokens / 273M = 1.55x growth.
 At ~1.5s/step on M4 MPS: ~12.5 hours for a clean run. Resume-safe via
 --resume.
 
 Outputs:
-  checkpoints/phase21_v0933_pretrain/  — {best_model, checkpoint_step_*}.pt
-  logs/phase21_v0933_pretrain/         — JSONL training log
+  checkpoints/phase21_v0933_pretrain/, {best_model, checkpoint_step_*}.pt
+  logs/phase21_v0933_pretrain/, JSONL training log
 
 After completion, compare against v0.4.0:
   python3 scripts/eval_chat.py \\

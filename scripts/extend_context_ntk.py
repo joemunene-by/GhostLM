@@ -169,7 +169,7 @@ def main() -> int:
         return 0
 
     # Step 3: kick off the fine-tune. We don't run the tune here
-    # directly — that's a multi-hour GPU job that wants its own
+    # directly, that's a multi-hour GPU job that wants its own
     # dedicated entry point. Instead we print the exact command the
     # operator should run, with all the right flags.
     cmd = [

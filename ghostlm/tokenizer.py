@@ -1,4 +1,4 @@
-"""GhostLM tokenizers — GPT-2 BPE (tiktoken) plus domain-trained 32K BPE backends.
+"""GhostLM tokenizers, GPT-2 BPE (tiktoken) plus domain-trained 32K BPE backends.
 
 Three backends share one API surface (``encode``, ``decode``,
 ``encode_chat``, ``format_chat_prompt``, ``encode_batch``, ``pad_batch``,
@@ -43,8 +43,7 @@ class ChatTokenizerBase:
       - ``_decode_raw(ids) -> str``: plain BPE decode.
       - ``vocab_size`` property.
 
-    Everything else — chat formatting, loss masks, padding, chunking —
-    is implemented here once so the wire format can't drift between
+    Everything else, chat formatting, loss masks, padding, chunking,    is implemented here once so the wire format can't drift between
     BPE backends.
     """
 
@@ -132,7 +131,7 @@ class ChatTokenizerBase:
                 strictly alternating starting with "user".
 
         Returns:
-            Tuple (token_ids, loss_mask) — same length, both lists of int.
+            Tuple (token_ids, loss_mask), same length, both lists of int.
         """
         user_id = self._special_tokens[self.USER]
         assistant_id = self._special_tokens[self.ASSISTANT]
@@ -280,7 +279,7 @@ class GhostTokenizer(ChatTokenizerBase):
     EOS = "<|ghost_eos|>"
     PAD = "<|ghost_pad|>"
     UNK = "<|ghost_unk|>"
-    # Chat role markers (added in v0.5 chat-tuning) — IDs appended after the
+    # Chat role markers (added in v0.5 chat-tuning), IDs appended after the
     # original four so pre-chat checkpoints can be expanded by 3 rows rather
     # than reshuffled.
     USER = "<|ghost_user|>"
@@ -410,7 +409,7 @@ class _HFTokenizerBase(ChatTokenizerBase):
 
     @classmethod
     def from_file(cls, path: str):
-        """Constructor alias — matches the GhostTokenizer.load shape."""
+        """Constructor alias, matches the GhostTokenizer.load shape."""
         return cls(path)
 
     @property
@@ -431,13 +430,13 @@ class _HFTokenizerBase(ChatTokenizerBase):
 
 
 class GhostTokenizerV05(_HFTokenizerBase):
-    """v0.5 tokenizer — domain-trained 32K BPE via HuggingFace tokenizers.
+    """v0.5 tokenizer, domain-trained 32K BPE via HuggingFace tokenizers.
 
     Drop-in replacement for ``GhostTokenizer`` with the same API surface
     (`encode`, `decode`, `encode_chat`, `format_chat_prompt`, `vocab_size`,
     `_special_tokens`) so the existing dataset / trainer / chat code paths
     work unchanged. The seven GhostLM special tokens land at the start of
-    the vocab (IDs 0-6) — different from v0.4's tail placement, but the
+    the vocab (IDs 0-6), different from v0.4's tail placement, but the
     chat-format machinery only cares about the name -> ID mapping, not
     the absolute IDs.
 

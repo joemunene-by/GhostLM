@@ -9,36 +9,35 @@ queries, MISP event JSON. Those are the formats threat intel is
 exchanged in. A model that can read AND emit them slots into
 existing pipelines without a translator.
 
-This script generates synthetic (natural_language ↔ structured_artifact)
+This script generates synthetic (natural_language structured_artifact)
 training pairs across four format families, seeded from the existing
 GhostLM corpus:
 
   STIX 2.1 indicators
     Seed: NVD/CVE entries + MITRE Att&ck techniques
-    Templates: prose CVE → STIX `indicator` SDO with proper pattern
-               grammar; STIX bundle → IOC list extraction; STIX
-               `attack-pattern` ↔ MITRE technique round-trip.
+    Templates: prose CVE to STIX `indicator` SDO with proper pattern
+               grammar; STIX bundle to IOC list extraction; STIX
+               `attack-pattern` MITRE technique round-trip.
 
   YARA rules
     Seed: malware family descriptions + hex-string-heavy corpus
           excerpts (collect_security_blogs, distill_malware_analysis).
-    Templates: prose IOC → YARA rule with proper $string/condition
-               sections; YARA rule → human-readable explanation;
-               YARA rule → list of file types it matches.
+    Templates: prose IOC to YARA rule with proper $string/condition
+               sections; YARA rule to human-readable explanation;
+               YARA rule to list of file types it matches.
 
   Sigma rules
     Seed: ATT&CK technique descriptions (T-codes have natural Sigma
           translations) + known-bad event log patterns.
-    Templates: NL detection requirement → Sigma rule with proper
-               logsource/detection/condition shape; Sigma rule →
-               equivalent KQL/Splunk SPL conversion sketch.
+    Templates: NL detection requirement to Sigma rule with proper
+               logsource/detection/condition shape; Sigma rule to               equivalent KQL/Splunk SPL conversion sketch.
 
   MISP events
     Seed: incident reports from collect_security_blogs +
           collect_vendor_research.
-    Templates: prose incident summary → MISP event JSON with
+    Templates: prose incident summary to MISP event JSON with
                `Attribute` array of typed IOCs (ip-dst, hostname,
-               sha256, etc.); MISP event → STIX bundle conversion.
+               sha256, etc.); MISP event to STIX bundle conversion.
 
 Output: a single JSONL file with `DistillRecord`s tagged
 `source="distill_format_aware"`, with sub-format encoded in
@@ -486,7 +485,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out", default="data/processed/distill_format_aware.jsonl")
     p.add_argument("--max-traces-per-format", type=int, default=250,
                    help="Cap accepted records per format. With four "
-                        "formats default 250 → up to 1000 records total.")
+                        "formats default 250 to up to 1000 records total.")
     p.add_argument("--formats", default="stix_indicator,yara_rule,sigma_rule,misp_event",
                    help="Comma-separated subset of formats to run")
     p.add_argument("--no-few-shots", action="store_true",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MLX chat REPL for GhostLM — Apple-Silicon-native inference.
+"""MLX chat REPL for GhostLM, Apple-Silicon-native inference.
 
 Loads weights produced by ``scripts/convert_to_mlx.py`` (optionally quantized
 to 4 / 8 bits) and runs the same chat-format generation loop as
@@ -25,18 +25,18 @@ try:
 except ImportError as e:  # pragma: no cover
     raise SystemExit("mlx not installed: pip install mlx mlx-lm") from e
 
-# Reuse the PyTorch tokenizer (no MLX rewrite needed — tiktoken is pure Python).
+# Reuse the PyTorch tokenizer (no MLX rewrite needed, tiktoken is pure Python).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from ghostlm.tokenizer import GhostTokenizer  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Model — mirror of ghostlm/model.py
+# Model, mirror of ghostlm/model.py
 # ---------------------------------------------------------------------------
 
 
 class CausalSelfAttention(nn.Module):
-    """Multi-head causal self-attention — mirrors the PyTorch class.
+    """Multi-head causal self-attention, mirrors the PyTorch class.
 
     Uses a fused QKV projection (`c_qkv`) followed by a head split. Dropout is
     inference-time-only here (we only generate, never train in MLX), so it's
@@ -56,7 +56,7 @@ class CausalSelfAttention(nn.Module):
         self._mask = mx.triu(mx.ones((ctx, ctx), dtype=mx.bool_), k=1)
 
     def __call__(self, x):
-        """Forward pass — returns the attention output."""
+        """Forward pass, returns the attention output."""
         B, T, C = x.shape
         qkv = self.c_qkv(x)
         q, k, v = mx.split(qkv, 3, axis=-1)
@@ -75,7 +75,7 @@ class CausalSelfAttention(nn.Module):
 
 
 class FeedForward(nn.Module):
-    """GELU FFN — d_model → d_ff → d_model."""
+    """GELU FFN, d_model to d_ff to d_model."""
 
     def __init__(self, d_model: int, d_ff: int, bias: bool = True):
         """Two linear layers."""
@@ -89,7 +89,7 @@ class FeedForward(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    """Pre-norm Transformer block — LN → attn → residual → LN → FFN → residual."""
+    """Pre-norm Transformer block, LN to attn to residual to LN to FFN to residual."""
 
     def __init__(self, d_model: int, n_heads: int, d_ff: int, ctx: int, bias: bool = True):
         """Wire up the block."""
@@ -107,7 +107,7 @@ class TransformerBlock(nn.Module):
 
 
 class GhostLMMlx(nn.Module):
-    """MLX twin of PyTorch GhostLM — inference-only forward path."""
+    """MLX twin of PyTorch GhostLM, inference-only forward path."""
 
     def __init__(self, cfg: dict):
         """Build the architecture from a config dict (saved by convert_to_mlx)."""
@@ -127,7 +127,7 @@ class GhostLMMlx(nn.Module):
         self.lm_head = nn.Linear(cfg["d_model"], cfg["vocab_size"], bias=False)
 
     def __call__(self, idx):
-        """Forward pass — returns logits (B, T, vocab)."""
+        """Forward pass, returns logits (B, T, vocab)."""
         B, T = idx.shape
         tok = self.token_embedding(idx)
         if hasattr(self, "pos_embedding"):
@@ -163,7 +163,7 @@ def load(weights_dir: Path) -> tuple:
             weights[key] = mx.load(str(npy))
 
     # If the weights were quantized, mlx_lm-style nn.QuantizedLinear conversion
-    # is needed — for now we just upcast to dequantized form via mx.dequantize.
+    # is needed, for now we just upcast to dequantized form via mx.dequantize.
     quantized_keys = [k for k in weights if k.startswith("_quantized.")]
     if quantized_keys:
         bits = int(weights[quantized_keys[0]][0].item())

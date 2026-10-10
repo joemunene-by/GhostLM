@@ -4,12 +4,11 @@
 The pretrain corpus at ``data/processed/train.jsonl`` is structured by source
 (nvd, exploitdb, mitre_attack, capec, ctftime, arxiv, synthetic). For each
 source we apply per-source templates that turn a single document into one
-synthetic User/Assistant turn — "What is CVE-2024-X?" → first paragraph of
+synthetic User/Assistant turn, "What is CVE-2024-X?" to first paragraph of
 the description, etc. Combined with the hand-written ``small_talk.jsonl``
 seed, this produces a ~10K-pair instruction dataset ready for SFT.
 
-Output: ``data/processed/chat_train.jsonl`` and ``chat_val.jsonl`` —
-JSONL where each line is ``{"turns": [...], "source": ...}``.
+Output: ``data/processed/chat_train.jsonl`` and ``chat_val.jsonl``,JSONL where each line is ``{"turns": [...], "source": ...}``.
 
 Determinism: a fixed seed (``--seed``) controls all sampling and template
 choice, so the dataset is reproducible.
@@ -94,7 +93,7 @@ MITRE_FULL_QUESTIONS_NAMED = [
     "What is {id} ({name})?",
     "Tell me about the {name} {type_lower}.",
     "Describe the {name} {type_lower}.",
-    "Summarize {id} — {name}.",
+    "Summarize {id}, {name}.",
     "What does {name} do?",
 ]
 
@@ -146,7 +145,7 @@ def _strip_md_badges(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Per-source builders — each returns list[dict] of chat records
+# Per-source builders, each returns list[dict] of chat records
 # ---------------------------------------------------------------------------
 
 
@@ -187,7 +186,7 @@ def build_mitre(records: List[dict], rng: random.Random) -> List[dict]:
         if not body:
             continue
         # Build a name-aware answer that re-states the technique up front.
-        answer = f"{tid} — {tname}.\n\n{body}"
+        answer = f"{tid}, {tname}.\n\n{body}"
         question = _sha_pick(MITRE_QUESTIONS, tid).format(id=tid, name=tname)
         out.append({
             "turns": [
@@ -213,7 +212,7 @@ def build_capec(records: List[dict], rng: random.Random) -> List[dict]:
         body = _trim_to_paragraphs(body, max_chars=1200)
         if not body:
             continue
-        answer = f"{cid} — {cname}.\n\n{body}"
+        answer = f"{cid}, {cname}.\n\n{body}"
         question = _sha_pick(CAPEC_QUESTIONS, cid).format(id=cid, name=cname)
         out.append({
             "turns": [
@@ -240,7 +239,7 @@ def build_exploitdb(records: List[dict], target: int, rng: random.Random) -> Lis
         if not m:
             continue
         title = m.group(2).strip()
-        # Drop raw exploit code — keep header lines and any narrative.
+        # Drop raw exploit code, keep header lines and any narrative.
         narrative_lines: List[str] = []
         for line in rest.splitlines():
             if line.startswith("```") or line.startswith("#!/"):
@@ -249,12 +248,12 @@ def build_exploitdb(records: List[dict], target: int, rng: random.Random) -> Lis
         narrative = "\n".join(narrative_lines).strip()
         narrative = _trim_to_paragraphs(narrative, max_chars=1100)
         if not narrative:
-            narrative = "(no narrative available — see the linked exploit code for details)"
+            narrative = "(no narrative available, see the linked exploit code for details)"
         platform = r.get("platform", "")
         date = r.get("date", "")
         meta_bits = [b for b in (platform, date) if b]
         meta_line = f" Platform/date: {', '.join(meta_bits)}." if meta_bits else ""
-        answer = f"Exploit-DB #{eid} — {title}.{meta_line}\n\n{narrative}"
+        answer = f"Exploit-DB #{eid}, {title}.{meta_line}\n\n{narrative}"
         question = _sha_pick(EXPLOITDB_QUESTIONS, eid).format(id=eid)
         out.append({
             "turns": [
@@ -313,10 +312,10 @@ def build_mitre_full(records: List[dict], rng: random.Random) -> List[dict]:
         body = _trim_to_paragraphs(body, max_chars=1500)
         if not body:
             continue
-        answer = f"{rid} — {name}.\n\n{body}"
+        answer = f"{rid}, {name}.\n\n{body}"
 
         # Half the records use a generic id-keyed question; half use the
-        # name to teach name → description retrieval.
+        # name to teach name to description retrieval.
         use_named = (int(hashlib.sha1(rid.encode("utf-8")).hexdigest(), 16) & 1) == 0
         if use_named:
             template = _sha_pick(MITRE_FULL_QUESTIONS_NAMED, rid)
@@ -339,7 +338,7 @@ def build_mitre_full(records: List[dict], rng: random.Random) -> List[dict]:
 def build_cisa_kev(records: List[dict], rng: random.Random) -> List[dict]:
     """Template CISA KEV records (actively exploited CVEs) into Q&A pairs."""
     out: List[dict] = []
-    head_re = re.compile(r"CISA KEV\s+—\s+(CVE-[\w-]+)")
+    head_re = re.compile(r"CISA KEV\s+, \s+(CVE-[\w-]+)")
     for r in records:
         text = r["text"].strip()
         m = head_re.search(text)
@@ -431,7 +430,7 @@ def parse_args() -> argparse.Namespace:
                         "instructions because cybersec swamped chat-shape signal.")
     p.add_argument("--small-talk-val-frac", type=float, default=0.1,
                    help="Fraction of small_talk pairs held out for validation "
-                        "(BEFORE oversampling — keeps val pairs unique)")
+                        "(BEFORE oversampling, keeps val pairs unique)")
     p.add_argument("--mcq-jsonl", default="data/raw/chat/mcq.jsonl",
                    help="Optional MCQ-format chat data to mix in (built by "
                         "scripts/build_mcq_data.py). Set to '' to skip.")
@@ -442,7 +441,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--mcq-val-frac", type=float, default=0.05,
                    help="Held-out fraction of MCQs for validation.")
     p.add_argument("--mcq-cot-jsonl", default="",
-                   help="Optional second MCQ source — CoT-templated records "
+                   help="Optional second MCQ source, CoT-templated records "
                         "(letter answer + 1-2 sentence justification, built by "
                         "scripts/build_mcq_cot_data.py). Mixed alongside the "
                         "raw letter-only MCQs to give the model both the "
@@ -451,7 +450,7 @@ def parse_args() -> argparse.Namespace:
                    help="Copies of the CoT MCQ set to inject. Hybrid recipe "
                         "keeps raw MCQs at high mult and CoT at low mult.")
     p.add_argument("--exclude-sources", nargs="*", default=[],
-                   help="Source names to skip (e.g. mitre_full cisa_kev) — "
+                   help="Source names to skip (e.g. mitre_full cisa_kev), "
                         "used to A/B-test which sources help vs hurt.")
     p.add_argument("--general-knowledge",
                    default="data/raw/chat/general_knowledge.jsonl",
@@ -535,7 +534,7 @@ def main() -> None:
     val_pairs = pairs[:split]
     train_pairs = pairs[split:]
 
-    # Small-talk handling — split out a small held-out set first (so val
+    # Small-talk handling, split out a small held-out set first (so val
     # measures generalization on chat-shape, not just memorization), then
     # oversample the training portion. We oversample because v1 had small_talk
     # at 1.6% of training and the resulting model emitted cybersec answers
@@ -554,7 +553,7 @@ def main() -> None:
     train_pairs.extend(small_talk_train_oversampled)
     val_pairs.extend(small_talk_val)
 
-    # MCQ-format examples — separate stream, mixed in same way as small_talk.
+    # MCQ-format examples, separate stream, mixed in same way as small_talk.
     # We oversample because the goal is to teach a single new behavior
     # (output a letter after "Answer:"), and a 2× multiplier on ~1.8K
     # examples lands the model on that signal across multiple epochs.
@@ -585,7 +584,7 @@ def main() -> None:
         val_pairs.extend(cot_val)
 
     # General-knowledge seed (math, science, programming, refusals,
-    # cross-domain identity) — mixed at ~5% of training to teach the
+    # cross-domain identity), mixed at ~5% of training to teach the
     # model that GhostLM responds outside cybersec without swamping
     # the security signal.
     if args.general_knowledge and Path(args.general_knowledge).exists():
@@ -655,8 +654,8 @@ def main() -> None:
     n_train = write_jsonl(train_pairs, Path(args.out_train))
     n_val = write_jsonl(val_pairs, Path(args.out_val))
     print()
-    print(f"Wrote {n_train:,} → {args.out_train}")
-    print(f"Wrote {n_val:,} → {args.out_val}")
+    print(f"Wrote {n_train:,} to {args.out_train}")
+    print(f"Wrote {n_val:,} to {args.out_val}")
 
 
 if __name__ == "__main__":

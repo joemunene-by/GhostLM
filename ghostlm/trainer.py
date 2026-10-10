@@ -1,4 +1,4 @@
-"""GhostLM trainer — handles the full training loop, evaluation, checkpointing, and logging."""
+"""GhostLM trainer, handles the full training loop, evaluation, checkpointing, and logging."""
 
 import json
 import math
@@ -50,7 +50,7 @@ class GhostTrainer:
             config: GhostLMConfig with training hyperparameters and paths.
             use_amp: Enable mixed precision (AMP) training. Defaults to True
                 when running on CUDA, False otherwise. AMP is only supported
-                on CUDA devices — setting True on CPU/MPS will be ignored.
+                on CUDA devices, setting True on CPU/MPS will be ignored.
         """
         self.model = model
         self.config = config
@@ -118,7 +118,7 @@ class GhostTrainer:
         # Optimizer (built BEFORE wrapping in DDP so param groups see raw modules)
         self.optimizer = self.model.configure_optimizers(config)
 
-        # torch.compile — after optimizer creation (param groups bind the
+        # torch.compile, after optimizer creation (param groups bind the
         # raw modules), before the DDP wrap (nanoGPT-style order). The
         # first forward pays a compilation stall; steady-state steps are
         # typically 1.3-1.8x faster on CUDA.
@@ -156,7 +156,7 @@ class GhostTrainer:
         # Set from a signal handler; the loop saves a checkpoint and exits cleanly.
         self.stop_requested = False
 
-        # Weights & Biases — live metrics for long (paid) runs. Rank-0
+        # Weights & Biases, live metrics for long (paid) runs. Rank-0
         # only; degrades to a warning if wandb isn't installed or can't
         # reach the network, so offline runs never crash on telemetry.
         self.wandb_run = None
@@ -267,7 +267,7 @@ class GhostTrainer:
 
         # Apply this step's scheduled LR BEFORE the optimizer update.
         # (Setting it afterwards would make every update use the previous
-        # step's LR — and the very first update would run at the full
+        # step's LR, and the very first update would run at the full
         # base LR instead of the warmup floor.)
         self._set_lr()
 

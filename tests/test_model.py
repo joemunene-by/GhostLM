@@ -1,4 +1,4 @@
-"""GhostLM unit tests — validates model architecture, tokenizer, and config."""
+"""GhostLM unit tests, validates model architecture, tokenizer, and config."""
 
 import torch
 
@@ -248,7 +248,7 @@ def test_gqa_shapes_and_compact_cache():
     x = torch.randint(0, 200, (2, 8))
     logits, _, kv = model(x, use_cache=True)
     assert logits.shape == (2, 8, 200)
-    # Cached K/V stay at n_kv_heads — half the memory of MHA here.
+    # Cached K/V stay at n_kv_heads, half the memory of MHA here.
     assert kv[0][0].shape == (2, 2, 8, head_dim)
 
     # Optimizer setup must categorize every parameter.

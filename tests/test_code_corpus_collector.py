@@ -88,7 +88,7 @@ class TestDryRun:
         )
         assert result.returncode == 0, result.stderr
         assert "License filter" in result.stdout
-        # Default allowlist excludes GPL/LGPL — should not appear.
+        # Default allowlist excludes GPL/LGPL, should not appear.
         assert "git/git" not in result.stdout
         assert "sidekiq" not in result.stdout
 
@@ -229,7 +229,7 @@ class TestModuleAPIs:
 
 @pytest.mark.skipif(
     os.environ.get("RUN_LIVE_CODE_CORPUS_TEST") != "1",
-    reason="Live network test — set RUN_LIVE_CODE_CORPUS_TEST=1 to enable",
+    reason="Live network test, set RUN_LIVE_CODE_CORPUS_TEST=1 to enable",
 )
 class TestLiveSmoke:
     def test_collect_one_tiny_repo(self, tmp_path):

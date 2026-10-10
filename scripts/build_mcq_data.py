@@ -4,7 +4,7 @@
 Produces multiple-choice questions in the same JSONL chat format used by
 ``build_chat_dataset.py`` so the output can be concatenated with the regular
 small_talk + cybersec Q&A. The assistant turn is intentionally a bare letter
-(A / B / C / D), occasionally followed by a one-sentence reason — this
+(A / B / C / D), occasionally followed by a one-sentence reason, this
 teaches the model to output a single letter after an "Answer:" cue, which
 is exactly the format CTIBench / CyberMetric / similar benchmarks expect.
 
@@ -23,7 +23,7 @@ Three template families:
 
 Each MCQ is a single-turn chat record with assistant content = "A" / "B" /
 "C" / "D" most of the time, plus a 30% mix where the letter is followed by a
-brief justification (e.g. "B. Buffer overflow — the description mentions a
+brief justification (e.g. "B. Buffer overflow, the description mentions a
 stack write past a fixed-size array.").
 """
 
@@ -40,7 +40,7 @@ from typing import Dict, List, Optional, Tuple
 
 
 # ---------------------------------------------------------------------------
-# Vulnerability class taxonomy — keyword → canonical name
+# Vulnerability class taxonomy, keyword to canonical name
 # ---------------------------------------------------------------------------
 
 VULN_CLASSES: List[Tuple[str, List[str]]] = [
@@ -157,7 +157,7 @@ def parse_mitre_tactic(text: str) -> Optional[str]:
     if not m:
         return None
     raw = m.group(1).strip().splitlines()[0].strip()
-    # Some entries list multiple tactics separated by commas — take the first.
+    # Some entries list multiple tactics separated by commas, take the first.
     first = raw.split(",")[0].strip().lower()
     return TACTIC_SLUG_TO_NAME.get(first) or TACTIC_SLUG_TO_NAME.get(first.replace(" ", "-"))
 
@@ -234,7 +234,7 @@ def make_mcq(
 ) -> Dict:
     """Shuffle correct + 3 distractors into A/B/C/D, return the chat record.
 
-    The assistant turn is just the letter — that's the format we want the
+    The assistant turn is just the letter, that's the format we want the
     model to learn. A 30% subset gets a one-line justification appended so
     the model still sees the "letter, then explanation" pattern occasionally.
     """
@@ -284,7 +284,7 @@ def build_nvd_mcqs(records: List[dict], target: int, rng: random.Random) -> List
     if not classified:
         return []
 
-    # Balance across classes — sample more from underrepresented buckets.
+    # Balance across classes, sample more from underrepresented buckets.
     by_class: Dict[str, List[str]] = {}
     for cve, cls in classified:
         by_class.setdefault(cls, []).append(cve)
@@ -406,7 +406,7 @@ def main() -> None:
         for m in mcqs:
             f.write(json.dumps(m, ensure_ascii=False) + "\n")
 
-    print(f"\nTotal: {len(mcqs):,} MCQs → {out_path}")
+    print(f"\nTotal: {len(mcqs):,} MCQs to {out_path}")
     answer_dist = Counter(m["turns"][1]["content"][0] for m in mcqs)
     print(f"Answer-letter distribution: {dict(answer_dist)}")
 

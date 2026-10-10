@@ -1,4 +1,4 @@
-"""GhostLM data-pipeline unit tests — windowing, source selection, dedup."""
+"""GhostLM data-pipeline unit tests, windowing, source selection, dedup."""
 
 import datetime
 import json
@@ -37,14 +37,14 @@ from scripts.rebuild_corpus import select_corpus_sources
 def test_year_windows_single_year_has_four_chunks():
     """A full year should split into four 119-day windows (Jan-Apr, May-Aug, Sep-Dec, plus a tail)."""
     windows = build_nvd_year_windows(2023, 2023)
-    # 365 days / 119-day chunks → 4 windows (the last is shorter)
+    # 365 days / 119-day chunks to 4 windows (the last is shorter)
     assert len(windows) == 4
     # All windows belong to the queried year
     assert all(year == 2023 for _, _, year in windows)
 
 
 def test_year_windows_no_window_crosses_year_boundary():
-    """Each window must be contained within a single calendar year — NVD's date filter
+    """Each window must be contained within a single calendar year, NVD's date filter
     can otherwise return CVEs published in a different year than the window's end."""
     windows = build_nvd_year_windows(2020, 2024)
     for pub_start, pub_end, year in windows:
@@ -53,7 +53,7 @@ def test_year_windows_no_window_crosses_year_boundary():
 
 
 def test_year_windows_max_window_is_119_days():
-    """No window can exceed 119 days — NVD's API caps at 120 and returns 404 above that."""
+    """No window can exceed 119 days, NVD's API caps at 120 and returns 404 above that."""
     windows = build_nvd_year_windows(2020, 2024)
     for pub_start, pub_end, _ in windows:
         start = datetime.datetime.fromisoformat(pub_start.replace("T", " "))
@@ -76,7 +76,7 @@ def test_year_windows_cover_full_year_no_gaps():
 
 
 def test_year_windows_inclusive_end_year():
-    """end_year is inclusive — querying (2020, 2022) must produce windows for 2022."""
+    """end_year is inclusive, querying (2020, 2022) must produce windows for 2022."""
     windows = build_nvd_year_windows(2020, 2022)
     years_seen = {year for _, _, year in windows}
     assert years_seen == {2020, 2021, 2022}
@@ -134,7 +134,7 @@ def test_source_selection_neither_cve_present(tmp_path):
 # ---------- collect_cve_full pagination + resume ----------
 
 def _fake_nvd_response(vulns, total_results):
-    """Build a MagicMock that mimics requests.get() → JSON with vulnerabilities + totalResults."""
+    """Build a MagicMock that mimics requests.get() to JSON with vulnerabilities + totalResults."""
     resp = MagicMock()
     resp.raise_for_status = MagicMock()
     resp.json.return_value = {
@@ -305,7 +305,7 @@ def test_ctf_repos_extracts_markdown_with_metadata(tmp_path):
     files = {
         "2024/web/sql-injection.md": "# SQL Injection writeup\n\n" + ("Detailed payload analysis. " * 30),
         "2024/pwn/buffer-overflow.md": "# Buffer overflow writeup\n\n" + ("ROP chain explanation. " * 30),
-        "README.md": "Top-level readme.",  # short — should be filtered out by min_chars
+        "README.md": "Top-level readme.",  # short, should be filtered out by min_chars
     }
     with patch("data.collect.subprocess.run",
                side_effect=_patched_clone({repos[0]["url"]: files})):
@@ -313,7 +313,7 @@ def test_ctf_repos_extracts_markdown_with_metadata(tmp_path):
 
     records = load_jsonl(str(out))
     paths = {r["path"] for r in records}
-    # README is too short (~16 chars) → dropped; both writeups kept
+    # README is too short (~16 chars) to dropped; both writeups kept
     assert paths == {"2024/web/sql-injection.md", "2024/pwn/buffer-overflow.md"}
     assert all(r["repo"] == "https://github.com/team-a/writeups" for r in records)
     assert all(r["license"] == "MIT" for r in records)
@@ -476,7 +476,7 @@ def test_mitre_attack_skips_revoked_and_deprecated(tmp_path):
                 "x_mitre_deprecated": True,
                 "external_references": [{"source_name": "mitre-attack", "external_id": "T9999"}],
             },
-            # non-attack-pattern object — must be ignored entirely
+            # non-attack-pattern object, must be ignored entirely
             {"type": "course-of-action", "name": "Mitigation", "description": "irrelevant"},
         ]
     }
@@ -647,7 +647,7 @@ def test_ctftime_parse_writeup_unescapes_entities():
 
 
 def test_ctftime_parse_writeup_unescapes_title_entities():
-    """Title HTML entities (e.g. & rendered as &amp;) must be decoded — real
+    """Title HTML entities (e.g. & rendered as &amp;) must be decoded, real
     CTFtime task names contain ampersands and other entities."""
     html = _ctftime_writeup_html(task_name="Peaky &amp; the Brain")
     rec = parse_ctftime_writeup(html)
@@ -657,7 +657,7 @@ def test_ctftime_parse_writeup_unescapes_title_entities():
 
 def test_ctftime_parse_writeup_extracts_team_with_user_link_first():
     """When the page-header has 'by <a href=/user/...> / <a href=/team/...>',
-    the team must still be extracted — the user link can't shadow it."""
+    the team must still be extracted, the user link can't shadow it."""
     html = """<html><body>
 <ul class="breadcrumb">
   <li><a href="/event/1405">FwordCTF 2021</a></li>
@@ -678,7 +678,7 @@ by <a href="/user/103712">someuser_</a> / <a href="/team/132008">RootMeUpBeforeY
 
 def test_ctftime_parse_writeup_handles_empty_rating():
     """Unrated writeups render <span id=user_rating ...></span> with no inner
-    text — the parser must accept that and return rating='' rather than crash
+    text, the parser must accept that and return rating='' rather than crash
     or leave the field unset."""
     html = """<html><body>
 <ul class="breadcrumb">
@@ -710,7 +710,7 @@ def test_ctftime_collector_skips_already_collected_writeups(tmp_path):
         for r in pre:
             f.write(json.dumps(r) + "\n")
 
-    # Mock fetch order: tasks-page → task-page (yielding writeups 30000 + 30001)
+    # Mock fetch order: tasks-page to task-page (yielding writeups 30000 + 30001)
     # The collector should only fetch /writeup/30001 (30000 is already on disk).
     tasks_html = '<a href="/task/17065">devprivops</a>'
     task_html = '<a href="/writeup/30000">old</a> <a href="/writeup/30001">new</a>'
@@ -733,7 +733,7 @@ def test_ctftime_collector_skips_already_collected_writeups(tmp_path):
             resp.text = new_writeup_html
         else:
             # If the collector tries to fetch /writeup/30000 it would hit
-            # this branch — we want the test to fail in that case.
+            # this branch, we want the test to fail in that case.
             resp.text = ""
             raise AssertionError(f"unexpected fetch: {url}")
         return resp
@@ -793,13 +793,13 @@ def test_subsample_caps_cve_chars_at_target():
 
 def test_subsample_no_op_when_already_under_budget():
     """If total CVE chars are already within budget, the helper returns the
-    input unchanged — no records dropped or reordered."""
+    input unchanged, no records dropped or reordered."""
     cves = [_make_cve(f"CVE-2024-{i:04d}", 1000) for i in range(10)]
     others = [{"id": "P-1", "text": "paper", "source": "papers"}]
     inp = cves + others
     # 10 * 1000 = 10000 chars = ~2500 tokens; budget is 100000 tokens
     out = subsample_cve_records(inp, max_cve_tokens=100000)
-    assert out is inp  # same object — full passthrough
+    assert out is inp  # same object, full passthrough
 
 
 def test_subsample_no_op_when_no_cve_records():
@@ -865,7 +865,7 @@ def test_merge_datasets_applies_cve_subsample(tmp_path):
         max_cve_tokens=5000,
     )
 
-    # Count across both splits — the deterministic-hash split routes a
+    # Count across both splits, the deterministic-hash split routes a
     # small fraction to val so we can't just count train.
     all_kept = load_jsonl(str(out_path)) + load_jsonl(str(val_path))
     cve_kept = [r for r in all_kept if r["source"] == "nvd"]
@@ -954,7 +954,7 @@ def test_exploitdb_extracts_metadata_and_writes_record(tmp_path):
     }]
     poc = (
         "#!/usr/bin/env python3\n"
-        "# CVE-2024-99999 — Linux kernel UAF privilege escalation PoC.\n"
+        "# CVE-2024-99999, Linux kernel UAF privilege escalation PoC.\n"
         "# Tested on Ubuntu 22.04 with kernel 5.15.0-91-generic.\n"
         "import ctypes, os\n\n"
         + ("payload = b'A' * 4096\n" * 30)
@@ -1316,7 +1316,7 @@ def test_arxiv_full_text_drops_short_extracts(tmp_path):
     }) + "\n")
     out = tmp_path / "arxiv_full.jsonl"
 
-    # Extracted text too short — record must be dropped
+    # Extracted text too short, record must be dropped
     with patch("data.collect.requests.get",
                return_value=_stub_pdf_response(b"%PDF")), \
          patch("data.collect._extract_pdf_text", return_value="tiny"), \

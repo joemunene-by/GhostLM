@@ -183,7 +183,7 @@ def main() -> int:
             bench_paths.append(p); seen.add(p)
 
     if not bench_paths:
-        print("No benchmark files found — nothing to decontaminate against.")
+        print("No benchmark files found, nothing to decontaminate against.")
         return 1
 
     corpus = Path(args.corpus)

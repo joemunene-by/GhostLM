@@ -1,4 +1,4 @@
-"""GhostLM — open-source cybersecurity-focused language model."""
+"""GhostLM, open-source cybersecurity-focused language model."""
 
 from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM

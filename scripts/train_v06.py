@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GhostLM v0.6 from-scratch pretrain — RoPE + SwiGLU + RMSNorm + GPT-2 50K BPE.
+"""GhostLM v0.6 from-scratch pretrain, RoPE + SwiGLU + RMSNorm + GPT-2 50K BPE.
 
 Tests the leading hypothesis from the v0.5 postmortem: that v0.5 trails v0.4
 on CTIBench MCQ because v0.5's custom 32K BPE fragments cybersec terms that
@@ -9,7 +9,7 @@ v0.4's GPT-2 50K BPE keeps whole. v0.6 keeps everything else from v0.5
 Architecture: ghost-small-v0.5 preset (RoPE + SwiGLU + RMSNorm), but vocab
 set to 50264 (GPT-2 50K + 7 special tokens) instead of the v0.5 32K BPE.
 Tokenizer: the legacy ``GhostTokenizer`` wrapping tiktoken's GPT-2 BPE.
-Corpus: ``data/processed/train.jsonl`` (307K records — includes the
+Corpus: ``data/processed/train.jsonl`` (307K records, includes the
 2026-05-03 MITRE full + CISA KEV expansion).
 
 Defaults sized for an overnight run: 15K steps × ctx 1024 × effective

@@ -6,7 +6,7 @@ workflow: once ``data/raw/cve_full.jsonl`` is on disk (from
 ``scripts/collect_nvd_full.py``), this swaps it in as the CVE source for
 the merge and writes fresh ``data/processed/{train,val}.jsonl``.
 
-The deterministic-hash split is preserved — identical texts always land
+The deterministic-hash split is preserved, identical texts always land
 in the same bucket, so re-running this is idempotent.
 """
 
@@ -24,7 +24,7 @@ from data.collect import merge_datasets
 # ``data.collect.domain_of``) to a token cap; domains absent from a profile
 # are left uncapped. ``cybersec`` is the legacy single-domain default. The
 # ``generalist`` / ``balanced`` profiles cap cybersec so the general-domain
-# sources (general_web, code, math, knowledge) carry real share — the lever
+# sources (general_web, code, math, knowledge) carry real share, the lever
 # that turns GhostLM from a cybersec-only model into a generalist with
 # retained security depth.
 #
@@ -124,7 +124,7 @@ def select_corpus_sources(raw_dir, prefer_full_nvd=True, exclude_globs=DEFAULT_E
         if p.name == "cve_full.jsonl" and not use_full:
             continue
         if any(p.match(g) for g in exclude_globs):
-            continue  # held-out eval/benchmark set — never train on it
+            continue  # held-out eval/benchmark set, never train on it
         sources.append(str(p))
 
     cve_choice = cve_full if use_full else (cve_legacy if cve_legacy.exists() else None)
@@ -164,7 +164,7 @@ def parse_args():
         default="cybersec",
         help="Corpus-mix profile. 'cybersec' (default) applies no domain caps "
              "(legacy behaviour). 'generalist' / 'balanced' cap the cybersec domain "
-             "so general web/code/math/knowledge carry real token share — the lever "
+             "so general web/code/math/knowledge carry real token share, the lever "
              "for de-specializing GhostLM. See CORPUS_PROFILES.",
     )
     p.add_argument(
@@ -204,7 +204,7 @@ def main():
         print(f"    - {s}")
 
     if not sources:
-        sys.exit("no raw sources found — did the collectors run?")
+        sys.exit("no raw sources found, did the collectors run?")
 
     merge_datasets(
         input_paths=sources,

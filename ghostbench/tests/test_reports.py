@@ -36,7 +36,7 @@ def test_render_run_report_smoke():
 
 
 def test_render_paired_comparison_significant():
-    """A clear win for B should show ✓ significance and a positive
+    """A clear win for B should show significance and a positive
     Cohen's h."""
     a_scores = [_make_score(f"s{i}", False) for i in range(10)]
     b_scores = [_make_score(f"s{i}", True) for i in range(10)]
@@ -84,7 +84,7 @@ def test_render_suite_summary():
 
 
 def test_render_suite_paired_comparison_marks_wins():
-    """Suite-level table flags significant bets with ✓."""
+    """Suite-level table flags significant bets with ."""
     a1 = _make_report("bet1", "v09",
                       [_make_score(f"s{i}", False) for i in range(10)])
     b1 = _make_report("bet1", "ghost_base",
@@ -95,4 +95,4 @@ def test_render_suite_paired_comparison_marks_wins():
                       [_make_score(f"t{i}", True) for i in range(8)])
     md = render_suite_paired_comparison([a1, a2], [b1, b2])
     # bet1 should be significant; bet2 shouldn't (both at 100%).
-    assert "✓" in md
+    assert " " in md

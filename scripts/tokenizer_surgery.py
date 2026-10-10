@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Tokenizer surgery — add small-talk anchor tokens to the v0.5 BPE.
+"""Tokenizer surgery, add small-talk anchor tokens to the v0.5 BPE.
 
 The v0.5 BPE was trained on the cybersec corpus only. Common chat words
 that the chat dataset relies on ("hi", "hello", "thanks", "you", etc.)
-get split character-level — no gradient signal connects them to
+get split character-level, no gradient signal connects them to
 assistant-mode behavior. This is the dominant cause of the v0.5 chat
 plateau per the research-agent diagnosis.
 
@@ -11,13 +11,13 @@ Rather than retraining the whole BPE (which would force a 24h
 re-pretrain), we add ~30 anchor tokens to the existing tokenizer
 vocab as added (non-special, non-segmentation-blocking) tokens. The
 model's input embedding is then expanded by N rows, initialized with
-the *average* of the constituent old-token embeddings — so "hi" starts
+the *average* of the constituent old-token embeddings, so "hi" starts
 out close to wherever "h" + "i" would have lived, then SFT can move
 it. This is the warm-start trick from the SmolLM2 retrospective and
 the DepthUpscaling paper (Komatsuzaki et al., May 2025).
 
 Output:
-- ``data/tokenizer_v05_surgery/tokenizer.json`` — new BPE with anchors
+- ``data/tokenizer_v05_surgery/tokenizer.json``, new BPE with anchors
 - Optional: a script-side helper to expand a model checkpoint's
   embedding to match the new vocab size, called from finetune_chat.py
   via the same expand_token_embedding mechanism we already use for
@@ -25,7 +25,7 @@ Output:
 
 After surgery: re-SFT v0.5 with ``--tokenizer
 data/tokenizer_v05_surgery/tokenizer.json``. The chat records pass
-through the new BPE → "hi" becomes a single id → model gets clean
+through the new BPE to "hi" becomes a single id to model gets clean
 gradient on chat-shape tokens.
 """
 
@@ -39,11 +39,11 @@ from typing import List
 
 
 # Curated 32-token chat-anchor list. High-frequency English words from the
-# small_talk.jsonl seed and the chat assistant turns. Kept tight — every
+# small_talk.jsonl seed and the chat assistant turns. Kept tight, every
 # token here costs a row in the embedding matrix and an opportunity for
 # BPE to over-eagerly match a substring (e.g. "hi" inside "hide").
 ANCHOR_TOKENS: List[str] = [
-    # Greetings / acknowledgments — most common 1-3 char words
+    # Greetings / acknowledgments, most common 1-3 char words
     " hi", " hello", " hey", " thanks", " thank", " ok", " yes", " no",
     " sure", " bye",
     # Identity-question pronouns / verbs that reach the assistant turn
@@ -104,7 +104,7 @@ def main() -> None:
     tokenizer.save(str(out_path))
     print(f"Saved: {out_path}")
 
-    # Also save a manifest of what changed — useful for the embedding
+    # Also save a manifest of what changed, useful for the embedding
     # expansion logic on the model side.
     new_ids = [tokenizer.token_to_id(tok) for tok in new_anchors]
     manifest = {
@@ -120,10 +120,10 @@ def main() -> None:
 
     # Quick after-surgery encoding test.
     print()
-    print("Sanity check — anchors should now encode to 1 token:")
+    print("Sanity check, anchors should now encode to 1 token:")
     for tok in new_anchors[:8]:
         ids = tokenizer.encode(tok).ids
-        marker = "✓" if len(ids) == 1 else f"✗ ({len(ids)} ids)"
+        marker = " " if len(ids) == 1 else f" ({len(ids)} ids)"
         print(f"  {tok!r}: {marker}")
 
 

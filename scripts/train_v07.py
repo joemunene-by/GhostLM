@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GhostLM v0.7 from-scratch pretrain — 81M wide variant.
+"""GhostLM v0.7 from-scratch pretrain, 81M wide variant.
 
 Tests whether scale matters in the 45M -> 81M range, given that the
 debiased CTIBench eval revealed v0.4 (45M) and v0.6 (45M) both top

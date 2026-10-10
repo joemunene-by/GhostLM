@@ -44,14 +44,14 @@ def test_project_bet_wilson_ci_brackets_point_estimate():
 
 
 def test_project_bet_records_more_helps_more():
-    """More training records → higher projected score (monotone)."""
+    """More training records to higher projected score (monotone)."""
     a = project_bet("bet6_format_aware", eval_n=32, records_seen=100)
     b = project_bet("bet6_format_aware", eval_n=32, records_seen=560)
     assert b.point_estimate > a.point_estimate
 
 
 def test_project_bet_higher_asymptote_higher_projection():
-    """A more ambitious asymptote → higher projection at fixed n."""
+    """A more ambitious asymptote to higher projection at fixed n."""
     a = project_bet("bet_x", eval_n=20, records_seen=200,
                      asymptote=0.4, saturation_n=200)
     b = project_bet("bet_x", eval_n=20, records_seen=200,

@@ -158,7 +158,7 @@ def main() -> None:
     print(f"Permutations: {perms}")
 
     # For each record, score under each permutation. Track:
-    # - single_order_correct (perm 0 only) — should match run_bench.py
+    # - single_order_correct (perm 0 only), should match run_bench.py
     # - all_correct (all permutations correct = consistent capability)
     # - any_correct (at least one permutation correct = upper bound)
     # - pred_letter_dist (across all perms)
@@ -213,7 +213,7 @@ def main() -> None:
     print(f"  any-perm accuracy:     {any_correct}/{counted} = {any_correct / counted:.3f}  (upper bound)")
     print(f"  all-perm accuracy:     {all_correct}/{counted} = {all_correct / counted:.3f}  (debiased: must be right under every order)")
     avg_perm = sum(per_perm_correct) / (len(perms) * counted)
-    print(f"  per-perm avg accuracy: {avg_perm:.3f}  (mean across {len(perms)} permutations — true expected accuracy of a fresh shuffle)")
+    print(f"  per-perm avg accuracy: {avg_perm:.3f}  (mean across {len(perms)} permutations, true expected accuracy of a fresh shuffle)")
     print()
     print(f"  prediction-letter distribution (perm 0):")
     for ch in CHOICES:

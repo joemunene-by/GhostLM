@@ -1,4 +1,4 @@
-"""GhostLM evaluation script — benchmarks a trained model on cybersecurity reasoning tasks."""
+"""GhostLM evaluation script, benchmarks a trained model on cybersecurity reasoning tasks."""
 
 import argparse
 import json

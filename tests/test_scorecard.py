@@ -46,7 +46,7 @@ def test_render_scorecard_includes_scores_and_peers():
     assert "36.1-40.3" in md          # CI rendered
     assert "pythia_160m=43.5" in md   # peer reference rendered
     assert "| arc_challenge |" in md  # unscored bench still listed with em dash
-    assert "—" in md
+    assert ", " in md
 
 
 def test_render_marks_significance_above_random():

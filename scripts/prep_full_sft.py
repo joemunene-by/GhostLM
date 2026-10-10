@@ -12,17 +12,17 @@ across two trace formats:
               ASSISTANT: <|tool_call|>{...}<|/tool_call|>
               TOOL: <|tool_response|>{...}<|/tool_response|>
               ASSISTANT: <answer with <|cite|> tags>
-              (bets 1, 9 — the tool-using bets)
+              (bets 1, 9, the tool-using bets)
 
   2-message:  USER: q
               ASSISTANT: a
-              (bets 7, 8, 10, 11, 12, 23, 24 — Q&A-style)
+              (bets 7, 8, 10, 11, 12, 23, 24, Q&A-style)
 
 This script accepts the full ``synth_v15_combined.jsonl`` (every SFT-shape
 variant), parses both shapes, converts each into the ``{"turns": [...]}``
 record format the chat tokenizer expects, and merges with an existing
 chat train/val dataset. Loss masking happens automatically inside
-``ChatDataset`` — only assistant tokens contribute.
+``ChatDataset``, only assistant tokens contribute.
 
 CLI:
 

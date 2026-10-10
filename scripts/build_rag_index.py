@@ -4,13 +4,13 @@
 Chunks ``data/processed/train.jsonl`` into ~256-token passages, embeds each
 with a small bi-encoder (``BAAI/bge-small-en-v1.5``, 30MB), and saves the
 resulting FP32 matrix + chunk metadata as plain NumPy artifacts. At 75K
-chunks × 384 dims, the index is ~115 MB — small enough to load into RAM and
+chunks × 384 dims, the index is ~115 MB, small enough to load into RAM and
 use brute-force cosine similarity at query time (no LanceDB / FAISS needed
 at this scale).
 
 Output (under ``data/rag/``):
-- ``index.npy`` — float32 array of shape (N, 384), L2-normalized
-- ``chunks.jsonl`` — one record per chunk: {chunk_id, source, ref, text, ...}
+- ``index.npy``, float32 array of shape (N, 384), L2-normalized
+- ``chunks.jsonl``, one record per chunk: {chunk_id, source, ref, text, ...}
 
 Run once before ``scripts/rag_chat.py``. Re-run after corpus updates.
 """
@@ -31,7 +31,7 @@ import torch.nn.functional as F
 def chunk_text(text: str, max_tokens: int = 256, overlap: int = 32) -> List[str]:
     """Split text into overlapping word-count chunks (proxy for tokens).
 
-    Uses word count as a cheap proxy for token count — close enough for chunk
+    Uses word count as a cheap proxy for token count, close enough for chunk
     boundaries. Real token counts are computed downstream by GhostTokenizer
     when assembling the final RAG prompt.
     """

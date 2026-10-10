@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""GhostLM LoRA fine-tuning — adapt the chat-tuned base on a custom corpus.
+"""GhostLM LoRA fine-tuning, adapt the chat-tuned base on a custom corpus.
 
 Lets community contributors fine-tune ghost-small on their own cybersecurity
 data without touching base weights or running a full SFT. Uses HuggingFace
 `peft` to inject low-rank adapters into the attention QKV / output and FFN
-projections; the resulting adapter is ~0.5–1.5 MB depending on rank — small
+projections; the resulting adapter is ~0.5-1.5 MB depending on rank, small
 enough to host dozens of variants on HF Hub.
 
 Defaults follow the 2026 best-practice for sub-100M base models:
-- DoRA = True (weight-decomposed LoRA — reliably +1-2 pts over plain LoRA at
+- DoRA = True (weight-decomposed LoRA, reliably +1-2 pts over plain LoRA at
   the same rank)
 - rank = 8, alpha = 16
 - targets = c_qkv + proj + ffn.fc1 + ffn.fc2 (full attention + FFN coverage)
 - dropout = 0.05
 
-The dataset format is the same as ``finetune_chat.py`` — a chat JSONL with
+The dataset format is the same as ``finetune_chat.py``, a chat JSONL with
 ``{"turns": [...]}`` lines. Loss is masked to assistant tokens by ChatDataset.
 
 Output: ``checkpoints/lora/<run_name>/`` containing the adapter weights and a
@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--checkpoint", required=True,
                    help="Base checkpoint (typically phase5_chat/best_model.pt)")
     p.add_argument("--train-data", required=True,
-                   help="Chat JSONL — same format as chat_train.jsonl")
+                   help="Chat JSONL, same format as chat_train.jsonl")
     p.add_argument("--val-data", required=True)
     p.add_argument("--run-name", default="custom",
                    help="Subdir under checkpoints/lora/")
@@ -144,7 +144,7 @@ def main() -> None:
         use_dora=args.use_dora,
     )
     model = get_peft_model(model, lora_cfg)
-    print(f"LoRA injected — rank={args.rank}, alpha={args.alpha}, "
+    print(f"LoRA injected, rank={args.rank}, alpha={args.alpha}, "
           f"dora={args.use_dora}, targets={args.targets}")
     freeze_base_model(model)
 

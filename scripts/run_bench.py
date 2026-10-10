@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""GhostLM cyber-LLM benchmarks — run open eval suites against a checkpoint.
+"""GhostLM cyber-LLM benchmarks, run open eval suites against a checkpoint.
 
 Two suites, both multiple-choice:
 
-- **CyberMetric** (Tihanyi et al., 2024) — 80/500/2000/10000-question MCQ over
+- **CyberMetric** (Tihanyi et al., 2024), 80/500/2000/10000-question MCQ over
   general security topics. We default to the 500-question split, which runs in
   ~5 minutes on a 45M model on M4 MPS.
-- **CTIBench** (Alam et al., NeurIPS 2024) — multiple subtasks (MCQ, RCM, ATT&CK
+- **CTIBench** (Alam et al., NeurIPS 2024), multiple subtasks (MCQ, RCM, ATT&CK
   mapping). We run the MCQ subset by default since it's the directly-comparable
   one across small open models.
 
@@ -136,8 +136,7 @@ def format_mcq_prompt(
 
     Uses the chat format when the model was chat-tuned; otherwise emits a
     plain "Question: ... Answer:" completion prompt. If ``rag_passages`` is
-    provided, prepends a "Reference passages:" block ahead of the question —
-    this is the RAG path.
+    provided, prepends a "Reference passages:" block ahead of the question,    this is the RAG path.
     """
     question = record["question"]
     choices = record["choices"]
@@ -190,7 +189,7 @@ def score_record(
     next_logits = logits[0, -1, :]
     log_probs = F.log_softmax(next_logits, dim=-1)
 
-    # Get token ids for " A", " B", " C", " D" (with leading space — matches
+    # Get token ids for " A", " B", " C", " D" (with leading space, matches
     # natural completion). Fall back to no-space if the leading-space token
     # is missing.
     scores: Dict[str, float] = {}
@@ -224,7 +223,7 @@ def evaluate(
 
     If ``retriever`` is non-None, it is called per record as
     ``retriever(record["question"], k=top_k) -> List[passage_dict]`` and the
-    resulting passages are prepended to the MCQ prompt — i.e. RAG mode.
+    resulting passages are prepended to the MCQ prompt, i.e. RAG mode.
     """
     correct = 0
     total = 0

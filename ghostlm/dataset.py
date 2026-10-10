@@ -1,4 +1,4 @@
-"""GhostLM dataset — converts processed JSONL data into PyTorch DataLoader-ready tensors."""
+"""GhostLM dataset, converts processed JSONL data into PyTorch DataLoader-ready tensors."""
 
 import json
 import os
@@ -102,7 +102,7 @@ class GhostBinDataset(Dataset):
     ``scripts/pretokenize.py`` (uint16 when the vocab fits, uint32
     otherwise; recorded in the sidecar ``meta.json``). ``np.memmap``
     keeps resident memory near zero and startup instant regardless of
-    corpus size — a Python-list token stream costs ~28 bytes/token,
+    corpus size, a Python-list token stream costs ~28 bytes/token,
     which at v1.0-corpus scale (~422M tokens) is >10 GB of RAM plus a
     full re-tokenization on every launch.
     """
@@ -269,7 +269,7 @@ def build_dataloaders(
 
     Under torchrun (WORLD_SIZE > 1) the train loader is sharded with a
     ``DistributedSampler`` so each rank sees a disjoint slice of the
-    data — without it, every rank trains on identical batches and DDP
+    data, without it, every rank trains on identical batches and DDP
     buys nothing. The val loader stays unsharded so the reported val
     loss means the same thing at any world size.
 

@@ -1,4 +1,4 @@
-"""GhostLM inference script — load a trained model and generate text from a prompt."""
+"""GhostLM inference script, load a trained model and generate text from a prompt."""
 
 import argparse
 import sys

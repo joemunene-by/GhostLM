@@ -5,12 +5,12 @@ Takes the existing letter-only MCQs in ``data/raw/chat/mcq.jsonl`` and
 augments each with a 1-3 sentence justification synthesized by a local
 Qwen-2.5-7B (or compatible) model running via Ollama. The output keeps
 the letter answer up front (so the run_bench.py logprob-of-letter
-scoring still works) and adds reasoning after the period — the model
+scoring still works) and adds reasoning after the period, the model
 gets supervised on both signals.
 
-Output schema is the same as ``build_mcq_data.py`` — a chat record
+Output schema is the same as ``build_mcq_data.py``, a chat record
 with ``{"turns": [{"role": "user", "content": ...},
-{"role": "assistant", "content": "B. <reasoning>"}]}`` — so it drops
+{"role": "assistant", "content": "B. <reasoning>"}]}``, so it drops
 into ``build_chat_dataset.py`` via the ``--mcq-jsonl`` flag without any
 other plumbing changes.
 
@@ -18,13 +18,13 @@ Why this fix (per research agent, 2025-2026 references):
 - The Phi-3.5-mini and OpenMath-Mini reports both show CoT-templated MCQ
   at 1× outperforms raw letter-only MCQ at 5× for sub-200M models.
 - The mechanism: letter-only records teach the model "after Answer:
-  emit a letter" — a parlor trick that doesn't transfer to rephrased
+  emit a letter", a parlor trick that doesn't transfer to rephrased
   questions. CoT records teach the underlying knowledge connections.
 
 Prerequisite: Ollama running locally with a Qwen pulled. Default
-expects ``qwen2.5:7b`` — pull via ``ollama pull qwen2.5:7b`` (~5 GB).
+expects ``qwen2.5:7b``, pull via ``ollama pull qwen2.5:7b`` (~5 GB).
 On the Mac M4 a 7B model runs at ~30 tokens/sec, so 1.8K records ×
-~80 tokens of reasoning ≈ 80 minutes. Resume-safe — re-run continues
+~80 tokens of reasoning ≈ 80 minutes. Resume-safe, re-run continues
 where it left off.
 """
 
@@ -42,7 +42,7 @@ from typing import Dict, List, Optional
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 
-PROMPT_TEMPLATE = """You are helping label a cybersecurity multiple-choice training dataset. You will be given a question, four options, and the correct letter. Write a 1-2 sentence justification for why the correct answer is right. Be specific — reference the technical reason, not just "this is correct".
+PROMPT_TEMPLATE = """You are helping label a cybersecurity multiple-choice training dataset. You will be given a question, four options, and the correct letter. Write a 1-2 sentence justification for why the correct answer is right. Be specific, reference the technical reason, not just "this is correct".
 
 Format your response as exactly one line:
 JUSTIFICATION: <your 1-2 sentence reason>
@@ -65,7 +65,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out", default="data/raw/chat/mcq_cot.jsonl",
                    help="Output augmented JSONL")
     p.add_argument("--model", default="qwen2.5:14b",
-                   help="Ollama model tag — qwen2.5:14b chosen as default "
+                   help="Ollama model tag, qwen2.5:14b chosen as default "
                         "because the 14B general variant beats both qwen2.5:7b "
                         "and qwen2.5-coder:14b for narrative-style "
                         "justifications. Already cached on Joe's Mac.")
@@ -95,7 +95,7 @@ def parse_existing_mcq(record: Dict) -> Optional[Dict]:
 
         Answer:
 
-    Returns None if the record can't be parsed cleanly (defensive — skip
+    Returns None if the record can't be parsed cleanly (defensive, skip
     rather than crash).
     """
     user_text = record["turns"][0]["content"]
@@ -114,7 +114,7 @@ def parse_existing_mcq(record: Dict) -> Optional[Dict]:
     if len(options) != 4:
         return None
 
-    # Assistant turn is "B" or "B. <text>." — first char is the letter.
+    # Assistant turn is "B" or "B. <text>.", first char is the letter.
     correct_letter = assistant_text.strip()[:1].upper()
     if correct_letter not in options:
         return None

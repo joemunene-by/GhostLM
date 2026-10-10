@@ -1,4 +1,4 @@
-"""Tests for prep_full_sft.py — the trace parser + chat-record converter."""
+"""Tests for prep_full_sft.py, the trace parser + chat-record converter."""
 
 import importlib.util
 import json

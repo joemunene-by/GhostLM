@@ -1,4 +1,4 @@
-"""GhostLM interactive chat — multi-turn terminal interface using chat role markers.
+"""GhostLM interactive chat, multi-turn terminal interface using chat role markers.
 
 For chat-tuned checkpoints (Phase 5+), this loads the model with the expanded
 vocabulary (50264) and feeds the conversation history through
@@ -39,7 +39,7 @@ def parse_args():
                         "Typical 1.0 (off) - 1.4. 45M models benefit from ~1.2-1.3.")
     p.add_argument("--device", default="auto")
     p.add_argument("--no-chat-format", action="store_true",
-                   help="Disable chat role markers — use raw completion mode")
+                   help="Disable chat role markers, use raw completion mode")
     p.add_argument("--system", type=str, default=None,
                    help="Optional system prefix prepended as the first user turn")
     return p.parse_args()
@@ -59,7 +59,7 @@ def resolve_device(arg: str) -> str:
 def load_model(checkpoint_path: str, device: str) -> tuple:
     """Load a GhostLM checkpoint, returning (model, config)."""
     if checkpoint_path is None or not Path(checkpoint_path).exists():
-        print("  No checkpoint provided — using random ghost-tiny weights.")
+        print("  No checkpoint provided, using random ghost-tiny weights.")
         config = GhostLMConfig.from_preset("ghost-tiny")
         config.vocab_size = 50264
         config.context_length = 128
@@ -153,7 +153,7 @@ def generate_until_end(
     ctx = model.config.context_length
     # KV-cached decoding: prefill the prompt once, then feed only the new
     # token each step. On context overflow, re-prefill from the cropped
-    # tail (sliding window) — same output semantics as the uncached loop.
+    # tail (sliding window), same output semantics as the uncached loop.
     past_kv = None
     input_ids = ids[:, -ctx:]
     with torch.no_grad():
@@ -184,7 +184,7 @@ def chat_loop_chat_format(model, tokenizer: GhostTokenizer, args, device: str) -
         history.append({"role": "user", "content": args.system})
         history.append({
             "role": "assistant",
-            "content": "Got it — I'll keep that in mind.",
+            "content": "Got it, I'll keep that in mind.",
         })
     end_id = tokenizer._special_tokens[tokenizer.END]
     print()
@@ -285,7 +285,7 @@ def main():
 
     use_chat = not args.no_chat_format and config.vocab_size >= tokenizer.vocab_size
     if not use_chat and not args.no_chat_format:
-        print("  (model vocab smaller than tokenizer — falling back to completion mode)")
+        print("  (model vocab smaller than tokenizer, falling back to completion mode)")
 
     if use_chat:
         chat_loop_chat_format(model, tokenizer, args, device)

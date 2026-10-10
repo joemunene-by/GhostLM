@@ -13,12 +13,11 @@ Architecture (ghost-base, matches SmolLM2-360M):
   layers   30   (5x v0.7's 6; deeper helps factual binding)
   d_model  960  (1.25x v0.7's 768; head_dim 64 with 15 heads)
   n_heads  15   (head_dim 64, head budget 64 unchanged)
-  kv_heads 5    (grouped-query attention, 3 query heads per KV head —
-                  the same 15q/5kv split SmolLM2-360M uses; 3x smaller
+  kv_heads 5    (grouped-query attention, 3 query heads per KV head,                  the same 15q/5kv split SmolLM2-360M uses; 3x smaller
                   KV cache at inference)
   d_ff     3936 (SwiGLU hidden 2624; widened from 3200 to give the
                   ~37M params GQA saves back to the FFN, keeping the
-                  total at ~349M — the capacity rung is the experiment)
+                  total at ~349M, the capacity rung is the experiment)
   vocab    50,264  (GPT-2 50K BPE + 7 special tokens, unchanged)
   context  1024 train, 2048 inference (RoPE base 10000)
   norm     RMSNorm (unchanged) + QK-norm on per-head queries/keys

@@ -1,4 +1,4 @@
-"""GhostLM chat dataset — JSONL of role-tagged turns into masked SFT tensors.
+"""GhostLM chat dataset, JSONL of role-tagged turns into masked SFT tensors.
 
 Each input record is a list of turns:
 
@@ -7,7 +7,7 @@ Each input record is a list of turns:
 
 The dataset tokenizes with chat role markers via GhostTokenizer.encode_chat
 and emits (input_ids, target_ids) where target_ids is set to ``-1`` everywhere
-the loss should be ignored — i.e. on every position except the assistant's
+the loss should be ignored, i.e. on every position except the assistant's
 content and its trailing <|ghost_end|>. ``F.cross_entropy(..., ignore_index=-1)``
 in the model takes care of the masking automatically, so the existing trainer
 loop works without modification.
@@ -31,7 +31,7 @@ class ChatDataset(Dataset):
 
     Conversations shorter than ``context_length`` are right-padded with the
     PAD token (with target -1, so padding contributes no loss). Conversations
-    longer than ``context_length`` are dropped — the synthetic Q&A generator
+    longer than ``context_length`` are dropped, the synthetic Q&A generator
     is responsible for staying within budget.
     """
 
@@ -41,7 +41,7 @@ class ChatDataset(Dataset):
         Args:
             jsonl_path: Path to the JSONL file. Each line: {"turns": [...]}.
             tokenizer: GhostTokenizer with chat role markers defined.
-            config: GhostLMConfig — only ``context_length`` is read.
+            config: GhostLMConfig, only ``context_length`` is read.
         """
         self.context_length = config.context_length
         self.pad_id = tokenizer._special_tokens[tokenizer.PAD]
@@ -77,14 +77,14 @@ class ChatDataset(Dataset):
         """Return a padded (input_ids, target_ids) pair for sample ``idx``.
 
         Targets are masked to IGNORE_INDEX (-1) on every position the loss
-        should not see — user prompts, role markers, and right-padding. The
+        should not see, user prompts, role markers, and right-padding. The
         assistant's content tokens and its trailing <|ghost_end|> are the
         only positions with real targets.
         """
         ids, mask = self.samples[idx]
         L = self.context_length
 
-        # input is ids[:-1], target is ids[1:] shifted — predict next from current.
+        # input is ids[:-1], target is ids[1:] shifted, predict next from current.
         # mask describes whether *position i* is an assistant token. For LM loss
         # on token t we want target_t to be supervised when ids[t+1] is an
         # assistant token, i.e. mask[t+1] == 1.

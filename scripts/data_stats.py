@@ -1,4 +1,4 @@
-"""GhostLM data statistics — analyzes token counts, vocabulary coverage, and source distribution."""
+"""GhostLM data statistics, analyzes token counts, vocabulary coverage, and source distribution."""
 
 import argparse
 import json

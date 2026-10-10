@@ -1,4 +1,4 @@
-"""GhostLM training entry point — initializes model, tokenizer, data, and runs the training loop."""
+"""GhostLM training entry point, initializes model, tokenizer, data, and runs the training loop."""
 
 import argparse
 import json

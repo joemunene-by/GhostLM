@@ -123,7 +123,7 @@ class Bench:
       - ``name``           short stable identifier (e.g. "bet6_format_aware")
       - ``description``    human-readable purpose
       - ``records``        the list of EvalRecord
-      - ``parsers``        the dict of format → parser used by score_record;
+      - ``parsers``        the dict of format to parser used by score_record;
                             shared across Benches in the same Suite
 
     Calling ``Bench.score(predictions, run_name)`` produces a

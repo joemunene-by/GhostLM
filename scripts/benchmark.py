@@ -1,4 +1,4 @@
-"""GhostLM benchmark — compares perplexity of GhostLM vs GPT-2 baseline on cybersecurity texts."""
+"""GhostLM benchmark, compares perplexity of GhostLM vs GPT-2 baseline on cybersecurity texts."""
 
 import argparse
 import json
@@ -183,7 +183,7 @@ def print_results(
     if ghostlm_ppl < gpt2_ppl:
         print("GhostLM BEATS GPT-2 baseline!")
     else:
-        print("GPT-2 still ahead — keep training.")
+        print("GPT-2 still ahead, keep training.")
 
 
 def main():
@@ -241,7 +241,7 @@ def main():
         checkpoint_data = torch.load(args.checkpoint, map_location=device, weights_only=False)
         ghostlm_step = checkpoint_data.get("step", 0)
     else:
-        print("\nNo checkpoint provided — using random ghost-small init...")
+        print("\nNo checkpoint provided, using random ghost-small init...")
         config = GhostLMConfig.from_preset("ghost-small")
         config.vocab_size = 50261
         model = GhostLM(config)

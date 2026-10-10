@@ -5,7 +5,7 @@ NIST Special Publication 800 series is the canonical US-government
 infosec reference. Risk Management Framework (SP 800-37), Security
 and Privacy Controls (SP 800-53), Digital Identity Guidelines
 (SP 800-63), Incident Handling (SP 800-61), Penetration Testing
-(SP 800-115), Secure Software Development (SP 800-218) — these are
+(SP 800-115), Secure Software Development (SP 800-218), these are
 the documents every security program is benchmarked against, and
 none of them are in the v0.9 corpus.
 
@@ -14,7 +14,7 @@ Each publication is a long PDF (50-500 pages). We use pymupdf
 single huge document doesn't dominate the corpus.
 
 Source: nvlpubs.nist.gov direct PDFs. NIST publications are US
-government works and in the public domain — safe to redistribute.
+government works and in the public domain, safe to redistribute.
 
 Output: ``data/raw/nist_sp800.jsonl`` with the standard
 ``{"id", "source", "text"}`` schema. Source is ``nist_sp800``.
@@ -35,57 +35,57 @@ from pathlib import Path
 # Curated SP 800 publications. Each entry: (label, url).
 # All hosted at nvlpubs.nist.gov in PDF form, US gov public domain.
 SP800_PUBLICATIONS = [
-    ("SP 800-30 r1 — Guide for Conducting Risk Assessments",
+    ("SP 800-30 r1, Guide for Conducting Risk Assessments",
      "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-30r1.pdf"),
-    ("SP 800-37 r2 — Risk Management Framework",
+    ("SP 800-37 r2, Risk Management Framework",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-37r2.pdf"),
-    ("SP 800-53 r5 — Security and Privacy Controls",
+    ("SP 800-53 r5, Security and Privacy Controls",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53r5.pdf"),
-    ("SP 800-53A r5 — Assessing Security and Privacy Controls",
+    ("SP 800-53A r5, Assessing Security and Privacy Controls",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53Ar5.pdf"),
-    ("SP 800-53B — Control Baselines for Information Systems",
+    ("SP 800-53B, Control Baselines for Information Systems",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53B.pdf"),
-    ("SP 800-61 r2 — Computer Security Incident Handling Guide",
+    ("SP 800-61 r2, Computer Security Incident Handling Guide",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-61r2.pdf"),
-    ("SP 800-63-3 — Digital Identity Guidelines",
+    ("SP 800-63-3, Digital Identity Guidelines",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-63-3.pdf"),
-    ("SP 800-63A — Enrollment and Identity Proofing",
+    ("SP 800-63A, Enrollment and Identity Proofing",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-63a.pdf"),
-    ("SP 800-63B — Authentication and Lifecycle Management",
+    ("SP 800-63B, Authentication and Lifecycle Management",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-63b.pdf"),
-    ("SP 800-63C — Federation and Assertions",
+    ("SP 800-63C, Federation and Assertions",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-63c.pdf"),
-    ("SP 800-92 — Guide to Computer Security Log Management",
+    ("SP 800-92, Guide to Computer Security Log Management",
      "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-92.pdf"),
-    ("SP 800-94 — Guide to Intrusion Detection and Prevention Systems",
+    ("SP 800-94, Guide to Intrusion Detection and Prevention Systems",
      "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-94.pdf"),
-    ("SP 800-115 — Technical Guide to Information Security Testing and Assessment",
+    ("SP 800-115, Technical Guide to Information Security Testing and Assessment",
      "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-115.pdf"),
-    ("SP 800-126 r3 — Security Content Automation Protocol (SCAP)",
+    ("SP 800-126 r3, Security Content Automation Protocol (SCAP)",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-126r3.pdf"),
-    ("SP 800-145 — Definition of Cloud Computing",
+    ("SP 800-145, Definition of Cloud Computing",
      "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-145.pdf"),
-    ("SP 800-146 — Cloud Computing Synopsis and Recommendations",
+    ("SP 800-146, Cloud Computing Synopsis and Recommendations",
      "https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication800-146.pdf"),
-    ("SP 800-150 — Guide to Cyber Threat Information Sharing",
+    ("SP 800-150, Guide to Cyber Threat Information Sharing",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-150.pdf"),
-    ("SP 800-160 v1 r1 — Engineering Trustworthy Secure Systems",
+    ("SP 800-160 v1 r1, Engineering Trustworthy Secure Systems",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-160v1r1.pdf"),
-    ("SP 800-160 v2 r1 — Cyber-Resilient Systems",
+    ("SP 800-160 v2 r1, Cyber-Resilient Systems",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-160v2r1.pdf"),
-    ("SP 800-161 r1 — Cybersecurity Supply Chain Risk Management",
+    ("SP 800-161 r1, Cybersecurity Supply Chain Risk Management",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-161r1.pdf"),
-    ("SP 800-171 r3 — Protecting CUI in Nonfederal Systems",
+    ("SP 800-171 r3, Protecting CUI in Nonfederal Systems",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-171r3.pdf"),
-    ("SP 800-181 r1 — NICE Cybersecurity Workforce Framework",
+    ("SP 800-181 r1, NICE Cybersecurity Workforce Framework",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-181r1.pdf"),
-    ("SP 800-184 — Guide for Cybersecurity Event Recovery",
+    ("SP 800-184, Guide for Cybersecurity Event Recovery",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-184.pdf"),
-    ("SP 800-207 — Zero Trust Architecture",
+    ("SP 800-207, Zero Trust Architecture",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-207.pdf"),
-    ("SP 800-218 — Secure Software Development Framework",
+    ("SP 800-218, Secure Software Development Framework",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-218.pdf"),
-    ("SP 800-228 — Guide to Operational Technology Security",
+    ("SP 800-228, Guide to Operational Technology Security",
      "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-82r3.pdf"),
 ]
 
@@ -184,7 +184,7 @@ def main() -> None:
     chunks_written = 0
     failed = 0
     for label, url in SP800_PUBLICATIONS:
-        pub_id = label.split(" — ")[0].replace(" ", "_").replace(".", "")
+        pub_id = label.split(", ")[0].replace(" ", "_").replace(".", "")
         # Skip if all expected chunks already on disk
         already = sum(1 for s in seen if s.startswith(pub_id + "_"))
         if already > 0:

@@ -1,4 +1,4 @@
-"""GhostLM exporter — converts trained model to ONNX or safetensors for distribution."""
+"""GhostLM exporter, converts trained model to ONNX or safetensors for distribution."""
 
 import argparse
 import json
@@ -150,7 +150,7 @@ def verify_onnx(output_path: str) -> None:
         dummy_input = {"input_ids": torch.zeros(1, 64, dtype=torch.long).numpy()}
         outputs = session.run(None, dummy_input)
 
-        print(f"  ONNX verification passed — output shape: {outputs[0].shape}")
+        print(f"  ONNX verification passed, output shape: {outputs[0].shape}")
     except ImportError:
         print("  Install onnx and onnxruntime to verify: pip install onnx onnxruntime")
     except Exception as e:
@@ -177,7 +177,7 @@ def export_safetensors(model: GhostLM, config: GhostLMConfig, output_dir: str) -
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    # Save weights via save_model — handles weight-tied tensors
+    # Save weights via save_model, handles weight-tied tensors
     # (token_embedding.weight and lm_head.weight share memory) automatically.
     weights_path = output_path / "ghostlm.safetensors"
     save_model(model, str(weights_path))

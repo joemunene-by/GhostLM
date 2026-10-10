@@ -1,4 +1,4 @@
-"""GhostLM data audit — pre-training diagnostics: percentiles, dedup, leakage, token share."""
+"""GhostLM data audit, pre-training diagnostics: percentiles, dedup, leakage, token share."""
 
 import argparse
 import json
@@ -124,7 +124,7 @@ def audit_cve(records):
         print("  (no parseable CVE IDs)")
         return years
     y_min, y_max = min(years), max(years)
-    print(f"  span:           {y_min}–{y_max}  ({y_max - y_min + 1} years)")
+    print(f"  span:           {y_min}, {y_max}  ({y_max - y_min + 1} years)")
     print(f"  missing IDs:    {missing}")
     print(f"  top 5 years:    " + ", ".join(f"{y}:{n}" for y, n in years.most_common(5)))
     # bucket by decade for a quick skew read
@@ -163,7 +163,7 @@ def audit_token_share(processed_chars, raw_chars=None):
     """Cross-source: fraction of training tokens each source contributes.
 
     Computed from the actual processed train+val splits, grouped by each
-    record's ``source`` field — this is what the model will literally see
+    record's ``source`` field, this is what the model will literally see
     during training, after any subsampling caps in ``rebuild_corpus.py``.
 
     When ``raw_chars`` is provided and differs materially from the
@@ -196,10 +196,10 @@ def audit_token_share(processed_chars, raw_chars=None):
 
 
 def audit_leakage(train_texts, val_texts):
-    """Check for exact val texts appearing in train — contaminates eval."""
+    """Check for exact val texts appearing in train, contaminates eval."""
     header("Train/val leakage")
     if not train_texts or not val_texts:
-        print("  (skipped — missing split)")
+        print("  (skipped, missing split)")
         return 0
     train_set = set(train_texts)
     leaked = sum(1 for t in val_texts if t in train_set)
@@ -215,8 +215,8 @@ def audit_leakage(train_texts, val_texts):
 # corpus size (it's the throwaway-rung educational artifact); the
 # others gate ghost-small / ghost-base advancement.
 V040_TOKEN_TARGETS = {
-    "v0.4.0 — ghost-small (55M params)": (50_000_000, 100_000_000),
-    "v0.5.0 — ghost-base (350M params)": (1_000_000_000, 7_000_000_000),
+    "v0.4.0, ghost-small (55M params)": (50_000_000, 100_000_000),
+    "v0.5.0, ghost-base (350M params)": (1_000_000_000, 7_000_000_000),
 }
 
 # What the project plans to add for v0.4.0 corpus volume per ROADMAP.md.
@@ -257,7 +257,7 @@ def audit_v040_target(processed_chars):
         filled = int(bar_w * pct_lo / 100)
         bar = "█" * filled + "░" * (bar_w - filled)
         print(f"  {label}")
-        print(f"    target:   {lo:>15,} – {hi:,} tokens")
+        print(f"    target:   {lo:>15,}, {hi:,} tokens")
         print(f"    progress: [{bar}] {pct_lo:5.1f}% of lower bound")
         if gap_lo > 0:
             print(f"    gap:      {gap_lo:,} tokens to lower bound, "
@@ -405,7 +405,7 @@ def main():
     if args.plot and HAS_MATPLOTLIB:
         make_plots(raw_stats, cve_years, ctf_cats, processed_chars_by_source, Path("logs/data_audit.png"))
     elif args.plot:
-        print("matplotlib not installed — skipping charts")
+        print("matplotlib not installed, skipping charts")
 
 
 if __name__ == "__main__":

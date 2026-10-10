@@ -5,7 +5,7 @@ via Qwen-14B (Ollama).
 The empirical work in docs/ctibench_bias_finding.md shows that all our
 chat-tunes top out at ~30% real capability on CTIBench MCQ regardless
 of architecture or recipe. Live testing confirmed the model is a
-"cybersec parrot" — knows vocabulary patterns but lacks fact storage.
+"cybersec parrot", knows vocabulary patterns but lacks fact storage.
 The diagnosis (per 5 independent AI sources): our 60M-token corpus is
 too low-fact-density. CTF writeups teach style, not retrievable facts.
 
@@ -15,7 +15,7 @@ into Qwen-14B with a structured prompt that extracts 4-8 atomic
 factual Q&A pairs per record. The output is a fact-dense JSONL that
 can be mixed into pretraining at a high oversample ratio.
 
-Output schema (one Q&A per line — pretrain documents, not chat):
+Output schema (one Q&A per line, pretrain documents, not chat):
 
   {"id": "T1059#fact1", "source": "fact_qa",
    "text": "Q: What is MITRE ATT&CK technique T1059?\\n\\n
@@ -23,7 +23,7 @@ Output schema (one Q&A per line — pretrain documents, not chat):
                adversaries use to execute commands or scripts via shells
                like cmd.exe, PowerShell, or bash."}
 
-Resume-safe — re-running picks up where it left off (skips records
+Resume-safe, re-running picks up where it left off (skips records
 already in the output file). Single pass; restarts on Ollama failure.
 
 Prerequisite: Ollama running locally with qwen2.5:14b cached.

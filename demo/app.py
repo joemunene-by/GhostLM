@@ -44,7 +44,7 @@ from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM
 from ghostlm.tokenizer import GhostTokenizer
 
-# Don't try/except this — on Hugging Face Spaces a transitive failure
+# Don't try/except this, on Hugging Face Spaces a transitive failure
 # inside gradio (e.g. a wheel ABI mismatch under torch) gets swallowed
 # as a generic ImportError, and the user sees the unhelpful "Install
 # gradio" message in the runtime log instead of the real traceback. The
@@ -75,7 +75,7 @@ def load_checkpoint(path: str) -> Tuple[GhostLM, GhostTokenizer, GhostLMConfig, 
     """Load a checkpoint, returning (model, tokenizer, config, metadata).
 
     Falls back to a randomly-initialized ghost-tiny if the path doesn't
-    exist — useful for trying the UI without any weights present, and
+    exist, useful for trying the UI without any weights present, and
     safer than crashing the launch.
     """
     tokenizer = GhostTokenizer()
@@ -123,8 +123,8 @@ def format_model_info(model: GhostLM, config: GhostLMConfig, meta: dict) -> str:
         lines.append(f"**Checkpoint:** `{meta['path']}`")
     else:
         lines.append(
-            "**Status:** ⚠️ random-init weights (no checkpoint at "
-            f"`{meta.get('path')}`). Output will be incoherent — "
+            "**Status:**  random-init weights (no checkpoint at "
+            f"`{meta.get('path')}`). Output will be incoherent, "
             "the UI runs so you can see the layout, not the model."
         )
     return "\n\n".join(lines)
@@ -201,7 +201,7 @@ def _generate(
 
 # Organised by register so the user can quickly try the four kinds of
 # prose the canonical model has actually been trained on. v0.3.5's whole
-# story is "switches register based on prompt domain" — these presets are
+# story is "switches register based on prompt domain", these presets are
 # the showcase.
 PROMPT_PRESETS = {
     "CVE description": [
@@ -275,8 +275,8 @@ def parse_args():
 GROUND_RULES = (
     "**This is a completion model, not a chatbot.** GhostLM has no "
     "instruction tuning. Prompt it with the *start of a sentence* in a "
-    "register it knows — CVE descriptions, MITRE techniques, CTF "
-    "writeups, arXiv abstracts — and it continues. Prompts like "
+    "register it knows, CVE descriptions, MITRE techniques, CTF "
+    "writeups, arXiv abstracts, and it continues. Prompts like "
     "`hello`, `who are you`, or `summarize this` produce drifty cyber-"
     "prose because the model has no notion of an instruction to follow.\n\n"
     "**What it does well:** structurally correct security prose. "
@@ -293,9 +293,9 @@ def build_ui(primary, compare):
 
     # theme moved from Blocks() to launch() in Gradio 6.0; title stayed.
     with gr.Blocks(title="GhostLM Demo") as demo:
-        gr.Markdown("# 🔐 GhostLM")
+        gr.Markdown("# GhostLM")
         gr.Markdown(
-            "Open-source cybersecurity language model — built from scratch in PyTorch. "
+            "Open-source cybersecurity language model, built from scratch in PyTorch. "
             "[Repo](https://github.com/joemunene-by/GhostLM) · [ROADMAP](https://github.com/joemunene-by/GhostLM/blob/main/ROADMAP.md) · "
             "[MODEL_CARD](https://github.com/joemunene-by/GhostLM/blob/main/MODEL_CARD.md)"
         )
@@ -311,13 +311,13 @@ def build_ui(primary, compare):
                 with gr.Row():
                     with gr.Column(scale=2):
                         prompt = gr.Textbox(
-                            label="Prompt (start of a sentence — model continues from here)",
+                            label="Prompt (start of a sentence, model continues from here)",
                             lines=4,
                             placeholder=(
                                 "e.g.  'CVE-2024-99999 is a vulnerability in'\n"
                                 "       'The CTF challenge involved'\n"
                                 "       'MITRE ATT&CK technique T1003 is used to'\n"
-                                "Don't type 'hello' — the model has no instruction tuning."
+                                "Don't type 'hello', the model has no instruction tuning."
                             ),
                         )
                         with gr.Row():
@@ -330,7 +330,7 @@ def build_ui(primary, compare):
 
                     with gr.Column(scale=3):
                         # show_copy_button was removed from Textbox in
-                        # Gradio 6.0 — visitors can still copy via the
+                        # Gradio 6.0, visitors can still copy via the
                         # browser's native selection.
                         output = gr.Textbox(
                             label="Continuation",
@@ -379,7 +379,7 @@ def build_ui(primary, compare):
                 with gr.Tab("Compare"):
                     gr.Markdown(
                         "### Two checkpoints, same prompt, same sampling settings.\n\n"
-                        "The cleanest demo in this project is Phase 3.5 vs Phase 3.6 — "
+                        "The cleanest demo in this project is Phase 3.5 vs Phase 3.6, "
                         "the same prompt produces different prose because the second "
                         "model was retrained on a 43% larger corpus that pushed "
                         "ghost-tiny past its capacity ceiling. See "
@@ -427,19 +427,19 @@ def build_ui(primary, compare):
 
 GhostLM is a from-scratch decoder-only transformer in PyTorch, trained on a
 curated cybersecurity corpus (NVD CVEs, MITRE ATT&CK, CAPEC, CTFtime
-real writeups, arXiv cs.CR, Exploit-DB). It's deliberately *small* — 14.7M
-parameters — and the canonical v0.3.5 model uses 8.8M training tokens. The
+real writeups, arXiv cs.CR, Exploit-DB). It's deliberately *small*, 14.7M
+parameters, and the canonical v0.3.5 model uses 8.8M training tokens. The
 goal isn't to be GPT-4 for security; it's to build a transparent, hand-
 written reference implementation that grows in capacity over a multi-year
 scale ladder. ghost-tiny is rung 1.
 
 ### Where this model sits on the trajectory
 
-Phase 1 → 2 → 3 → 3.5 → 3.6 (attempted) on the 5×25 = 125-sample eval suite:
-12.0% → 18.4% → 20.0% → **31.2%** → 16.8%. Phase 3.5 is the canonical model
+Phase 1 to 2 to 3 to 3.5 to 3.6 (attempted) on the 5×25 = 125-sample eval suite:
+12.0% to 18.4% to 20.0% to **31.2%** to 16.8%. Phase 3.5 is the canonical model
 because Phase 3.6 regressed when Exploit-DB content pushed ghost-tiny past
 its capacity ceiling. The fix is the next rung (ghost-small at 55M params),
-not more data — see the [ROADMAP](https://github.com/joemunene-by/GhostLM/blob/main/ROADMAP.md).
+not more data, see the [ROADMAP](https://github.com/joemunene-by/GhostLM/blob/main/ROADMAP.md).
 
 ### What this UI is
 
@@ -455,8 +455,8 @@ free-tier CPU.
   up. The model has learned register, not knowledge.
 - **Mode-collapses.** v0.3.5 picks "Critical" for 72% of CVE-severity prompts;
   v0.3.6 picks one Vuln Type label for 96% of vuln-type prompts. The
-  numbers in the eval table aren't reasoning — they're priors.
-- **No instruction tuning.** This is a base language model — it continues
+  numbers in the eval table aren't reasoning, they're priors.
+- **No instruction tuning.** This is a base language model, it continues
   text, it doesn't follow instructions.
 
 ### License
@@ -468,7 +468,7 @@ Apache 2.0. Built by Joe Munene · [github.com/joemunene-by/GhostLM](https://git
         gr.Markdown(
             "Press **Generate** with one of the preset prompts to see what "
             "register-shaped output from a 14.7M-param model looks like. "
-            "Outputs are deliberately not surprising — the project's value "
+            "Outputs are deliberately not surprising, the project's value "
             "is in the trajectory, not the absolute quality."
         )
 

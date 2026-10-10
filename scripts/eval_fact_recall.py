@@ -12,7 +12,7 @@ completion.
 
 Substring match is permissive: it credits the model for surfacing the
 right token even if it doesn't structurally answer the question. That
-matches the intent — we want to know if v0.9's "magic numbers near
+matches the intent, we want to know if v0.9's "magic numbers near
 the surface" pattern from the qualitative comparison reproduces at
 scale.
 

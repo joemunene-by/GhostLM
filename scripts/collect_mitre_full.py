@@ -3,8 +3,7 @@
 
 The existing ``data/raw/mitre_attack.jsonl`` covers techniques + sub-techniques
 (691 records). The STIX bundle also contains mitigations (~140), intrusion
-groups (~150), malware/tools (~700), data sources (~40), and tactics (14) —
-all written in the same MITRE house style and useful as cybersec pretrain
+groups (~150), malware/tools (~700), data sources (~40), and tactics (14),all written in the same MITRE house style and useful as cybersec pretrain
 material. This script pulls the bundle once and writes those non-technique
 objects to ``data/raw/mitre_full.jsonl``.
 
@@ -12,7 +11,7 @@ Output schema matches existing ``mitre_attack.jsonl``::
 
     {"id": "M1234", "text": "MITRE ATT&CK Mitigation M1234: ...\\n\\n<body>"}
 
-Resume-safe — re-running picks up where it left off (skips ids already in
+Resume-safe, re-running picks up where it left off (skips ids already in
 the output file). Single download is ~30 MB; the parse + emit is < 1 min.
 """
 

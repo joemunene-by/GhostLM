@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Held-out chat eval — run a fixed prompt set through a chat-tuned checkpoint.
+"""Held-out chat eval, run a fixed prompt set through a chat-tuned checkpoint.
 
 Generates a transcript for each prompt without sampling randomness (top_k=1
 greedy by default for reproducibility) so we can compare side-by-side with
@@ -64,7 +64,7 @@ PROMPTS = [
 
 def parse_args() -> argparse.Namespace:
     """Parse CLI args."""
-    p = argparse.ArgumentParser(description="GhostLM chat eval — held-out prompt set")
+    p = argparse.ArgumentParser(description="GhostLM chat eval, held-out prompt set")
     p.add_argument("--checkpoint", required=True)
     p.add_argument("--device", default="auto")
     p.add_argument("--temperature", type=float, default=0.7)
@@ -110,7 +110,7 @@ def main() -> None:
 
     use_chat = cfg.vocab_size >= tokenizer.vocab_size
     out_lines = []
-    out_lines.append(f"# Eval — checkpoint: {args.checkpoint}")
+    out_lines.append(f"# Eval, checkpoint: {args.checkpoint}")
     out_lines.append(f"# device={device} chat_format={use_chat} "
                      f"temp={args.temperature} top_k={args.top_k} top_p={args.top_p} seed={args.seed}")
     out_lines.append("")

@@ -1,4 +1,4 @@
-"""GhostLM cybersecurity evaluation — tests the model on security-specific classification tasks."""
+"""GhostLM cybersecurity evaluation, tests the model on security-specific classification tasks."""
 
 import argparse
 import json
@@ -821,7 +821,7 @@ CTF_CATEGORY_SAMPLES = [
     },
     {
         "description": (
-            "The challenge service has a format string vulnerability — it passes user input "
+            "The challenge service has a format string vulnerability, it passes user input "
             "directly to printf. Players use %n writes to overwrite a return address on the stack "
             "and pivot execution to a one_gadget offset in libc, popping a shell with the flag "
             "available in the working directory."
@@ -850,7 +850,7 @@ CTF_CATEGORY_SAMPLES = [
         "description": (
             "Players face a sandboxed seccomp jail that only allows open, read, write, and exit. "
             "A buffer overflow in the parser gives ROP execution; the solution chains gadgets to "
-            "open(\"/flag\"), read into a buffer, and write the contents back to stdout — all "
+            "open(\"/flag\"), read into a buffer, and write the contents back to stdout, all "
             "within the seccomp policy."
         ),
         "label": "Binary Exploitation",
@@ -951,7 +951,7 @@ CTF_CATEGORY_SAMPLES = [
 # Task 5: MITRE ATT&CK Tactic Classification
 #   Given a description of adversary behavior, classify which ATT&CK tactic
 #   (high-level adversary goal) is being demonstrated. This is more abstract
-#   than Task 3 — it asks "why" rather than "how".
+#   than Task 3, it asks "why" rather than "how".
 # ---------------------------------------------------------------------------
 MITRE_TACTIC_SAMPLES = [
     {
@@ -1303,7 +1303,7 @@ def classify(
 
     Two scoring modes:
 
-    * ``"pmi"`` (default) — pointwise mutual information. Score is
+    * ``"pmi"`` (default), pointwise mutual information. Score is
       log P(candidate | task_prompt + description) - log P(candidate | task_prompt).
       Subtracting the task-prompt-only baseline cancels the model's
       unconditional prior toward common labels (the failure mode where
@@ -1311,7 +1311,7 @@ def classify(
       input). Both terms use ``aggregate="sum"`` so length normalization
       does not interfere.
 
-    * ``"logp"`` — historical length-normalized log-probability of
+    * ``"logp"``, historical length-normalized log-probability of
       candidate given full prompt. Mode-collapses when one candidate's
       tokens are unconditionally more likely than the others, which is
       exactly what we observed across Phases 1-3 (4/30 = 13.3%, below
@@ -1328,7 +1328,7 @@ def classify(
         scoring: ``"pmi"`` or ``"logp"``.
 
     Returns:
-        ``(best_label, scores)`` — the winning label plus the per-candidate
+        ``(best_label, scores)``, the winning label plus the per-candidate
         score dict (useful for debugging and per-sample inspection).
     """
     full_prompt = f"{task_prompt}\n\nDescription: {description}\n\nClassification:"
@@ -1395,7 +1395,7 @@ def run_task(
         })
 
     accuracy = correct / total if total > 0 else 0.0
-    # Distribution check — flags mode-collapse, the failure mode that
+    # Distribution check, flags mode-collapse, the failure mode that
     # killed the previous eval. If one label was predicted >70% of the
     # time the eval is not actually discriminating, regardless of
     # accuracy.
@@ -1488,7 +1488,7 @@ def main():
         default="pmi",
         help=(
             "Candidate-scoring strategy. 'pmi' (default) subtracts the "
-            "unconditional log-prob from the conditional log-prob — fixes "
+            "unconditional log-prob from the conditional log-prob, fixes "
             "the mode-collapse failure mode where the model picked the "
             "same label for every sample. 'logp' is the historical "
             "length-normalized scorer kept for back-compat / regression "

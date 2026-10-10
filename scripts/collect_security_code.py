@@ -40,7 +40,7 @@ import tempfile
 from pathlib import Path
 
 
-# Default extension → language label
+# Default extension to language label
 EXT_TO_LANG = {
     ".py": "python",
     ".c": "c",

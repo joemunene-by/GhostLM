@@ -33,7 +33,7 @@ from ghostlm.config import GhostLMConfig
 def torch_state_to_mlx(state: Dict[str, torch.Tensor]) -> Dict[str, "mx.array"]:
     """Convert a PyTorch state_dict to MLX arrays in float32.
 
-    Key names are kept identical — the MLX model class in ``scripts/mlx_chat.py``
+    Key names are kept identical, the MLX model class in ``scripts/mlx_chat.py``
     mirrors the PyTorch module names exactly so no renaming is necessary.
 
     Args:
@@ -44,7 +44,7 @@ def torch_state_to_mlx(state: Dict[str, torch.Tensor]) -> Dict[str, "mx.array"]:
     """
     out: Dict[str, mx.array] = {}
     for k, v in state.items():
-        # torch.float32 → mx.float32; bfloat16 / float16 are upcast at conversion.
+        # torch.float32 to mx.float32; bfloat16 / float16 are upcast at conversion.
         arr = v.detach().to(torch.float32).cpu().numpy()
         out[k] = mx.array(arr)
     return out
@@ -71,7 +71,7 @@ def quantize_linears(
         Mutated copy of ``weights`` with linear-weight rows replaced.
     """
     out: Dict[str, mx.array] = dict(weights)
-    # Identify linear weights by name pattern — every weight ending in
+    # Identify linear weights by name pattern, every weight ending in
     # ``.weight`` whose corresponding module is a Linear in the original
     # architecture. We match by suffix; this covers c_qkv, proj, fc1, fc2,
     # and lm_head. ``token_embedding.weight`` and ``pos_embedding.weight`` are
@@ -85,8 +85,7 @@ def quantize_linears(
         # LayerNorm weights are 1-D; skip them too.
         if out[k].ndim != 2:
             continue
-        # lm_head.weight is tied to token_embedding.weight in the source —
-        # we still quantize it because at inference the lm_head is a separate
+        # lm_head.weight is tied to token_embedding.weight in the source,        # we still quantize it because at inference the lm_head is a separate
         # quantized Linear and the embedding stays full-precision.
         w_q, scales, biases = mx.quantize(out[k], group_size=group_size, bits=bits)
         out[k] = w_q
@@ -99,7 +98,7 @@ def quantize_linears(
 
 def parse_args() -> argparse.Namespace:
     """Parse CLI args."""
-    p = argparse.ArgumentParser(description="GhostLM PyTorch → MLX converter")
+    p = argparse.ArgumentParser(description="GhostLM PyTorch to MLX converter")
     p.add_argument("--checkpoint", required=True,
                    help="Path to PyTorch .pt checkpoint")
     p.add_argument("--out-dir", required=True,
@@ -136,7 +135,7 @@ def main() -> None:
     print(f"  Architecture: vocab={cfg.vocab_size} d_model={cfg.d_model} "
           f"n_heads={cfg.n_heads} n_layers={cfg.n_layers} ctx={cfg.context_length}")
 
-    print("Converting tensors → MLX...")
+    print("Converting tensors to MLX...")
     mlx_state = torch_state_to_mlx(state)
 
     if args.quantize:
@@ -151,7 +150,7 @@ def main() -> None:
     try:
         mx.save_safetensors(str(weights_path), mlx_state)
     except AttributeError:
-        # Older mlx — write a directory of .npy files instead.
+        # Older mlx, write a directory of .npy files instead.
         weights_path = out_dir / "weights"
         weights_path.mkdir(exist_ok=True)
         for k, v in mlx_state.items():

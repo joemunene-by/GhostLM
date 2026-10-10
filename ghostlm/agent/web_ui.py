@@ -302,7 +302,7 @@ function renderTrace(trace) {
         /&lt;\\|tool_call\\|&gt;[^]*?&lt;\\|\\/tool_call\\|&gt;/g, "");
       if (tcs.length) {
         body += tcs.map(tc =>
-          `<div class="tool-block">→ ${escapeHtml(tc.name)}(${
+          `<div class="tool-block"> to ${escapeHtml(tc.name)}(${
             escapeHtml(JSON.stringify(tc.args))})</div>`
         ).join("");
       }
@@ -314,8 +314,7 @@ function renderTrace(trace) {
       const body = match ? match[1] : m.content;
       const name = (m.metadata && m.metadata.tool_name) || "tool";
       appendMsg("tool",
-        `<div class="tool-block">${escapeHtml(name)} →
-${escapeHtml(body)}</div>`);
+        `<div class="tool-block">${escapeHtml(name)} to${escapeHtml(body)}</div>`);
     }
   }
 }

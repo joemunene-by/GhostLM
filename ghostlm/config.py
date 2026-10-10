@@ -1,4 +1,4 @@
-"""GhostLM configuration — all model and training hyperparameters live here."""
+"""GhostLM configuration, all model and training hyperparameters live here."""
 
 from dataclasses import dataclass
 from typing import Optional
@@ -29,8 +29,7 @@ class GhostLMConfig:
     # Grouped-query attention: number of key/value heads. None means
     # n_kv_heads == n_heads (plain multi-head attention, the historical
     # behaviour). Setting it lower (n_heads must be divisible by it)
-    # shares each KV head across n_heads / n_kv_heads query heads —
-    # Llama-3 / Qwen / Gemma style — shrinking the KV cache by the same
+    # shares each KV head across n_heads / n_kv_heads query heads,    # Llama-3 / Qwen / Gemma style, shrinking the KV cache by the same
     # factor at near-zero quality cost.
     n_kv_heads: Optional[int] = None
     # RMSNorm on per-head queries and keys before RoPE (Qwen3 / Gemma-3 /
@@ -110,8 +109,7 @@ class GhostLMConfig:
     # throughput win on CUDA; first step pays a compilation stall.
     use_compile: bool = False
     # Recompute block activations in backward instead of storing them.
-    # Trades ~25-30% step time for a large activation-memory cut —
-    # what makes ghost-1b/3b shapes fit on a single card.
+    # Trades ~25-30% step time for a large activation-memory cut,    # what makes ghost-1b/3b shapes fit on a single card.
     gradient_checkpointing: bool = False
 
     def num_params(self) -> int:
@@ -119,7 +117,7 @@ class GhostLMConfig:
 
         Instantiates the model on the meta device (no memory is
         allocated, no weights are initialized on real storage), so the
-        count is exact for every architecture switch — RoPE vs learned
+        count is exact for every architecture switch, RoPE vs learned
         positions, GELU vs SwiGLU vs MoE FFN, bias on/off, weight tying.
         """
         import torch  # local imports avoid a config <-> model cycle
@@ -178,7 +176,7 @@ class GhostLMConfig:
                 "n_heads": 12,
                 "d_ff": 3072,
             },
-            # v0.5 preset — same param shape as ghost-small but flips on
+            # v0.5 preset, same param shape as ghost-small but flips on
             # the modern-arch switches. Use this for the v0.4.2 retrain.
             "ghost-small-v0.5": {
                 "n_layers": 6,
@@ -189,7 +187,7 @@ class GhostLMConfig:
                 "use_swiglu": True,
                 "use_rmsnorm": True,
             },
-            # ghost-1b — first MoE preset. Target shape: ~1.2B active,
+            # ghost-1b, first MoE preset. Target shape: ~1.2B active,
             # ~2.1B total (4 experts of SwiGLU, top-2 routing). This is
             # the bet 5 differentiator from docs/differentiation.md:
             # going MoE at 1B from-scratch is rare; most cybersec LMs
@@ -212,7 +210,7 @@ class GhostLMConfig:
                 "n_experts_active": 2,
                 "moe_aux_loss_coef": 0.01,
             },
-            # ghost-3b — second MoE preset. Target shape: ~3.3B active,
+            # ghost-3b, second MoE preset. Target shape: ~3.3B active,
             # ~6B total. Same MoE recipe as ghost-1b, scaled to a
             # SmolLM2-Mistral-7B-style dense backbone.
             "ghost-3b": {

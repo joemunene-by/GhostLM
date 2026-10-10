@@ -12,7 +12,7 @@ Filtering rationale:
   CTFs usually weigh 50+. Setting the floor at 30 keeps mid-tier
   competitions whose writeups still teach real techniques while
   excluding the long tail of toy CTFs.
-- ``participants`` filters out competitions nobody played — those
+- ``participants`` filters out competitions nobody played, those
   have few writeups and the ones that exist are often bad.
 - ``format`` is restricted to Jeopardy because the CTFtime writeup
   page format used by ``collect_ctftime_writeups`` is built for
@@ -55,7 +55,7 @@ def fetch_events(start_year: int, end_year: int, limit: int = 1000,
 
     The API caps results per request, so the date range is split into
     yearly chunks for safety. Failed years are logged but don't abort
-    the discovery — partial results are better than none.
+    the discovery, partial results are better than none.
 
     Args:
         start_year: First calendar year to include (inclusive).
@@ -126,7 +126,7 @@ def merge_existing(new_events: List[Dict], existing_path: Path) -> List[Dict]:
         existing = json.load(f)
     by_id: Dict[int, Dict] = {e["id"]: e for e in new_events}
     for e in existing:
-        # Existing entries take precedence — replace any matching new id.
+        # Existing entries take precedence, replace any matching new id.
         by_id[e["id"]] = e
     merged = list(by_id.values())
     merged.sort(key=lambda e: e["id"])
@@ -143,7 +143,7 @@ def parse_args():
     p.add_argument(
         "--min-weight", type=float, default=30.0,
         help=(
-            "CTFtime weight floor (0-100). Defaults to 30 — keeps mid-tier "
+            "CTFtime weight floor (0-100). Defaults to 30, keeps mid-tier "
             "competitions whose writeups still teach real technique."
         ),
     )

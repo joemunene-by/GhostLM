@@ -4,14 +4,14 @@
 At inference time:
 1. Look up any CVE/CWE/CAPEC/ATT&CK IDs in the query exactly, then fill the
    rest by BGE cosine similarity against the in-memory passage matrix
-   (~115 MB at 75K passages × 384 dims — trivially fast on M4).
+   (~115 MB at 75K passages × 384 dims, trivially fast on M4).
 2. Take the top-K passages (default 4), join them as a "Reference passages"
    prefix, and prepend to the user turn.
 3. Run the chat-tuned GhostLM as usual; the model is not RAFT-trained yet so
-   it just sees retrieved context as part of the user message — no new tokens
+   it just sees retrieved context as part of the user message, no new tokens
    or special handling needed.
 
-The full RAFT-style retrieval-aware fine-tune is a separate session — this
+The full RAFT-style retrieval-aware fine-tune is a separate session, this
 script is the working RAG baseline that proves the plumbing and gives an
 honest "did retrieval help?" measurement.
 """
