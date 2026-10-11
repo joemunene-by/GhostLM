@@ -19,9 +19,14 @@ import hashlib
 import json
 import random
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Iterable, List, Optional
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from ghostlm import identity  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -588,7 +593,9 @@ def main() -> None:
     # model that GhostLM responds outside cybersec without swamping
     # the security signal.
     if args.general_knowledge and Path(args.general_knowledge).exists():
-        gk_all = load_jsonl(Path(args.general_knowledge))
+        # Identity rows come from ghostlm.identity so they match the app and the current model.
+        gk_all = [r for r in load_jsonl(Path(args.general_knowledge)) if r.get("topic") != "identity"]
+        gk_all += identity.sft_examples()
         rng.shuffle(gk_all)
         n_gk_val = max(1, int(len(gk_all)
                                 * args.general_knowledge_val_frac))
