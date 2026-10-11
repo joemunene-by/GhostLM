@@ -1,12 +1,15 @@
-"""Phase plan for the background run: dense pretrain, then optional BTX expert branching.
+"""Phase plan for the background run: dense pretrain, optional BTX experts, then chat SFT.
 
-    pretrain  ->  branch_<domain> x N  ->  merge  ->  router
+    pretrain  ->  branch_<domain> x N  ->  merge  ->  router  ->  chat_sft
 
 Each branch resumes the pretrain's ``pre_decay.pt`` (the last flat-LR state of the
 WSD schedule) and keeps training on one domain only; ``merge`` turns the branches
 into a Mixture-of-Experts (scripts/btx_merge.py); ``router`` trains the routers,
-attention and norms of that MoE on mixed data with the experts frozen. Enabled by
-a ``"btx"`` block in .bg/train_config.json; without it the plan is just pretrain.
+attention and norms of that MoE on mixed data with the experts frozen. BTX is
+enabled by a ``"btx"`` block in .bg/train_config.json. ``chat_sft`` is the final
+phase: it fine-tunes the best model the pipeline produced (the MoE if BTX ran,
+otherwise the dense pretrain) on the chat data so the result holds a conversation.
+Enabled by ``"chat_sft"`` in the config; without these the plan is just pretrain.
 """
 
 from __future__ import annotations
@@ -16,6 +19,20 @@ from pathlib import Path
 
 PRETRAIN_RUN = "ghost_base_mac"
 MOE_RUN = "ghost_base_moe"
+CHAT_RUN = "ghost_base_chat"
+
+DEFAULT_CHAT = {
+    "max_steps": 4000,
+    "learning_rate": 2e-5,
+    "warmup_steps": 200,
+    "batch_size": 8,
+    "grad_accum_steps": 4,
+    "context_length": 1024,
+    "eval_interval": 200,
+    "save_interval": 200,
+    "train_data": "data/processed/chat_train.jsonl",
+    "val_data": "data/processed/chat_val.jsonl",
+}
 
 DEFAULT_BTX = {
     "branches": {
@@ -41,6 +58,14 @@ def btx_config(cfg: dict) -> dict | None:
     return out
 
 
+def chat_config(cfg: dict) -> dict | None:
+    if not cfg.get("chat_sft"):
+        return None
+    out = dict(DEFAULT_CHAT)
+    out.update(cfg["chat_sft"] if isinstance(cfg["chat_sft"], dict) else {})
+    return out
+
+
 def plan(cfg: dict) -> list[dict]:
     phases = [{"name": "pretrain", "run": PRETRAIN_RUN, "kind": "train"}]
     btx = btx_config(cfg)
@@ -49,7 +74,31 @@ def plan(cfg: dict) -> list[dict]:
             phases.append({"name": f"branch_{domain}", "run": f"btx_{domain}", "kind": "train", "domain": domain})
         phases.append({"name": "merge", "run": MOE_RUN, "kind": "merge"})
         phases.append({"name": "router", "run": MOE_RUN, "kind": "train"})
+    if chat_config(cfg):
+        phases.append({"name": "chat_sft", "run": CHAT_RUN, "kind": "chat"})
     return phases
+
+
+def chat_base_checkpoint(cfg: dict, root: Path) -> Path:
+    """The checkpoint chat SFT fine-tunes: the MoE if BTX ran, else the dense pretrain."""
+    run = MOE_RUN if btx_config(cfg) else PRETRAIN_RUN
+    return root / "checkpoints" / run / "final.pt"
+
+
+def chat_command(cfg: dict, root: Path, py: Path, run: str, resume: Path | None) -> list:
+    """Build the finetune_chat.py invocation for the terminal chat SFT phase."""
+    c = chat_config(cfg)
+    cmd = [str(py), "scripts/finetune_chat.py",
+           "--checkpoint", str(chat_base_checkpoint(cfg, root)),
+           "--run-name", run,
+           "--train-data", str(root / c["train_data"]), "--val-data", str(root / c["val_data"]),
+           "--max-steps", str(c["max_steps"]), "--learning-rate", str(c["learning_rate"]),
+           "--warmup-steps", str(c["warmup_steps"]), "--batch-size", str(c["batch_size"]),
+           "--grad-accum-steps", str(c["grad_accum_steps"]), "--context-length", str(c["context_length"]),
+           "--eval-interval", str(c["eval_interval"]), "--save-interval", str(c["save_interval"])]
+    if resume:
+        cmd += ["--resume", str(resume)]
+    return cmd
 
 
 def _pretrain_max(cfg: dict) -> int:
@@ -67,6 +116,8 @@ def phase_max_steps(cfg: dict, phase: dict) -> int:
         return pretrain_decay_start(cfg) + btx["branch_steps"]
     if phase["name"] == "router":
         return btx["router_steps"]
+    if phase["name"] == "chat_sft":
+        return chat_config(cfg)["max_steps"]
     return _pretrain_max(cfg)
 
 

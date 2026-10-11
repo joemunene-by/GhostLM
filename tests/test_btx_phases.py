@@ -83,3 +83,37 @@ def test_advance_phase_resets_counters_and_finishes_at_the_end(monkeypatch):
     state["phase"] = len(phases.plan(CFG)) - 1
     sup.advance_phase(CFG, state)
     assert state["finished"]
+
+
+def test_chat_sft_is_the_final_phase():
+    plan = phases.plan(dict(CFG, chat_sft=True))
+    assert plan[-1] == {"name": "chat_sft", "run": phases.CHAT_RUN, "kind": "chat"}
+    # chat SFT with no BTX still runs, right after the pretrain.
+    plain = phases.plan(dict(sup.DEFAULT_CONFIG, chat_sft=True))
+    assert [p["name"] for p in plain] == ["pretrain", "chat_sft"]
+
+
+def test_chat_base_is_the_moe_when_btx_ran_else_the_pretrain(tmp_path):
+    assert phases.chat_base_checkpoint(dict(CFG, chat_sft=True), tmp_path) == \
+        tmp_path / "checkpoints" / phases.MOE_RUN / "final.pt"
+    assert phases.chat_base_checkpoint(dict(sup.DEFAULT_CONFIG, chat_sft=True), tmp_path) == \
+        tmp_path / "checkpoints" / phases.PRETRAIN_RUN / "final.pt"
+
+
+def test_chat_command_fine_tunes_the_base_and_resumes_in_progress(tmp_path):
+    cfg = dict(CFG, chat_sft={"max_steps": 1200, "learning_rate": 3e-5})
+    base = phases.chat_command(cfg, tmp_path, Path("py"), phases.CHAT_RUN, None)
+    assert "scripts/finetune_chat.py" in base and "--resume" not in base
+    assert base[base.index("--max-steps") + 1] == "1200"
+    assert base[base.index("--learning-rate") + 1] == "3e-05"
+    assert base[base.index("--checkpoint") + 1].endswith("ghost_base_moe/final.pt")
+    resumed = phases.chat_command(cfg, tmp_path, Path("py"), phases.CHAT_RUN, tmp_path / "ck.pt")
+    assert resumed[resumed.index("--resume") + 1].endswith("ck.pt")
+
+
+def test_supervisor_builds_chat_command_for_the_chat_phase(monkeypatch):
+    monkeypatch.setattr(sup, "checkpoints", lambda: [])
+    cmd = sup.train_command(dict(CFG, chat_sft=True), {"name": "chat_sft", "run": phases.CHAT_RUN, "kind": "chat"})
+    assert cmd[:3] == ["nice", "-n", "10"] and "scripts/finetune_chat.py" in cmd
+    assert phases.phase_max_steps(dict(CFG, chat_sft=True),
+                                  {"name": "chat_sft", "kind": "chat"}) == phases.DEFAULT_CHAT["max_steps"]

@@ -35,6 +35,9 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="GhostLM chat-tuning (SFT)")
     p.add_argument("--checkpoint", required=True,
                    help="Pretrain checkpoint to fine-tune (e.g. checkpoints/phase4_ghost_small/best_model.pt)")
+    p.add_argument("--resume", default=None,
+                   help="In-progress SFT checkpoint to continue from (skips vocab expansion); "
+                        "used by the background runner so a paused SFT resumes instead of restarting")
     p.add_argument("--train-data", default="data/processed/chat_train.jsonl")
     p.add_argument("--val-data", default="data/processed/chat_val.jsonl")
     p.add_argument("--run-name", default="phase5_chat",
@@ -143,31 +146,41 @@ def main() -> None:
 
     print(f"Pretrain config vocab_size: {config.vocab_size}")
 
-    # ---- Build model and load pretrain weights at original vocab size ----
-    model = GhostLM(config)
-    state = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt["model"]
-
-    # Pos embedding can be larger in the checkpoint (pretrain ctx 1024) than in
-    # the current model (SFT at smaller ctx). Slice down to match, chat data
-    # rarely needs > 512 tokens and shrinking ctx halves attention memory.
-    pe_key = "pos_embedding.weight"
-    if pe_key in state:
-        ckpt_pe = state[pe_key]
-        ctx_now = model.pos_embedding.weight.shape[0]
-        if ckpt_pe.shape[0] > ctx_now:
-            print(f"  Slicing pos_embedding {ckpt_pe.shape[0]} to {ctx_now} for SFT ctx")
-            state[pe_key] = ckpt_pe[:ctx_now]
-
-    missing, unexpected = model.load_state_dict(state, strict=False)
-    if unexpected:
-        print(f"  Unexpected keys (ignored): {unexpected}")
-    if missing:
-        print(f"  Missing keys (will be reinitialized): {missing}")
-
-    # ---- Expand vocab to fit chat tokens ----
     new_vocab = tokenizer.vocab_size
-    print(f"Expanding token embedding {config.vocab_size} to {new_vocab}")
-    expand_token_embedding(model, new_vocab)
+    resuming = bool(args.resume) and Path(args.resume).exists()
+
+    if resuming:
+        # An in-progress SFT checkpoint already carries the expanded vocab and chat
+        # tokens; build at that size and let the trainer restore weights, optimizer
+        # and step below. This is what lets the background run pause and continue.
+        config.vocab_size = new_vocab
+        model = GhostLM(config)
+        print(f"Resuming SFT from {args.resume} (vocab already {new_vocab})")
+    else:
+        # ---- Build model and load pretrain weights at original vocab size ----
+        model = GhostLM(config)
+        state = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt["model"]
+
+        # Pos embedding can be larger in the checkpoint (pretrain ctx 1024) than in
+        # the current model (SFT at smaller ctx). Slice down to match, chat data
+        # rarely needs > 512 tokens and shrinking ctx halves attention memory.
+        pe_key = "pos_embedding.weight"
+        if pe_key in state:
+            ckpt_pe = state[pe_key]
+            ctx_now = model.pos_embedding.weight.shape[0]
+            if ckpt_pe.shape[0] > ctx_now:
+                print(f"  Slicing pos_embedding {ckpt_pe.shape[0]} to {ctx_now} for SFT ctx")
+                state[pe_key] = ckpt_pe[:ctx_now]
+
+        missing, unexpected = model.load_state_dict(state, strict=False)
+        if unexpected:
+            print(f"  Unexpected keys (ignored): {unexpected}")
+        if missing:
+            print(f"  Missing keys (will be reinitialized): {missing}")
+
+        # ---- Expand vocab to fit chat tokens ----
+        print(f"Expanding token embedding {config.vocab_size} to {new_vocab}")
+        expand_token_embedding(model, new_vocab)
 
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
 
@@ -195,6 +208,9 @@ def main() -> None:
         shutil.copy2(args.tokenizer, tok_save_path)
     else:
         tokenizer.save(tok_save_path)
+
+    if resuming:
+        trainer.load_checkpoint(args.resume)
 
     trainer.train(train_loader, val_loader)
 

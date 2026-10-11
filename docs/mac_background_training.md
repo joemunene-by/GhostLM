@@ -97,3 +97,15 @@ The dense model from step 1's starting point still finishes normally
 (`checkpoints/ghost_base_mac/final.pt` and `averaged.pt`), so the MoE is only
 kept if it beats it on the scorecard. Override any default with a dict, for
 example `"btx": {"branch_steps": 3000, "top_k": 2}`.
+
+## Chat fine-tuning at the end
+
+With `"chat_sft": true`, the supervisor adds one final phase after everything
+else: it fine-tunes the best model the pipeline produced (the MoE if BTX ran,
+otherwise the dense pretrain's `final.pt`) on the chat data, so the result holds
+a conversation instead of only continuing text. It runs `scripts/finetune_chat.py`
+under the same supervision as the other phases (game and memory pauses, crash
+backoff), and the SFT resumes from its own checkpoint after a pause rather than
+restarting. The chat model lands in `checkpoints/ghost_base_chat/` with its
+tokenizer and config beside it. Override defaults with a dict, for example
+`"chat_sft": {"max_steps": 6000, "learning_rate": 1e-5}`.
