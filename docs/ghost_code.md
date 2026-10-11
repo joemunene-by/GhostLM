@@ -1,15 +1,19 @@
 # Ghost Code
 
-A coding agent for your terminal. It reads, searches, edits and runs code in the
-folder you start it in, asking before it changes anything.
+A terminal agent for securing your machine and your code. It audits the computer it
+runs on, scans projects for leaked secrets and risky code, and reads, edits and runs
+things in the folder you start it in, asking before it changes anything.
 
 It talks to any OpenAI-compatible endpoint, so the model can be a local one served
-by Ollama, the GhostLM agent server, vLLM, or a hosted API.
+by Ollama, the GhostLM agent server, vLLM, or a hosted API. With a local model,
+nothing about your machine leaves it.
+
+![Ghost Code scanning a project](../assets/ghost_code_demo.gif)
 
 ```bash
 pip install -e '.[code]'
 ghost                         # interactive, in the current folder
-ghost "why is test_auth failing?"
+ghost "is anything on this machine listening on the network?"
 ghost -p "summarise this repo" # answer and exit
 ghost -c                      # resume the last session in this folder
 ```
@@ -31,8 +35,44 @@ The model must support tool calling. To use a GhostLM checkpoint, serve it with
 strong enough to drive an agent loop; a tool-capable model of 7B parameters or more
 is a realistic floor.
 
-Ollama truncates long conversations to its context length without warning. For
-agent work, start it with a larger one: `OLLAMA_CONTEXT_LENGTH=16384 ollama serve`.
+Ollama's OpenAI endpoint cannot set the context length and silently truncates at
+4,096 tokens, so when the endpoint is Ollama, `ghost` uses its native API and asks for
+16,384. Change that with `GHOST_CONTEXT` or `"context"` in the config file. A larger
+context uses more memory.
+
+## Security
+
+| Command | What it does |
+|---|---|
+| `/audit` | Read-only audit of this machine, reported worst first with the fix for each finding |
+| `/scan` | Scan the current folder for secrets, injection, disabled TLS checks and old pinned dependencies |
+
+You can also just ask: "why is port 5000 open?", "which startup items look unusual?",
+"is CVE-2024-3094 being exploited?".
+
+The audit collects evidence with fixed, read-only commands, so it never prompts and
+never changes anything. Applying a fix is a separate step that asks first.
+
+| Area | macOS | Linux |
+|---|---|---|
+| `firewall` | Application firewall state, stealth mode | ufw or firewalld |
+| `disk_encryption` | FileVault | LUKS volumes |
+| `system_protection` | SIP, Gatekeeper, guest account | ASLR, AppArmor or SELinux |
+| `listening_ports` | Processes listening on TCP | The same, with `ss` |
+| `remote_access` | SSH, screen sharing, file sharing, sshd settings | sshd state and settings |
+| `persistence` | Launch agents and daemons, crontab | Enabled services, cron |
+| `accounts` | Local users, admin group | Users with a login, sudo group |
+| `ssh_keys` | `~/.ssh` contents and permissions, authorized keys | The same |
+| `updates` | OS version, automatic update settings | Pending package updates |
+
+The secret scanner looks for private keys, AWS, GitHub, Slack and `sk-` style keys,
+credentials in URLs, and hardcoded passwords or tokens. It reports the file and line
+with the value masked, so secrets are not sent to the model.
+
+`lookup_cve` queries NVD and CISA's Known Exploited Vulnerabilities list, falling
+back to a small offline cache without a network.
+
+Ghost Code works defensively, on systems you own or are authorised to test.
 
 ## Interface
 
@@ -54,12 +94,14 @@ agent work, start it with a larger one: `OLLAMA_CONTEXT_LENGTH=16384 ollama serv
 | `/model [name]` | Show or switch the model |
 | `/mode [name]` | Show or set the permission mode |
 | `/status` | Model, endpoint, mode, context size |
+| `/audit` | Security audit of this machine |
+| `/scan` | Security scan of this folder |
 | `/init` | Have the agent write a `GHOST.md` for the project |
 | `/exit` | Quit |
 
 ## Permissions
 
-Reading and searching never ask. Everything else depends on the mode.
+Reading, searching and the security checks never ask. Everything else depends on the mode.
 
 | Mode | Edits in the working folder | Edits elsewhere | Shell commands |
 |---|---|---|---|
@@ -82,7 +124,8 @@ contents are added to the system prompt.
 
 ## Tools
 
-`read_file`, `write_file`, `edit_file`, `bash`, `grep`, `glob`, `list_dir`. Search
+`read_file`, `write_file`, `edit_file`, `bash`, `grep`, `glob`, `list_dir`,
+`security_check`, `secret_scan`, `lookup_cve`. Search
 skips `.git`, `node_modules`, virtual environments and build folders. Tool output
 over 20,000 characters is truncated.
 

@@ -20,7 +20,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
-from ghostlm.code import mascot, tools
+from ghostlm.code import tools
 from ghostlm.code.backend import Reply
 
 try:
@@ -48,21 +48,6 @@ VERBS = ["Haunting", "Drifting", "Phasing", "Conjuring", "Materialising", "Whisp
          "Manifesting", "Flickering", "Rattling chains", "Walking through walls", "Tokenising", "Attending",
          "Sampling", "Decoding", "Unspooling", "Shimmering"]
 WAVE = ["#3d3d3d", "#6b6b6a", "#a8a8a6", "#f5f5f4", "#a8a8a6", "#6b6b6a"]
-
-
-def rich_style(pt_style: str) -> str:
-    parts = dict(p.split(":") for p in pt_style.split())
-    return " on ".join(v for v in (parts.get("fg"), parts.get("bg")) if v) if "fg" in parts else ""
-
-
-def ghost_text(lines) -> list[Text]:
-    out = []
-    for line in lines:
-        t = Text()
-        for style, ch in line:
-            t.append(ch, style=rich_style(style) if style else None)
-        out.append(t)
-    return out
 
 
 def read_key(timeout: float | None = None) -> str | None:
@@ -143,12 +128,6 @@ class TerminalUI:
         self.watcher = EscWatcher(on_interrupt)
         self.live: Live | None = None
         self.status: Status | None = None
-
-    def header(self, title: str, model: str, where: str) -> list[Text]:
-        ghost = ghost_text(mascot.frame(0))
-        info = [Text(""), Text.assemble((title.split(" v")[0], "bold"), (" v" + title.split(" v")[1], "dim")),
-                Text(model, style="dim"), Text(where, style="dim"), Text("")]
-        return [Text.assemble(" ", g, "   ", i) for g, i in zip(ghost, info)]
 
     def start_reply(self) -> None:
         self.status = Status()

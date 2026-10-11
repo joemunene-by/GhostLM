@@ -34,11 +34,23 @@ class Reply:
 
 
 class Backend:
-    def __init__(self, base_url: str, model: str, api_key: str | None = None, timeout: float = 900.0):
+    def __init__(self, base_url: str, model: str, api_key: str | None = None, timeout: float = 900.0,
+                 context: int = 16_384):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self.timeout = httpx.Timeout(timeout, connect=10.0)
+        self.context = context
+        self.ollama = self._ollama_root()
+
+    def _ollama_root(self) -> str | None:
+        """Ollama's OpenAI endpoint cannot set the context length, so its native API is used when present."""
+        root = self.base_url.removesuffix("/v1")
+        try:
+            r = httpx.get(f"{root}/api/version", timeout=2.0)
+            return root if r.status_code == 200 and "version" in r.json() else None
+        except (httpx.HTTPError, ValueError):
+            return None
 
     def models(self) -> list[str]:
         try:
@@ -82,24 +94,40 @@ class Backend:
 
     def _stream(self, payload: dict, events: queue.Queue, stop: threading.Event) -> None:
         reply, calls = Reply(), {}
+        url = f"{self.base_url}/chat/completions"
+        if self.ollama:
+            url = f"{self.ollama}/api/chat"
+            payload = {"model": payload["model"], "messages": _ollama_messages(payload["messages"]), "stream": True,
+                       "tools": payload.get("tools") or [], "options": {"num_ctx": self.context}}
         try:
-            with httpx.stream("POST", f"{self.base_url}/chat/completions", json=payload,
-                              headers=self.headers, timeout=self.timeout) as r:
+            with httpx.stream("POST", url, json=payload, headers=self.headers, timeout=self.timeout) as r:
                 if r.status_code >= 400:
                     raise BackendError(f"{r.status_code} from {self.base_url}: {r.read().decode(errors='replace')[:400]}")
                 for line in r.iter_lines():
                     if stop.is_set():
                         return
-                    if not line.startswith("data:"):
+                    data = line[5:].strip() if line.startswith("data:") else line.strip() if self.ollama else ""
+                    if not data:
                         continue
-                    data = line[5:].strip()
                     if data == "[DONE]":
                         break
                     chunk = json.loads(data)
-                    if chunk.get("usage"):
-                        reply.usage = chunk["usage"]
-                    for choice in chunk.get("choices", []):
-                        delta = choice.get("delta") or {}
+                    if self.ollama:
+                        if chunk.get("error"):
+                            raise BackendError(str(chunk["error"]))
+                        delta = chunk.get("message") or {}
+                        for tc in delta.get("tool_calls") or []:
+                            fn = tc.get("function") or {}
+                            calls[len(calls)] = {"id": "", "name": fn.get("name", ""),
+                                                 "arguments": json.dumps(fn.get("arguments") or {})}
+                        if chunk.get("done"):
+                            reply.usage = {"total_tokens": chunk.get("prompt_eval_count", 0) + chunk.get("eval_count", 0)}
+                        deltas = [dict(delta, tool_calls=None, reasoning=delta.get("thinking"))]
+                    else:
+                        if chunk.get("usage"):
+                            reply.usage = chunk["usage"]
+                        deltas = [choice.get("delta") or {} for choice in chunk.get("choices", [])]
+                    for delta in deltas:
                         thinking = delta.get("reasoning") or delta.get("reasoning_content")
                         if thinking:
                             events.put(("thinking", thinking))
@@ -124,3 +152,24 @@ class Backend:
         reply.tool_calls = [ToolCall(c["id"] or f"call_{i}", c["name"], c["arguments"] or "{}")
                             for i, c in sorted(calls.items())]
         events.put(("done", reply))
+
+
+def _ollama_messages(messages: list[dict]) -> list[dict]:
+    """Ollama's native format: tool arguments are objects, and tool results name their tool."""
+    names, out = {}, []
+    for m in messages:
+        m = dict(m)
+        if m.get("tool_calls"):
+            calls = []
+            for c in m["tool_calls"]:
+                names[c["id"]] = c["function"]["name"]
+                try:
+                    args = json.loads(c["function"]["arguments"] or "{}")
+                except ValueError:
+                    args = {}
+                calls.append({"function": {"name": c["function"]["name"], "arguments": args}})
+            m["tool_calls"] = calls
+        if m["role"] == "tool":
+            m = {"role": "tool", "content": m["content"], "tool_name": names.get(m.get("tool_call_id"), "")}
+        out.append(m)
+    return out

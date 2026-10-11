@@ -26,12 +26,24 @@ COMMANDS = {
     "/model": "show or switch the model, e.g. /model qwen3:8b",
     "/mode": "show or set the permission mode",
     "/status": "model, endpoint, mode and context size",
+    "/audit": "security audit of this machine (read-only)",
+    "/scan": "scan this folder for secrets and risky code",
     "/init": "write a GHOST.md describing this project",
     "/exit": "quit",
 }
 SHORTCUTS = [("enter", "send"), ("\\ + enter, or esc then enter", "new line"), ("shift+tab", "cycle permission mode"),
              ("esc", "interrupt the model"), ("! command", "run a shell command yourself"),
              ("@ path", "mention a file"), ("ctrl+c twice", "quit")]
+AUDIT_PROMPT = ("Audit the security of this machine. Run security_check with area 'all', then follow up on "
+                "anything that needs a closer look. Report a table of findings (area, status, severity, evidence), "
+                "worst first, including what is already fine. Then list the fixes worth making, each with the exact "
+                "command and what it changes. Change nothing yet: ask me which fixes to apply.")
+SCAN_PROMPT = ("Scan the code in this folder for security problems. Work through these steps: 1) run secret_scan. "
+               "2) list the files with glob and read every source and config file. 3) look for shell injection, "
+               "eval or exec on input, SQL built from strings, disabled TLS verification, debug mode left on, and "
+               "world-writable permissions. 4) check dependency manifests for old pinned versions. "
+               "This is about the code, not the machine, so do not run security_check. "
+               "Report findings worst first with file and line. Change nothing yet: ask me which to fix.")
 INIT_PROMPT = ("Explore this repository and write a GHOST.md at its root: what the project is, how to "
                "build, test and lint it, the layout, and any conventions an agent working here should follow. "
                "Keep it under 60 lines.")
@@ -71,7 +83,7 @@ def build_backend(args) -> Backend:
     cfg = load_config()
     url = args.base_url or os.environ.get("GHOST_BASE_URL") or cfg.get("base_url") or DEFAULT_URL
     key = os.environ.get("GHOST_API_KEY") or cfg.get("api_key")
-    backend = Backend(url, "", key)
+    backend = Backend(url, "", key, context=int(os.environ.get("GHOST_CONTEXT") or cfg.get("context") or 16_384))
     model = args.model or os.environ.get("GHOST_MODEL") or cfg.get("model") or pick_model(backend.models())
     if not model:
         sys.exit(f"ghost: no model found at {url}.\n"
@@ -183,14 +195,14 @@ class Repl:
         if self.fresh:
             host = urlparse(self.agent.backend.base_url).netloc
             where = short_path(self.agent.cwd)
-            info = [[], [("class:title", "Ghost Code"), ("class:dim", f" v{__version__}")],
+            info = [[], [], [("class:title", "Ghost Code"), ("class:dim", f" v{__version__}")],
                     [("class:dim", f"{self.agent.backend.model} · {host}")],
                     [("class:dim", where if len(where) < size.columns - 16 else "…" + where[16 - size.columns:])], []]
             tick = 0 if done else int((time.time() - self.started) * 5)
             for ghost_line, text in zip(mascot.frame(tick), info):
                 parts += [("", " "), *ghost_line, ("", "   "), *text, ("", "\n")]
             # Until the first message is sent, pad so the prompt sits at the bottom of the window.
-            parts.append(("", "\n" * (1 if done else max(1, size.lines - 9))))
+            parts.append(("", "\n" * (1 if done else max(1, size.lines - 10))))
         if done:
             return [*parts, ("class:dim", "❯ ")]
         return [*parts, self._rule(), ("", "❯ ")]
@@ -207,7 +219,7 @@ class Repl:
         from prompt_toolkit.formatted_text import FormattedText
         text = self.session.prompt(
             lambda: FormattedText(self._message()), bottom_toolbar=lambda: FormattedText(self._toolbar()),
-            placeholder=FormattedText([("class:placeholder", 'Try "explain this repo"' if self.fresh else "")]),
+            placeholder=FormattedText([("class:placeholder", 'Try "/audit" or "is anything listening on my network?"' if self.fresh else "")]),
             refresh_interval=0.2 if self.fresh else 0.5)
         self.fresh = False
         return text.strip()
@@ -246,8 +258,8 @@ class Repl:
             say(f"Model: {agent.backend.model} at {agent.backend.base_url}")
             say(f"Mode: {agent.mode} · {len(agent.messages)} messages · about {agent.tokens:,} tokens in context")
             say(f"Working directory: {agent.cwd}")
-        elif name == "/init":
-            self.turn(INIT_PROMPT)
+        elif name in ("/init", "/audit", "/scan"):
+            self.turn({"/init": INIT_PROMPT, "/audit": AUDIT_PROMPT, "/scan": SCAN_PROMPT}[name])
         else:
             say(f"Unknown command {name}. Try /help")
         return True
@@ -292,7 +304,7 @@ class Repl:
 
 
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(prog="ghost", description="Ghost Code: a coding agent in your terminal.")
+    p = argparse.ArgumentParser(prog="ghost", description="Ghost Code: a security and coding agent in your terminal.")
     p.add_argument("prompt", nargs="*", help="Start with this prompt.")
     p.add_argument("-p", "--print", action="store_true", help="Answer the prompt and exit, without the interactive UI.")
     p.add_argument("-c", "--continue", dest="resume", action="store_true", help="Resume the last session in this folder.")

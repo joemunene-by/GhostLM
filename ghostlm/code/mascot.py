@@ -4,35 +4,27 @@ from __future__ import annotations
 
 import random
 
-COLS, ROWS = 9, 10
+COLS, ROWS = 11, 12
 SHADES = {1.0: "#f5f5f4", 0.7: "#a8a8a6", 0.42: "#6b6b6a", 0.2: "#3d3d3d"}
-EYES = {(3, 3), (3, 4), (5, 3), (5, 4)}
-# The hem thins out over the last three rows; each phase shifts which tokens have dropped away.
-HEM = [
-    {8: {1, 4, 7}, 9: {0, 2, 3, 5, 6, 8}},
-    {8: {2, 5, 8}, 9: {0, 1, 3, 4, 6, 7}},
-    {8: {0, 3, 6}, 9: {1, 2, 4, 5, 7, 8}},
-]
-FADE = {7: 0.7, 8: 0.42, 9: 0.2}
+DOME = {0: range(3, 8), 1: range(1, 10)}
+EYE_ROWS, EYE_COLS = (4, 5), (2, 3, 7, 8)
+FADE = {9: 0.7, 10: 0.42, 11: 0.2}
 
 
-def _in_body(col: int, row: int) -> bool:
-    if row == 0:
-        return 3 <= col <= 5
-    if row in (1, 2):
-        return 1 <= col <= 7
-    return True
-
-
-def grid(phase: int = 0, blink: bool = False, reveal: set | None = None) -> list[list[float]]:
-    """Brightness per cell, 0 for empty."""
-    gaps = HEM[phase % len(HEM)]
+def grid(phase: int = 0, blink: bool = False, glance: int = 0, reveal: set | None = None) -> list[list[float]]:
+    """Brightness per cell, 0 for empty. glance shifts the eyes a column left (-1) or right (1)."""
+    shift = phase % 4
     cells = []
     for row in range(ROWS):
         line = []
         for col in range(COLS):
-            on = _in_body(col, row) and col not in gaps.get(row, ())
-            if (col, row) in EYES and not blink:
+            on = col in DOME.get(row, range(COLS))
+            # The hem ends in feet, then scatters into loose tokens; each phase slides it sideways.
+            if row == 10:
+                on = (col - shift) % 4 != 3
+            elif row == 11:
+                on = (col - shift) % 4 == 1
+            if row in EYE_ROWS and (col - glance) in EYE_COLS and not blink:
                 on = False
             if reveal is not None and (col, row) not in reveal:
                 on = False
@@ -61,8 +53,10 @@ def render(cells: list[list[float]]) -> list[list[tuple[str, str]]]:
 
 
 def frame(tick: int) -> list[list[tuple[str, str]]]:
-    """Idle animation: the hem drifts every few ticks and the eyes blink now and then."""
-    return render(grid(phase=tick // 3, blink=tick % 23 == 22))
+    """Idle animation: the hem drifts, the eyes blink, and now and then the ghost glances sideways."""
+    beat = tick % 60
+    glance = -1 if 30 <= beat < 34 else 1 if 36 <= beat < 40 else 0
+    return render(grid(phase=tick // 3, blink=beat in (14, 52), glance=glance))
 
 
 def intro_frames(steps: int = 14, seed: int = 7) -> list[list[list[tuple[str, str]]]]:

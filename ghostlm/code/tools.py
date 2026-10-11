@@ -1,10 +1,12 @@
-"""The tools Ghost Code gives the model: read, search, edit and run."""
+"""The tools Ghost Code gives the model: read, search, edit, run, and inspect the machine's security."""
 
 from __future__ import annotations
 
 import difflib
 import fnmatch
+import json
 import os
+import platform
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -12,8 +14,73 @@ from pathlib import Path
 
 MAX_OUTPUT = 20_000
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".mypy_cache", ".ruff_cache"}
-READ_ONLY = {"read_file", "grep", "glob", "list_dir"}
+READ_ONLY = {"read_file", "grep", "glob", "list_dir", "security_check", "secret_scan", "lookup_cve"}
 EDITS = {"write_file", "edit_file"}
+
+
+# Read-only commands per area. Each is safe to run without asking: none of them changes state.
+CHECKS = {
+    "firewall": {
+        "Darwin": ["/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate --getstealthmode --getblockall"],
+        "Linux": ["ufw status verbose 2>/dev/null || firewall-cmd --state 2>/dev/null || echo 'no ufw or firewalld found'"],
+    },
+    "disk_encryption": {
+        "Darwin": ["fdesetup status"],
+        "Linux": ["lsblk -o NAME,TYPE,FSTYPE,MOUNTPOINT | grep -iE 'crypt|NAME' || echo 'no encrypted volumes found'"],
+    },
+    "system_protection": {
+        "Darwin": ["csrutil status", "spctl --status",
+                   "defaults read /Library/Preferences/com.apple.loginwindow GuestEnabled 2>/dev/null || echo 'guest: not set'"],
+        "Linux": ["sysctl kernel.randomize_va_space kernel.kptr_restrict 2>/dev/null",
+                  "(aa-status 2>/dev/null | head -3) || (getenforce 2>/dev/null) || echo 'no AppArmor or SELinux found'"],
+    },
+    "listening_ports": {
+        "Darwin": ["lsof -nP -iTCP -sTCP:LISTEN | awk 'NR==1 || !seen[$1,$9]++ {print $1, $3, $9}'"],
+        "Linux": ["ss -tlnpH 2>/dev/null | awk '{print $4, $6}'"],
+    },
+    "remote_access": {
+        "Darwin": ["launchctl print-disabled system 2>/dev/null | grep -iE 'ssh|screensharing|smbd|remote|ftp|telnet' "
+                   "|| echo 'could not read service state'",
+                   "grep -iE '^(PasswordAuthentication|PermitRootLogin|PubkeyAuthentication)' /etc/ssh/sshd_config "
+                   "2>/dev/null || echo 'sshd_config: defaults in use'"],
+        "Linux": ["systemctl is-active ssh sshd 2>/dev/null",
+                  "grep -iE '^(PasswordAuthentication|PermitRootLogin|PubkeyAuthentication)' /etc/ssh/sshd_config "
+                  "2>/dev/null || echo 'sshd_config: defaults in use'"],
+    },
+    "persistence": {
+        "Darwin": ["ls ~/Library/LaunchAgents /Library/LaunchAgents /Library/LaunchDaemons 2>/dev/null",
+                   "crontab -l 2>/dev/null || echo 'no crontab'"],
+        "Linux": ["systemctl list-unit-files --state=enabled --type=service --no-legend 2>/dev/null | awk '{print $1}'",
+                  "crontab -l 2>/dev/null || echo 'no crontab'", "ls /etc/cron.d 2>/dev/null"],
+    },
+    "accounts": {
+        "Darwin": ["dscl . list /Users UniqueID | awk '$2 >= 500'", "dscl . -read /Groups/admin GroupMembership"],
+        "Linux": ["awk -F: '$3 == 0 || $3 >= 1000 {print $1, $3, $7}' /etc/passwd", "getent group sudo wheel 2>/dev/null"],
+    },
+    "ssh_keys": {
+        "Darwin": ["ls -la ~/.ssh 2>/dev/null || echo 'no ~/.ssh'",
+                   "wc -l ~/.ssh/authorized_keys 2>/dev/null || echo 'no authorized_keys'"],
+        "Linux": ["ls -la ~/.ssh 2>/dev/null || echo 'no ~/.ssh'",
+                  "wc -l ~/.ssh/authorized_keys 2>/dev/null || echo 'no authorized_keys'"],
+    },
+    "updates": {
+        "Darwin": ["sw_vers", "defaults read /Library/Preferences/com.apple.SoftwareUpdate 2>/dev/null "
+                   "| grep -iE 'Automatic|LastSuccessful|RecommendedUpdates' || echo 'no update preferences set'"],
+        "Linux": ["(. /etc/os-release && echo $PRETTY_NAME); uname -r",
+                  "(apt list --upgradable 2>/dev/null | head -30) || (dnf -q check-update 2>/dev/null | head -30) "
+                  "|| echo 'no apt or dnf found'"],
+    },
+}
+SECRET_PATTERNS = [
+    ("private key", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY")),
+    ("AWS access key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
+    ("GitHub token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}\b")),
+    ("API key", re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b")),
+    ("Slack token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
+    ("hardcoded credential", re.compile(
+        r"(?i)(?:password|passwd|secret|api_?key|token)\w*\s*[:=]\s*[\"']([^\"'\s]{6,})[\"']")),
+    ("credentials in URL", re.compile(r"[a-z][a-z0-9+.-]*://[^/\s:@\"']+:([^@\s\"']{3,})@")),
+]
 
 
 @dataclass
@@ -49,6 +116,14 @@ SPECS = [
         "glob": {"type": "string", "description": "Only search files matching this glob, e.g. *.py"}}, ["pattern"]),
     _spec("glob", "Find files by glob pattern, e.g. **/*.py", {"pattern": {"type": "string"}}, ["pattern"]),
     _spec("list_dir", "List a directory.", {"path": {"type": "string"}}, []),
+    _spec("security_check", "Run a read-only security check of this machine and return the raw evidence. "
+          "Changes nothing. Areas: " + ", ".join(CHECKS) + ", or all.", {
+        "area": {"type": "string", "enum": [*CHECKS, "all"]}}, ["area"]),
+    _spec("secret_scan", "Scan files for hardcoded secrets (keys, tokens, passwords, private keys). "
+          "Reports file and line with the value masked.", {
+        "path": {"type": "string", "description": "File or directory, default the working directory."}}, []),
+    _spec("lookup_cve", "Look up a CVE in NVD and check whether it is on CISA's Known Exploited "
+          "Vulnerabilities list.", {"cve_id": {"type": "string", "description": "e.g. CVE-2024-3094"}}, ["cve_id"]),
 ]
 
 
@@ -179,8 +254,9 @@ def grep(args: dict, cwd: Path) -> Result:
 
 
 def glob(args: dict, cwd: Path) -> Result:
-    found = sorted(os.path.relpath(p, cwd) for p in cwd.glob(args["pattern"])
-                   if not SKIP_DIRS & set(p.relative_to(cwd).parts))[:300]
+    patterns = [part.strip() for part in args["pattern"].split(",") if part.strip()]
+    found = sorted({os.path.relpath(p, cwd) for pattern in patterns for p in cwd.glob(pattern)
+                    if p.is_file() and not SKIP_DIRS & set(p.relative_to(cwd).parts)})[:300]
     return Result("\n".join(found) or "No files matched.", f"Found {_plural(len(found), 'file')}")
 
 
@@ -190,6 +266,88 @@ def list_dir(args: dict, cwd: Path) -> Result:
         return Result(f"No such directory: {path}", "Directory not found", ok=False)
     names = sorted(p.name + ("/" if p.is_dir() else "") for p in path.iterdir())
     return Result("\n".join(names) or "(empty)", f"Listed {_plural(len(names), 'entry', 'entries')}")
+
+
+def security_check(args: dict, cwd: Path) -> Result:
+    system, area = platform.system(), args["area"]
+    if area != "all" and area not in CHECKS:
+        return Result(f"Unknown area. Choose from: {', '.join(CHECKS)}, all", "Unknown area", ok=False)
+    sections = []
+    for name in (CHECKS if area == "all" else [area]):
+        commands = CHECKS[name].get(system)
+        if not commands:
+            sections.append(f"## {name}\nNot supported on {system}.")
+            continue
+        parts = [f"## {name}"]
+        for command in commands:
+            try:
+                proc = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30,
+                                      stdin=subprocess.DEVNULL)
+                out = (proc.stdout + proc.stderr).strip() or "(no output)"
+            except subprocess.TimeoutExpired:
+                out = "(timed out)"
+            lines = out.splitlines()
+            if len(lines) > 60:
+                lines = lines[:60] + [f"[{len(lines) - 60} more lines]"]
+            parts.append("\n".join(lines))
+        sections.append("\n".join(parts))
+    count = len(CHECKS) if area == "all" else 1
+    return Result(_clip("\n\n".join(sections)), f"Checked {_plural(count, 'area')}")
+
+
+def mask(value: str) -> str:
+    return value[:4] + "…" if len(value) > 8 else "…"
+
+
+def secret_scan(args: dict, cwd: Path) -> Result:
+    root = resolve(args.get("path") or ".", cwd)
+    files = [root] if root.is_file() else _walk(root)
+    hits = []
+    for f in files:
+        try:
+            if f.stat().st_size > 1_000_000:
+                continue
+            text = f.read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for n, line in enumerate(text.splitlines(), 1):
+            for kind, rx in SECRET_PATTERNS:
+                m = rx.search(line)
+                if m:
+                    hits.append(f"{os.path.relpath(f, cwd)}:{n}: {kind} ({mask(m.group(m.lastindex or 0))})")
+                    break
+        if len(hits) >= 100:
+            hits.append("[stopped at 100 findings]")
+            break
+    return Result("\n".join(hits) or "No secrets found.", f"Found {_plural(len(hits), 'possible secret')}")
+
+
+def lookup_cve(args: dict, cwd: Path) -> Result:
+    from ghostlm.agent.tools import dispatch
+
+    cve_id = args["cve_id"].strip().upper()
+    nvd = dispatch("search_cve_nvd", {"q": cve_id}).response
+    kev = dispatch("lookup_cisa_kev", {"cve_id": cve_id}).response
+    found = bool(nvd and nvd.get("description"))
+    return Result(json.dumps({"nvd": nvd, "cisa_kev": kev}, indent=1)[:6000],
+                  f"{cve_id}: {'found' if found else 'not found'}", ok=found)
+
+
+def precheck(name: str, args: dict, cwd: Path) -> Result | None:
+    """Reject an edit that cannot succeed before the user is asked to approve it."""
+    if name != "edit_file" or "path" not in args or "old_string" not in args:
+        return None
+    path = resolve(args["path"], cwd)
+    if not path.is_file():
+        return Result(f"No such file: {path}", "File not found", ok=False)
+    count = path.read_text().count(args["old_string"])
+    if count == 0:
+        return Result("old_string was not found in the file. Read the file and match it exactly.",
+                      "String not found", ok=False)
+    if count > 1 and not args.get("replace_all"):
+        return Result(f"old_string matches {count} places. Add more context or set replace_all.",
+                      f"{count} matches, expected 1", ok=False)
+    return None
 
 
 def preview(name: str, args: dict, cwd: Path) -> str:
@@ -206,9 +364,11 @@ def preview(name: str, args: dict, cwd: Path) -> str:
 
 
 HANDLERS = {"read_file": read_file, "write_file": write_file, "edit_file": edit_file, "bash": bash,
-            "grep": grep, "glob": glob, "list_dir": list_dir}
+            "grep": grep, "glob": glob, "list_dir": list_dir, "security_check": security_check,
+            "secret_scan": secret_scan, "lookup_cve": lookup_cve}
 LABELS = {"read_file": "Read", "write_file": "Write", "edit_file": "Edit", "bash": "Bash", "grep": "Search",
-          "glob": "Glob", "list_dir": "List"}
+          "glob": "Glob", "list_dir": "List", "security_check": "Check", "secret_scan": "SecretScan",
+          "lookup_cve": "CVE"}
 
 
 def label(name: str, args: dict, cwd: Path) -> str:
@@ -217,6 +377,10 @@ def label(name: str, args: dict, cwd: Path) -> str:
         detail = args.get("command", "")
     elif name in ("grep", "glob"):
         detail = args.get("pattern", "")
+    elif name == "security_check":
+        detail = args.get("area", "")
+    elif name == "lookup_cve":
+        detail = args.get("cve_id", "")
     else:
         raw = args.get("path") or "."
         full = resolve(raw, cwd)

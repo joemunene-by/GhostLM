@@ -1,6 +1,7 @@
 """Tests for Ghost Code: tools, permission modes, the agent loop and the mascot."""
 
 import json
+import re
 
 import pytest
 
@@ -181,12 +182,13 @@ def test_project_instructions_reach_the_system_prompt(tmp_path):
 
 
 def test_mascot_frames_keep_their_shape_and_animate():
-    frames = [mascot.frame(t) for t in range(24)]
-    assert all(len(f) == 5 and all(len(line) == 9 for line in f) for f in frames)
+    frames = [mascot.frame(t) for t in range(60)]
+    assert all(len(f) == 6 and all(len(line) == 11 for line in f) for f in frames)
     assert mascot.frame(0) != mascot.frame(3), "the hem drifts"
-    assert mascot.frame(22) != mascot.frame(21), "the eyes blink"
-    intro = mascot.intro_frames()
-    assert intro[-1] == mascot.render(mascot.grid(reveal={(c, r) for c in range(9) for r in range(10)}))
+    assert mascot.frame(14) != mascot.frame(13), "the eyes blink"
+    assert mascot.grid(glance=1)[4] != mascot.grid()[4], "the eyes glance sideways"
+    everything = {(c, r) for c in range(mascot.COLS) for r in range(mascot.ROWS)}
+    assert mascot.intro_frames()[-1] == mascot.render(mascot.grid(reveal=everything))
 
 
 def test_cli_picks_a_coder_model_first():
@@ -260,3 +262,75 @@ def test_backend_reports_an_unreachable_server_clearly():
     from ghostlm.code.backend import Backend, BackendError
     with pytest.raises(BackendError, match="Is the model server running"):
         Backend("http://127.0.0.1:9/v1", "m").chat([], None)
+
+
+def test_security_checks_cover_macos_and_linux_and_only_read():
+    writers = {"rm", "sudo", "kill", "chmod", "chown", "mv", "cp", "tee", "launchctl load", "launchctl unload",
+               "defaults write", "ufw enable", "ufw disable", "systemctl start", "systemctl stop"}
+    for area, per_os in tools.CHECKS.items():
+        assert {"Darwin", "Linux"} <= set(per_os), area
+        for command in (c for commands in per_os.values() for c in commands):
+            assert not re.search(r"[^2]>(?!=)|>>", command.replace("2>/dev/null", "")), f"{area} redirects output"
+            for segment in re.split(r"\|\||&&|[|;(]", command):
+                words = segment.split()
+                assert not {" ".join(words[:1]), " ".join(words[:2])} & writers, f"{area}: {segment.strip()}"
+
+
+def test_security_check_returns_evidence_per_area_without_asking(tmp_path, monkeypatch):
+    monkeypatch.setattr(tools, "CHECKS", {"demo": {"Darwin": ["echo fine"], "Linux": ["echo fine"]}})
+    agent, ui = agent_with(tmp_path, call("security_check", area="all"), Reply(text="done"))
+    agent.run_turn("audit")
+    assert ui.calls == ["Check(all)"] and not ui.asked
+    assert agent.messages[-2]["content"] == "## demo\nfine"
+    assert not tools.run("security_check", {"area": "nope"}, tmp_path).ok
+
+
+def test_secret_scan_finds_credentials_and_masks_their_values(tmp_path):
+    (tmp_path / "settings.py").write_text('DEBUG = True\nAPI_KEY = "sk-abcdefghijklmnopqrstuvwx"\npassword = "hunter2hunter2"\n')
+    (tmp_path / "id_rsa").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n")
+    (tmp_path / "clean.py").write_text("password = os.environ['PASSWORD']\n")
+    r = tools.run("secret_scan", {}, tmp_path)
+    (tmp_path / "db.py").write_text('URL = "postgres://shop:hunter2@db:5432/shop"\nADMIN_PASSWORD = "letmein-2024"\n')
+    r = tools.run("secret_scan", {}, tmp_path)
+    assert r.summary == "Found 5 possible secrets"
+    assert "db.py:1: credentials in URL" in r.output and "db.py:2: hardcoded credential" in r.output
+    assert "settings.py:2: API key" in r.output and "settings.py:3: hardcoded credential" in r.output
+    assert "id_rsa:1: private key" in r.output and "clean.py" not in r.output
+    assert "abcdefghijklmnop" not in r.output and "hunter2hunter2" not in r.output
+
+
+def test_lookup_cve_uses_the_offline_cache_when_told_to(tmp_path, monkeypatch):
+    monkeypatch.setenv("GHOST_AGENT_OFFLINE", "1")
+    r = tools.run("lookup_cve", {"cve_id": "cve-2017-0144"}, tmp_path)
+    assert r.ok and "CVE-2017-0144" in r.output and r.summary == "CVE-2017-0144: found"
+    assert not tools.run("lookup_cve", {"cve_id": "CVE-1999-99999"}, tmp_path).ok
+
+
+def test_system_prompt_sets_the_defensive_security_role(tmp_path):
+    agent, _ = agent_with(tmp_path)
+    prompt = agent.messages[0]["content"]
+    assert "security_check" in prompt and "only on systems the user owns" in prompt
+
+
+def test_an_edit_that_cannot_apply_is_rejected_before_asking(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    agent, ui = agent_with(tmp_path, call("edit_file", path="a.py", old_string="y = 2", new_string="y = 3"),
+                           Reply(text="ok"))
+    agent.run_turn("edit")
+    assert not ui.asked and ui.results[0].summary == "String not found"
+
+
+def test_glob_accepts_several_comma_separated_patterns(tmp_path):
+    for name in ("a.py", "b.js", "c.txt"):
+        (tmp_path / name).write_text("")
+    assert tools.run("glob", {"pattern": "*.py, *.js"}, tmp_path).output == "a.py\nb.js"
+
+
+def test_ollama_messages_use_object_arguments_and_tool_names():
+    from ghostlm.code.backend import _ollama_messages
+    out = _ollama_messages([
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": '{"path": "a.py"}'}}]},
+        {"role": "tool", "tool_call_id": "c1", "content": "x = 1"}])
+    assert out[0]["tool_calls"] == [{"function": {"name": "read_file", "arguments": {"path": "a.py"}}}]
+    assert out[1] == {"role": "tool", "content": "x = 1", "tool_name": "read_file"}
