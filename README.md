@@ -1,5 +1,5 @@
 <p align="center">
- <img src="assets/ghostlm_wordmark.png" alt="GhostLM" width="560">
+ <img src="assets/ghostlm_banner.png" alt="GhostLM" width="640">
 </p>
 
 <p align="center">
