@@ -154,18 +154,23 @@ class GhostLMRuntime:
 
 mcp = FastMCP("ghostlm")
 _runtime: GhostLMRuntime | None = None
+_runtime_args: tuple[str, str] | None = None
 
 
 def runtime() -> GhostLMRuntime:
-    """Return the lazily-initialized runtime singleton.
+    """Return the runtime singleton, loading the model on first use.
 
-    The runtime is set in ``main()`` after parsing CLI args and is required
-    for every tool call.
+    Loading is deferred so an idle server (or one only serving the NVD and
+    MITRE lookups) does not hold the checkpoint in memory.
     """
+    global _runtime
     if _runtime is None:
-        raise RuntimeError(
-            "GhostLM runtime not initialized; start the server via main()"
-        )
+        if _runtime_args is None:
+            raise RuntimeError(
+                "GhostLM runtime not initialized; start the server via main()"
+            )
+        print(f"[ghostlm-mcp] loading {_runtime_args[0]} ({_runtime_args[1]})", file=sys.stderr)
+        _runtime = GhostLMRuntime(*_runtime_args)
     return _runtime
 
 
@@ -497,12 +502,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """Initialize the runtime and start the MCP stdio server."""
-    global _runtime
+    """Record where the model lives and start the MCP stdio server."""
+    global _runtime_args
     args = parse_args()
-    print(f"[ghostlm-mcp] loading {args.checkpoint} ({args.device})", file=sys.stderr)
-    _runtime = GhostLMRuntime(args.checkpoint, args.device)
-    print(f"[ghostlm-mcp] ready on device={_runtime.device}", file=sys.stderr)
+    if not Path(args.checkpoint).is_file():
+        sys.exit(f"[ghostlm-mcp] checkpoint not found: {args.checkpoint}")
+    _runtime_args = (args.checkpoint, args.device)
     mcp.run()
 
 
