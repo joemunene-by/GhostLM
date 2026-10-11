@@ -21,6 +21,9 @@ from ghostlm import identity  # noqa: E402
     ("what can you do?", "abilities"),
     ("What's your name?", "who"),
     ("tell me about yourself", "who"),
+    ("who is Joe Munene?", "maker_work"),
+    ("what else has Joe built?", "maker_work"),
+    ("what is the ghostsuite?", "maker_work"),
 ])
 def test_intents(question, kind):
     assert identity.intent(question) == kind
