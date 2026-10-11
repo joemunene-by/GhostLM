@@ -177,3 +177,23 @@ def finalize_run(ckpt_dir: Path, keep: tuple = ()) -> Path | None:
     if "best_model.pt" not in keep:
         (ckpt_dir / "best_model.pt").unlink(missing_ok=True)
     return final
+
+
+def drop_spent_after_router(cfg: dict, root: Path) -> float:
+    """Delete what nothing reads once the router's final.pt exists; returns GB freed.
+
+    That is each branch's final.pt, the pre_decay.pt the branches started from, and
+    the unrouted merged.pt. Chat SFT writes ~12GB checkpoints, so the room matters.
+    """
+    btx = btx_config(cfg)
+    ck = root / "checkpoints"
+    if not btx or not (ck / MOE_RUN / "final.pt").exists():
+        return 0.0
+    spent = [ck / f"btx_{d}" / "final.pt" for d in btx["branches"]]
+    spent += [ck / PRETRAIN_RUN / "pre_decay.pt", ck / MOE_RUN / "merged.pt"]
+    freed = 0
+    for p in spent:
+        if p.exists():
+            freed += p.stat().st_size
+            p.unlink()
+    return freed / 1e9
