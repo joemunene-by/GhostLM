@@ -240,6 +240,9 @@ def training_log() -> list:
 
 def train_command(cfg: dict, phase: dict | None = None) -> list:
     phase = phase or phases.plan(cfg)[0]
+    if phase["kind"] == "chat":
+        resume = checkpoints()[0] if checkpoints() else None
+        return ["nice", "-n", "10"] + phases.chat_command(cfg, ROOT, PY, RUN, resume)
     mlx = cfg.get("backend") == "mlx"
     script = "scripts/train_ghost_base_mlx.py" if mlx else "scripts/train_ghost_base.py"
     cmd = [
@@ -606,7 +609,8 @@ def main() -> None:
                     average_tail()
                     phases.finalize_run(CKPT_DIR, keep=("best_model.pt", "pre_decay.pt", "averaged.pt"))
                 else:
-                    phases.finalize_run(CKPT_DIR, keep=("best_model.pt",) if phase["name"] == "router" else ())
+                    keep_best = phase["name"] in ("router", "chat_sft")
+                    phases.finalize_run(CKPT_DIR, keep=("best_model.pt",) if keep_best else ())
                 log_event(f"phase {phase['name']} finished at step {step}")
                 notify(f"{phase['name']} finished at step {step:,}.")
                 advance_phase(cfg, state)
