@@ -611,6 +611,8 @@ def main() -> None:
                 else:
                     keep_best = phase["name"] in ("router", "chat_sft")
                     phases.finalize_run(CKPT_DIR, keep=("best_model.pt",) if keep_best else ())
+                    if phase["name"] == "router":
+                        log_event(f"freed {phases.drop_spent_after_router(cfg, ROOT):.1f}GB of spent BTX files")
                 log_event(f"phase {phase['name']} finished at step {step}")
                 notify(f"{phase['name']} finished at step {step:,}.")
                 advance_phase(cfg, state)
