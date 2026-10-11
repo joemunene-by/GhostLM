@@ -3,8 +3,12 @@
 Writes the SVG sources here; needs rsvg-convert and iconutil for the PNG and .icns exports.
 """
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from ghostlm.code import mascot  # noqa: E402
 
 OUT = Path(__file__).parent
 INK, PAPER = "#0a0a0b", "#f5f5f4"
@@ -29,27 +33,21 @@ def icon():
 
 
 def token_ghost(x0, top, cell, gap):
-    """Ghost drawn as a 9-wide grid of tokens that thins out toward the hem."""
-    step, cols = cell + gap, 9
-    r, cx = 4.5 * step - gap / 2, x0 + (9 * step - gap) / 2
-    eyes = {(3, 3), (3, 4), (5, 3), (5, 4)}
-    drop = {(1, 8), (4, 8), (7, 8), (0, 9), (2, 9), (3, 9), (5, 9), (6, 9), (8, 9)}
-    fade = {7: 0.7, 8: 0.42, 9: 0.2}
+    """The mascot grid from ghostlm/code/mascot.py, one rounded square per token."""
     out = []
-    for row in range(10):
-        for col in range(cols):
-            mx, my = x0 + col * step + cell / 2, top + row * step + cell / 2
-            in_dome = my >= top + r or (mx - cx) ** 2 + (my - top - r) ** 2 <= r * r
-            if in_dome and (col, row) not in eyes | drop:
-                out.append(f'<rect x="{mx - cell / 2:.1f}" y="{my - cell / 2:.1f}" width="{cell}" height="{cell}" '
-                           f'rx="{cell * 0.22:.1f}" fill="{PAPER}" fill-opacity="{fade.get(row, 1)}"/>')
+    for row, line in enumerate(mascot.grid()):
+        for col, level in enumerate(line):
+            if level:
+                x, y = x0 + col * (cell + gap), top + row * (cell + gap)
+                out.append(f'<rect x="{x}" y="{y}" width="{cell}" height="{cell}" rx="{cell * 0.22:.1f}" '
+                           f'fill="{PAPER}" fill-opacity="{level}"/>')
     return "\n".join(out)
 
 
 def banner():
     return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400">
 <rect width="1280" height="400" rx="28" fill="{INK}"/>
-{token_ghost(150, 62, 23, 6)}
+{token_ghost(130, 34, 22, 6)}
 <text x="500" y="218" font-family="Menlo, monospace" font-weight="bold" font-size="112" letter-spacing="-3" fill="{PAPER}">GhostLM</text>
 <text x="506" y="278" font-family="Menlo, monospace" font-size="27" fill="{PAPER}" fill-opacity="0.55">a language model built from scratch</text>
 </svg>

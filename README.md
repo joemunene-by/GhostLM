@@ -25,7 +25,7 @@ As of 2026-10-12.
 | **In training** | `ghost-base`, 349M parameters, step 4,373 of 15,000, validation loss 2.76 |
 | **Hardware** | One 16 GB Mac mini M4, training in the background with MLX |
 | **Next** | Four domain experts, merged into a mixture-of-experts model, then chat tuning. All automated |
-| **Tests** | 626, run on Python 3.10 and 3.13 in CI |
+| **Tests** | 655, run on Python 3.10 and 3.13 in CI |
 
 ## What is in the box
 
@@ -37,6 +37,7 @@ As of 2026-10-12.
 - **Evaluation.** GhostBench: debiased multi-permutation scoring with bootstrap confidence intervals and paired significance tests.
 - **Agent runtime.** A tool-calling loop over any checkpoint, with nine security tools and cite-tagged answers.
 - **Retrieval.** A hybrid retriever: exact lookup for CVE, CWE, CAPEC and ATT&CK IDs, dense search for everything else.
+- **Ghost Code.** A terminal agent that audits your machine's security, scans code for secrets and vulnerabilities, and fixes things with your approval.
 - **Serving.** A chat web app, an HTTP API that speaks the OpenAI, Anthropic, Gemini and Ollama wire formats, an MCP server, and a CLI.
 
 ## Quick start
@@ -194,6 +195,19 @@ claude mcp add ghostlm -- python3 scripts/mcp_server.py --checkpoint <checkpoint
 python -m ghostlm.agent --query "Explain T1059" --checkpoint <checkpoint.pt>
 ```
 
+**Ghost Code.** A terminal agent for securing your machine and your code, in the style of Claude Code. `/audit` checks the machine (firewall, disk encryption, open ports, remote access, startup items, accounts, SSH), `/scan` checks a project for leaked secrets and risky code, and it reads, edits and runs things with your approval. It works with any tool-capable model behind an OpenAI-compatible endpoint. See [docs/ghost_code.md](docs/ghost_code.md).
+
+```bash
+pip install -e '.[code]'
+ghost
+```
+
+<p align="center">
+ <img src="assets/ghost_code_demo.gif" alt="Ghost Code scanning a project, finding three hardcoded secrets and fixing a command injection" width="760">
+</p>
+
+<p align="center"><sub>A real session against a local 8B model (qwen3 on Ollama), played at 3x speed.</sub></p>
+
 **Export.** Pickle-free safetensors with a SHA-256 and config.
 
 ```bash
@@ -213,11 +227,12 @@ ghostlm/            Core library
   identity.py       Single source for the assistant's persona
   agent/            Tool-using runtime, HTTP server, teacher client
   app/              Chat web app
+  code/             Ghost Code, the terminal security and coding agent
 ghostbench/         Evaluation suite
 scripts/            Training, data, eval and export CLIs
   background/       Supervisor, phase plan, dashboard
 data/               Collectors, corpus manifests, tokenizers
-tests/              626 tests
+tests/              655 tests
 docs/               Design notes, runbooks, findings
 ```
 
@@ -234,6 +249,7 @@ docs/               Design notes, runbooks, findings
 | Chat tuning and teacher data | [docs/chat_tuning.md](docs/chat_tuning.md), [docs/teacher_sft.md](docs/teacher_sft.md) |
 | Retrieval | [docs/rag.md](docs/rag.md) |
 | Web app, MCP | [docs/web_app.md](docs/web_app.md), [docs/mcp.md](docs/mcp.md) |
+| Ghost Code | [docs/ghost_code.md](docs/ghost_code.md) |
 | Model card | [MODEL_CARD.md](MODEL_CARD.md) |
 | History, changelog | [docs/project_history.md](docs/project_history.md), [CHANGELOG.md](CHANGELOG.md) |
 

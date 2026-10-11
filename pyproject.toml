@@ -43,6 +43,10 @@ data = [
 serve = ["fastapi>=0.110.0", "uvicorn>=0.29.0", "pydantic>=2.0.0"]
 dev = ["pytest>=8.0.0", "ruff>=0.4.0"]
 mlx = ["mlx>=0.30; sys_platform == 'darwin'"]  # scripts/train_ghost_base_mlx.py
+code = ["rich>=13.0", "prompt_toolkit>=3.0", "httpx>=0.27"]  # ghost, the terminal coding agent
+
+[project.scripts]
+ghost = "ghostlm.code.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/joemunene-by/GhostLM"
