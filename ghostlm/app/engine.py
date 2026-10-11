@@ -13,6 +13,7 @@ from typing import Iterator, List, Optional
 import numpy as np
 import torch
 
+from ghostlm import identity
 from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM
 from ghostlm.rag import HybridRetriever, extract_ids
@@ -52,6 +53,13 @@ def default_models(root: Path) -> List[ModelSpec]:
                   "Best checkpoint of the running 349M pretrain. Improves as training goes.",
                   min_free_memory=25),
     ]
+
+
+def _mtime(path: str) -> Optional[float]:
+    try:
+        return Path(path).stat().st_mtime
+    except OSError:
+        return None
 
 
 def free_memory_percent() -> Optional[int]:
@@ -174,6 +182,7 @@ class Engine:
         self.rag_dir = rag_dir or root / "data/rag"
         self._model: Optional[GhostLM] = None
         self._model_key: Optional[str] = None
+        self._loaded_mtime: Optional[float] = None
         self._meta: dict = {}
         self._retriever: Optional[HybridRetriever] = None
         self._lock = threading.Lock()
@@ -190,9 +199,14 @@ class Engine:
                  "meta": self._meta if m.key == self._model_key else {}} for m in self.models.values()]
 
     def _ensure_model(self, key: str) -> None:
-        if key == self._model_key:
-            return
         spec = self.models[key]
+        if key == self._model_key:
+            # The live checkpoint is rewritten as training improves; pick up the new weights.
+            if spec.source.startswith("hf:") or self._loaded_mtime == _mtime(spec.source):
+                return
+            free = free_memory_percent()
+            if free is not None and free < spec.min_free_memory:
+                return
         if not spec.available():
             raise ValueError(f"{spec.label} is not available yet")
         free = free_memory_percent()
@@ -201,6 +215,7 @@ class Engine:
         self._model, self._model_key = None, None
         self._model, self._meta = load_model(spec)
         self._model_key = key
+        self._loaded_mtime = None if spec.source.startswith("hf:") else _mtime(spec.source)
 
     def retrieve(self, question: str, k: int = 4) -> List[dict]:
         r = self.retriever
@@ -210,9 +225,11 @@ class Engine:
     def stream_answer(self, question: str, model_key: str, history: List[dict], use_retrieval: bool = True,
                       temperature: float = 0.7) -> Iterator[dict]:
         """Yield {"type": "tool"|"sources"|"token"|"done"} events."""
-        if is_small_talk(question):
-            yield {"type": "notice", "text": INTRO}
-            yield {"type": "done", "answer": INTRO, "model": None, "facts": []}
+        kind = identity.intent(question) if not extract_ids(question) else None
+        if kind or is_small_talk(question):
+            text = identity.answer(kind, model_key) if kind else INTRO
+            yield {"type": "notice", "text": text}
+            yield {"type": "done", "answer": text, "model": None, "facts": []}
             return
         with self._lock:
             self._ensure_model(model_key)
