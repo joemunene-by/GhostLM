@@ -181,14 +181,91 @@ def test_project_instructions_reach_the_system_prompt(tmp_path):
     assert "Always use tabs." in agent.messages[0]["content"]
 
 
-def test_mascot_frames_keep_their_shape_and_animate():
-    frames = [mascot.frame(t) for t in range(60)]
-    assert all(len(f) == 6 and all(len(line) == 11 for line in f) for f in frames)
-    assert mascot.frame(0) != mascot.frame(3), "the hem drifts"
-    assert mascot.frame(14) != mascot.frame(13), "the eyes blink"
-    assert mascot.grid(glance=1)[4] != mascot.grid()[4], "the eyes glance sideways"
-    everything = {(c, r) for c in range(mascot.COLS) for r in range(mascot.ROWS)}
-    assert mascot.intro_frames()[-1] == mascot.render(mascot.grid(reveal=everything))
+def chars(frame):
+    return ["".join(ch for _, ch in line) for line in frame]
+
+
+def test_mascot_canvas_keeps_its_shape_and_the_resting_ghost_matches_the_banner_grid():
+    frame = mascot.draw()
+    assert len(frame) == mascot.CANVAS_ROWS and all(len(line) == mascot.CANVAS_COLS for line in frame)
+    rows = chars(frame)
+    assert rows[2][2:4] == "  " and rows[2][7:9] == "  ", "two eyes"
+    assert rows[6].strip() == "" and all(row[11] == " " for row in rows), "spare row and column for gliding"
+    assert mascot.grid()[4][2] == 0 and mascot.grid()[0][5] == 1.0
+
+
+def test_motion_is_eased_and_lands_between_pixels():
+    assert mascot.track(0.5, [(0, 0), (1, 1)]) == 0.5 and 0 < mascot.track(0.1, [(0, 0), (1, 1)]) < 0.1
+    assert mascot.track(2.5, [(0, 0), (1, 1), (2, 0)]) == 0.5, "tracks loop"
+    assert mascot.blink(1.0) == 1 and mascot.blink(3.57) == 0
+    styles = {style for line in mascot.draw({"dx": 0.5, "bob": 0.5}) for style, _ in line}
+    assert len(styles) > 8, "a half pixel shift shows as blended greys"
+    assert mascot.draw(fx=0.5) != mascot.draw(fx=0.0) != mascot.draw(fy=1.0)
+
+
+def test_each_kind_of_work_gives_the_ghost_its_own_moves():
+    activities = ["think", "read", "search", "write", "run", "guard", "talk", "ask"]
+    reels = {a: [str(mascot.working_frame(a, t / 8)) for t in range(80)] for a in activities}
+    for name, reel in reels.items():
+        assert len(set(reel)) >= 12, f"{name} barely moves"
+    assert len({tuple(reel) for reel in reels.values()}) == len(activities), "two activities look the same"
+    think = [mascot.pose("think", t) for t in (1.5, 3.8, 6.5)]
+    assert think[0]["dx"] == -1 and think[1]["eye"] == 0 and think[2]["dx"] == 1
+
+
+def test_no_activity_ever_jumps_more_than_a_fraction_of_a_pixel_between_frames():
+    for activity in ["think", "read", "search", "write", "guard", "talk", "ask"]:
+        for i in range(16 * 12):
+            a, b = mascot.pose(activity, i / 16), mascot.pose(activity, (i + 1) / 16)
+            for key in ("dx", "dy", "bob"):
+                assert abs(a.get(key, 0) - b.get(key, 0)) < 0.75, (activity, key, i)
+
+
+def test_status_holds_a_quick_activity_long_enough_to_be_seen(monkeypatch):
+    from ghostlm.code import ui
+    clock = [100.0]
+    monkeypatch.setattr(ui.time, "time", lambda: clock[0])
+    status = ui.Status()
+    clock[0] += 2
+    status.set("read")
+    assert status.activity == "read"
+    clock[0] += 0.1
+    status.set("think")
+    assert status.activity == "read" and status.queued == "think"
+    clock[0] += 1
+    status.fragments(80, 7)
+    assert status.activity == "think"
+
+
+def test_idle_ghost_glides_across_the_free_space_then_naps_in_the_corner():
+    spots = [mascot.idle(t / 16, 60, 10) for t in range(int(mascot.IDLE_LOOP * 16))]
+    assert all(0 <= x <= 60 and 0 <= y <= 10 for x, y, _, _ in spots)
+    assert max(x for x, _, _, _ in spots) == 60 and min(y for _, y, _, _ in spots) < 4
+    steps = [abs(a[0] - b[0]) for a, b in zip(spots, spots[1:])]
+    assert max(steps) < 1, "never more than a column per frame"
+    x, y, pose, caption = mascot.idle(32, 60, 10)
+    assert (x, y) == (0, 10) and pose["eye"] == 0 and caption[0] == "", "asleep in the bottom corner"
+    assert any("Z" in line for t in range(28, 36) for line in mascot.idle(t + 0.5, 60, 10)[3])
+    assert mascot.idle(5, 0, 0)[:2] == (0, 0), "no room to roam still works"
+
+
+def test_stage_draws_exactly_one_ghost_at_the_requested_spot():
+    from ghostlm.code import ui
+    rows = "".join(text for _, text in ui.stage(10, 4, 3, {}, [])).split("\n")
+    assert len(rows) == 11 and rows[0] == rows[2] == "" and rows[3].startswith(" " * 5)
+    assert sum(1 for row in rows if row.strip()) == 6
+    half = "".join(text for _, text in ui.stage(12, 4.5, 3.5, {}, [])).split("\n")
+    assert half != rows and sum(1 for row in half if row.strip()) == 7, "half a cell over spills into the spare row"
+
+
+def test_frame_rate_defaults_to_sixty_and_is_clamped(monkeypatch):
+    from ghostlm.code import cli
+    monkeypatch.setattr(cli, "load_config", lambda: {})
+    monkeypatch.delenv("GHOST_FPS", raising=False)
+    assert cli.frame_rate() == 60
+    for raw, want in (("30", 30), ("500", 60), ("1", 5), ("fast", 60)):
+        monkeypatch.setenv("GHOST_FPS", raw)
+        assert cli.frame_rate() == want
 
 
 def test_cli_picks_a_coder_model_first():

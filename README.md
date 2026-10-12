@@ -25,7 +25,7 @@ As of 2026-10-12.
 | **In training** | `ghost-base`, 349M parameters, step 4,373 of 15,000, validation loss 2.76 |
 | **Hardware** | One 16 GB Mac mini M4, training in the background with MLX |
 | **Next** | Four domain experts, merged into a mixture-of-experts model, then chat tuning. All automated |
-| **Tests** | 655, run on Python 3.10 and 3.13 in CI |
+| **Tests** | 662, run on Python 3.10 and 3.13 in CI |
 
 ## What is in the box
 
@@ -208,6 +208,12 @@ ghost
 
 <p align="center"><sub>A real session against a local 8B model (qwen3 on Ollama), played at 3x speed.</sub></p>
 
+The ghost above the input box acts out what the agent is doing, and wanders off for a nap when there is nothing to do.
+
+<p align="center">
+ <img src="assets/ghost_mascot.gif" alt="The Ghost Code mascot thinking, reading, searching, writing, running a command, inspecting security, answering, waiting and idling" width="620">
+</p>
+
 **Export.** Pickle-free safetensors with a SHA-256 and config.
 
 ```bash
@@ -232,7 +238,7 @@ ghostbench/         Evaluation suite
 scripts/            Training, data, eval and export CLIs
   background/       Supervisor, phase plan, dashboard
 data/               Collectors, corpus manifests, tokenizers
-tests/              655 tests
+tests/              662 tests
 docs/               Design notes, runbooks, findings
 ```
 

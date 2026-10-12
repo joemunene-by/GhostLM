@@ -6,16 +6,20 @@ import argparse
 import hashlib
 import json
 import os
+import queue
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from ghostlm.code import __version__, mascot, tools
+from rich.text import Text
+
+from ghostlm.code import __version__, tools
 from ghostlm.code.agent import MODES, Agent
 from ghostlm.code.backend import Backend, BackendError
-from ghostlm.code.ui import PlainUI, TerminalUI
+from ghostlm.code.ui import GHOST_ROWS, PlainUI, Status, TerminalUI, idle_stage, intro_stage
 
 HOME = Path(os.environ.get("GHOST_HOME", Path.home() / ".ghostcode"))
 DEFAULT_URL = "http://localhost:11434/v1"
@@ -44,9 +48,12 @@ SCAN_PROMPT = ("Scan the code in this folder for security problems. Work through
                "world-writable permissions. 4) check dependency manifests for old pinned versions. "
                "This is about the code, not the machine, so do not run security_check. "
                "Report findings worst first with file and line. Change nothing yet: ask me which to fix.")
+PLACEHOLDER = 'Try "/audit" or "is anything listening on my network?"'
 INIT_PROMPT = ("Explore this repository and write a GHOST.md at its root: what the project is, how to "
                "build, test and lint it, the layout, and any conventions an agent working here should follow. "
                "Keep it under 60 lines.")
+
+AGENT_COMMANDS = {"/init": INIT_PROMPT, "/audit": AUDIT_PROMPT, "/scan": SCAN_PROMPT}
 
 
 def load_config() -> dict:
@@ -54,6 +61,14 @@ def load_config() -> dict:
         return json.loads((HOME / "config.json").read_text())
     except (OSError, ValueError):
         return {}
+
+
+def frame_rate() -> int:
+    """Animation frames per second, from GHOST_FPS or the config file. 60 by default, 5 to 60 allowed."""
+    try:
+        return min(60, max(5, int(os.environ.get("GHOST_FPS") or load_config().get("fps") or 60)))
+    except ValueError:
+        return 60
 
 
 def pick_model(available: list[str]) -> str | None:
@@ -93,28 +108,35 @@ def build_backend(args) -> Backend:
     return backend
 
 
-def play_intro(out) -> None:
-    frames = mascot.intro_frames()
-    for i, frame in enumerate(frames):
-        if i:
-            out.write(f"\x1b[{len(frame)}A")
-        out.write("".join(" " + line + "\x1b[K\n" for line in mascot.to_ansi(frame)))
-        out.flush()
-        time.sleep(0.045)
-    out.write(f"\x1b[{len(frames[-1])}A\x1b[J")
-    out.flush()
+def rich_line(fragments: list[tuple[str, str]]) -> Text:
+    """A row of prompt fragments as rich text, for printing the header into the transcript."""
+    named = {"class:title": "bold", "class:dim": "#8a8a8a"}
+    line = Text()
+    for style, text in fragments:
+        colours = dict(part.split(":") for part in style.split() if part[:3] in ("fg:", "bg:"))
+        line.append(text, style=named.get(style) or " on ".join(
+            v for v in (colours.get("fg"), colours.get("bg")) if v) or None)
+    return line
 
 
 class Repl:
+    """One long-lived prompt. Input goes to a worker thread, so the box stays put while the agent runs."""
+
     def __init__(self, agent: Agent, ui: TerminalUI):
         from prompt_toolkit import PromptSession
         from prompt_toolkit.completion import Completer, Completion
+        from prompt_toolkit.filters import Condition
         from prompt_toolkit.history import FileHistory
         from prompt_toolkit.key_binding import KeyBindings
         from prompt_toolkit.styles import Style
 
         self.agent, self.ui = agent, ui
         self.started, self.fresh, self.last_ctrl_c, self.hint = time.time(), True, 0.0, ""
+        self.idle_since = time.time() + 0.9
+        self._drawn: tuple = (None, None)
+        self.inbox: queue.Queue = queue.Queue()
+        self.waiting: list[str] = []
+        self.busy = False
         HOME.mkdir(parents=True, exist_ok=True)
         repl = self
 
@@ -142,41 +164,69 @@ class Repl:
                         yield Completion("@" + rel, start_position=-len(word))
 
         kb = KeyBindings()
+        asking = Condition(lambda: repl.ui.question is not None)
+        # A question only takes keys while the input is empty, so typing a message can never answer it by accident.
+        choosing = asking & Condition(lambda: not repl.session.default_buffer.text)
 
         @kb.add("enter")
         def _(event):
-            buf = event.current_buffer
-            state = buf.complete_state
-            if state and state.current_completion:
+            buf, state = event.current_buffer, event.current_buffer.complete_state
+            if repl.ui.question and not buf.text:
+                repl.ui.question.answer(repl.ui.question.selected)
+            elif state and state.current_completion:
                 buf.apply_completion(state.current_completion)
             elif state and state.completions and buf.text.startswith("/") and buf.text not in COMMANDS:
                 buf.apply_completion(state.completions[0])
             elif buf.text.endswith("\\"):
                 buf.delete_before_cursor(1)
                 buf.insert_text("\n")
-            else:
-                buf.validate_and_handle()
+            elif buf.text.strip():
+                text = buf.text.strip()
+                buf.reset(append_to_history=True)
+                repl.submit(text)
 
         @kb.add("escape", "enter")
         @kb.add("c-j")
         def _(event):
             event.current_buffer.insert_text("\n")
 
+        @kb.add("up", filter=choosing)
+        @kb.add("down", filter=choosing)
+        def _(event):
+            q = repl.ui.question
+            q.selected = (q.selected + (1 if event.key_sequence[0].key == "down" else -1)) % len(q.options)
+
+        for digit in "123":
+            @kb.add(digit, filter=choosing)
+            def _(event, digit=digit):
+                if int(digit) <= len(repl.ui.question.options):
+                    repl.ui.question.answer(int(digit) - 1)
+
+        @kb.add("escape", eager=True, filter=asking)
+        def _(event):
+            repl.ui.question.answer(len(repl.ui.question.options) - 1)
+
+        @kb.add("escape", eager=True, filter=Condition(lambda: repl.busy) & ~asking)
+        def _(event):
+            repl.agent.cancel.set()
+
         @kb.add("s-tab")
         def _(event):
             repl.agent.cycle_mode()
-            event.app.invalidate()
 
         @kb.add("c-c")
         def _(event):
             buf = event.current_buffer
-            if buf.text:
+            if repl.ui.question:
+                repl.ui.question.answer(len(repl.ui.question.options) - 1)
+            elif repl.busy:
+                repl.agent.cancel.set()
+            elif buf.text:
                 buf.reset()
             elif time.time() - repl.last_ctrl_c < 1.5:
                 event.app.exit(exception=EOFError)
             else:
                 repl.last_ctrl_c, repl.hint = time.time(), "press ctrl+c again to exit"
-                event.app.invalidate()
 
         self.session = PromptSession(
             history=FileHistory(str(HOME / "history")), completer=GhostCompleter(), key_bindings=kb,
@@ -184,28 +234,61 @@ class Repl:
             reserve_space_for_menu=0,
             style=Style.from_dict({"bottom-toolbar": "noreverse", "rule": "#4a4a4a", "dim": "#8a8a8a",
                                    "placeholder": "#5c5c5c", "title": "bold"}))
+        ui.on_change = self.redraw
+
+    def redraw(self) -> None:
+        app = self.session.app
+        if app.is_running and app.loop:
+            app.loop.call_soon_threadsafe(app.invalidate)
 
     def _rule(self) -> tuple[str, str]:
         return ("class:rule", "─" * shutil.get_terminal_size().columns + "\n")
 
-    def _message(self):
+    def _header(self) -> list[list[tuple[str, str]]]:
+        size, host = shutil.get_terminal_size(), urlparse(self.agent.backend.base_url).netloc
+        where = short_path(self.agent.cwd)
+        return [[("class:title", " Ghost Code"), ("class:dim", f" v{__version__}")],
+                [("class:dim", f" {self.agent.backend.model} · {host}")],
+                [("class:dim", " " + (where if len(where) < size.columns - 4 else "…" + where[4 - size.columns:]))]]
+
+    def _stage_height(self, used: int) -> int:
+        """Rows for the ghost: all the free space above the prompt, and never fewer than it needs."""
         from prompt_toolkit.application import get_app
-        done, size = get_app().is_done, shutil.get_terminal_size()
-        parts = []
+        from prompt_toolkit.renderer import HeightIsUnknownError
+        app = get_app()
+        try:
+            above = app.renderer.rows_above_layout
+        except HeightIsUnknownError:
+            return GHOST_ROWS
+        typed = app.current_buffer.document.line_count
+        return max(GHOST_ROWS, shutil.get_terminal_size().lines - above - used - typed - 3)
+
+    def _message(self):
+        """Everything above the input line. prompt_toolkit asks several times per frame, so one frame is drawn once."""
+        from prompt_toolkit.application import get_app
+        frame = get_app().render_counter
+        if self._drawn[0] != frame:
+            self._drawn = (frame, self._draw_message())
+        return self._drawn[1]
+
+    def _draw_message(self):
+        top = []
         if self.fresh:
-            host = urlparse(self.agent.backend.base_url).netloc
-            where = short_path(self.agent.cwd)
-            info = [[], [], [("class:title", "Ghost Code"), ("class:dim", f" v{__version__}")],
-                    [("class:dim", f"{self.agent.backend.model} · {host}")],
-                    [("class:dim", where if len(where) < size.columns - 16 else "…" + where[16 - size.columns:])], []]
-            tick = 0 if done else int((time.time() - self.started) * 5)
-            for ghost_line, text in zip(mascot.frame(tick), info):
-                parts += [("", " "), *ghost_line, ("", "   "), *text, ("", "\n")]
-            # Until the first message is sent, pad so the prompt sits at the bottom of the window.
-            parts.append(("", "\n" * (1 if done else max(1, size.lines - 10))))
-        if done:
-            return [*parts, ("class:dim", "❯ ")]
-        return [*parts, self._rule(), ("", "❯ ")]
+            for line in self._header():
+                top += [*line, ("", "\n")]
+        queued = [("class:dim", f"  queued: {text[:80]}\n") for text in self.waiting]
+        width = shutil.get_terminal_size().columns
+        height = self._stage_height(len(self._header()) * self.fresh + len(queued))
+        alive = time.time() - self.started
+        if self.ui.question:
+            live = self.ui.question.fragments(height)
+        elif self.ui.status:
+            live = self.ui.status.fragments(width, height)
+        elif self.fresh and alive < 0.9:
+            live = intro_stage(height, alive)
+        else:
+            live = idle_stage(width, height, time.time() - self.idle_since)
+        return [*top, *live, *queued, self._rule(), ("", "❯ ")]
 
     def _toolbar(self):
         if self.hint and time.time() - self.last_ctrl_c > 1.5:
@@ -215,14 +298,44 @@ class Repl:
         tail = self.hint or "shift+tab to cycle modes · @ for files · ! for shell"
         return [self._rule(), ("bold" if mode != "default" else "class:dim", left), ("class:dim", f" · {tail}")]
 
-    def read(self) -> str:
-        from prompt_toolkit.formatted_text import FormattedText
-        text = self.session.prompt(
-            lambda: FormattedText(self._message()), bottom_toolbar=lambda: FormattedText(self._toolbar()),
-            placeholder=FormattedText([("class:placeholder", 'Try "/audit" or "is anything listening on my network?"' if self.fresh else "")]),
-            refresh_interval=0.2 if self.fresh else 0.5)
-        self.fresh = False
-        return text.strip()
+    def submit(self, text: str) -> None:
+        """Called on the UI thread when the user presses enter."""
+        if self.busy:
+            self.waiting.append(text)
+        self.inbox.put(text)
+
+    def _work(self) -> None:
+        while True:
+            line = self.inbox.get()
+            if line is None:
+                return
+            self.busy = True
+            if line in self.waiting:
+                self.waiting.remove(line)
+            if self.fresh:
+                for row in self._header():
+                    self.ui.console.print(rich_line(row))
+                self.fresh = False
+            self.ui.echo(line)
+            keep_going = True
+            quick = line.startswith("/") and line.split()[0] not in (*AGENT_COMMANDS, "/compact")
+            self.ui.status = None if quick else Status()
+            try:
+                if line.startswith("/"):
+                    keep_going = self.command(line)
+                elif line.startswith("!"):
+                    self.shell(line[1:].strip())
+                else:
+                    self.turn(line)
+            except Exception as e:  # a crash in one turn must not take the prompt down with it
+                self.agent.repair()
+                self.ui.error(f"{type(e).__name__}: {e}")
+            self.ui.status, self.busy, self.idle_since = None, False, time.time()
+            self.redraw()
+            if not keep_going:
+                app = self.session.app
+                app.loop.call_soon_threadsafe(lambda: app.exit(exception=EOFError))
+                return
 
     def command(self, line: str) -> bool:
         """Handle a slash command. Returns False when the session should end."""
@@ -258,49 +371,47 @@ class Repl:
             say(f"Model: {agent.backend.model} at {agent.backend.base_url}")
             say(f"Mode: {agent.mode} · {len(agent.messages)} messages · about {agent.tokens:,} tokens in context")
             say(f"Working directory: {agent.cwd}")
-        elif name in ("/init", "/audit", "/scan"):
-            self.turn({"/init": INIT_PROMPT, "/audit": AUDIT_PROMPT, "/scan": SCAN_PROMPT}[name])
+        elif name in AGENT_COMMANDS:
+            self.turn(AGENT_COMMANDS[name])
         else:
             say(f"Unknown command {name}. Try /help")
         return True
 
     def shell(self, command: str) -> None:
         self.ui.tool_call(f"Bash({command})")
-        result = tools.bash({"command": command}, self.agent.cwd)
+        self.agent.cancel.clear()
+        result = tools.bash({"command": command}, self.agent.cwd, self.agent.cancel)
         self.ui.tool_result(result)
         self.agent.messages.append({"role": "user", "content": f"I ran `{command}` myself. Output:\n{result.output}"})
 
     def turn(self, text: str) -> None:
         try:
             self.agent.run_turn(text)
-        except KeyboardInterrupt:
-            self.ui.watcher.stop()
-            self.agent.repair()
-            self.ui.notice("Interrupted")
         except BackendError as e:
             self.agent.repair()
             self.ui.error(str(e))
         save_session(self.agent)
 
     def run(self, first: str | None = None) -> None:
-        if sys.stdout.isatty():
-            play_intro(sys.stdout)
-        while True:
-            try:
-                line = first or self.read()
-            except (EOFError, KeyboardInterrupt):
-                break
-            first = None
-            if not line:
-                continue
-            if line.startswith("/"):
-                if not self.command(line):
-                    break
-            elif line.startswith("!"):
-                self.shell(line[1:].strip())
-            else:
-                self.turn(line)
-            self.ui.console.print()
+        from prompt_toolkit.formatted_text import FormattedText
+        from prompt_toolkit.patch_stdout import patch_stdout
+
+        worker = threading.Thread(target=self._work, daemon=True)
+        worker.start()
+        if first:
+            self.submit(first)
+        try:
+            with patch_stdout(raw=True):
+                self.session.prompt(
+                    lambda: FormattedText(self._message()), bottom_toolbar=lambda: FormattedText(self._toolbar()),
+                    placeholder=lambda: FormattedText([("class:placeholder", PLACEHOLDER if self.fresh else "")]),
+                    refresh_interval=1 / frame_rate())
+        except (EOFError, KeyboardInterrupt):
+            pass
+        self.agent.cancel.set()
+        if self.ui.question:
+            self.ui.question.answer(len(self.ui.question.options) - 1)
+        self.inbox.put(None)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -335,7 +446,7 @@ def main(argv: list[str] | None = None) -> None:
     agent = Agent(backend, None, cwd, args.mode)
     agent.allow_all = args.allow_all
 
-    agent.ui = ui = TerminalUI(agent.cancel.set)
+    agent.ui = ui = TerminalUI()
     if args.resume:
         try:
             agent.messages = json.loads(session_file(agent.cwd).read_text())["messages"]
