@@ -15,7 +15,9 @@ OUT = Path(__file__).parent / "ghost_mascot.gif"
 CELLS = [("think", "Thinking"), ("read", "Reading"), ("search", "Searching"),
          ("write", "Writing"), ("run", "Running a command"), ("guard", "Inspecting security"),
          ("talk", "Answering"), ("ask", "Waiting for you"), ("idle", "Idle")]
-CELL_W, PER_ROW, FPS, SECONDS = 26, 3, 16, 20
+# 50 frames a second is the ceiling for a GIF: its frame delay is in hundredths of a second, and
+# browsers slow anything under two of them right down.
+CELL_W, PER_ROW, FPS, SECONDS = 26, 3, 50, 20
 DIM, BOLD, RESET = "\x1b[38;2;138;138;138m", "\x1b[1m", "\x1b[0m"
 
 
@@ -50,7 +52,7 @@ def main() -> None:
         f.write("\n".join(events) + "\n")
     theme = "0a0a0b,f5f5f4," + ",".join(["0a0a0b"] + ["d0d0d0"] * 6 + ["f5f5f4"])
     subprocess.run(["agg", "--theme", theme, "--font-size", "16", "--fps-cap", str(FPS), "--idle-time-limit", "1",
-                    "--last-frame-duration", "0.06", f.name, str(OUT)], check=True, stdout=subprocess.DEVNULL)
+                    "--last-frame-duration", "0.02", f.name, str(OUT)], check=True, stdout=subprocess.DEVNULL)
     Path(f.name).unlink()
 
 

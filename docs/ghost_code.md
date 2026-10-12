@@ -88,6 +88,9 @@ across the empty space, looks around, and settles in the corner for a nap.
 
 ![The ghost in each of its activities](../assets/ghost_mascot.gif)
 
+The animation runs at 60 frames a second, which costs about a third of one CPU core while
+`ghost` is open. Set `GHOST_FPS=30` (or `"fps": 30` in the config file) to roughly halve that.
+
 Permission questions only take keys while the input is empty, so typing a message
 never answers one by accident.
 

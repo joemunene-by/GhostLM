@@ -63,6 +63,14 @@ def load_config() -> dict:
         return {}
 
 
+def frame_rate() -> int:
+    """Animation frames per second, from GHOST_FPS or the config file. 60 by default, 5 to 60 allowed."""
+    try:
+        return min(60, max(5, int(os.environ.get("GHOST_FPS") or load_config().get("fps") or 60)))
+    except ValueError:
+        return 60
+
+
 def pick_model(available: list[str]) -> str | None:
     for hint in ("coder", "qwen", "llama"):
         for name in available:
@@ -125,6 +133,7 @@ class Repl:
         self.agent, self.ui = agent, ui
         self.started, self.fresh, self.last_ctrl_c, self.hint = time.time(), True, 0.0, ""
         self.idle_since = time.time() + 0.9
+        self._drawn: tuple = (None, None)
         self.inbox: queue.Queue = queue.Queue()
         self.waiting: list[str] = []
         self.busy = False
@@ -255,7 +264,14 @@ class Repl:
         return max(GHOST_ROWS, shutil.get_terminal_size().lines - above - used - typed - 3)
 
     def _message(self):
-        """Everything above the input line: the welcome header, then the ghost's stage."""
+        """Everything above the input line. prompt_toolkit asks several times per frame, so one frame is drawn once."""
+        from prompt_toolkit.application import get_app
+        frame = get_app().render_counter
+        if self._drawn[0] != frame:
+            self._drawn = (frame, self._draw_message())
+        return self._drawn[1]
+
+    def _draw_message(self):
         top = []
         if self.fresh:
             for line in self._header():
@@ -389,7 +405,7 @@ class Repl:
                 self.session.prompt(
                     lambda: FormattedText(self._message()), bottom_toolbar=lambda: FormattedText(self._toolbar()),
                     placeholder=lambda: FormattedText([("class:placeholder", PLACEHOLDER if self.fresh else "")]),
-                    refresh_interval=0.06)
+                    refresh_interval=1 / frame_rate())
         except (EOFError, KeyboardInterrupt):
             pass
         self.agent.cancel.set()

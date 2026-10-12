@@ -258,6 +258,16 @@ def test_stage_draws_exactly_one_ghost_at_the_requested_spot():
     assert half != rows and sum(1 for row in half if row.strip()) == 7, "half a cell over spills into the spare row"
 
 
+def test_frame_rate_defaults_to_sixty_and_is_clamped(monkeypatch):
+    from ghostlm.code import cli
+    monkeypatch.setattr(cli, "load_config", lambda: {})
+    monkeypatch.delenv("GHOST_FPS", raising=False)
+    assert cli.frame_rate() == 60
+    for raw, want in (("30", 30), ("500", 60), ("1", 5), ("fast", 60)):
+        monkeypatch.setenv("GHOST_FPS", raw)
+        assert cli.frame_rate() == want
+
+
 def test_cli_picks_a_coder_model_first():
     from ghostlm.code.cli import pick_model
     assert pick_model(["llama3", "qwen2.5-coder:14b", "qwen3:8b"]) == "qwen2.5-coder:14b"

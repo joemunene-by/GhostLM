@@ -13,7 +13,7 @@ CANVAS_COLS, CANVAS_ROWS = 12, 7
 PAPER = (245, 245, 244)
 # Partly covered edge pixels are blended toward this, a typical dark terminal background.
 BACKDROP = (20, 20, 20)
-SUB = (1 / 6, 1 / 2, 5 / 6)
+SUB = (1 / 8, 3 / 8, 5 / 8, 7 / 8)
 DOME = {0: range(3, 8), 1: range(1, 10)}
 EYE_ROWS, EYE_COLS = (4, 5), (2, 3, 7, 8)
 FADE = {9: 0.7, 10: 0.42, 11: 0.2}
@@ -75,7 +75,7 @@ def _level(col: int, row: int, p: dict, fx: float, fy: float) -> float:
     hits = [b for b in (_brightness(col + sx - fx, row + sy - fy, p) for sx in SUB for sy in SUB) if b]
     if not hits:
         return 0.0
-    cover = ease((len(hits) / 9 - 0.2) / 0.6)
+    cover = ease((len(hits) / len(SUB) ** 2 - 0.2) / 0.6)
     # Faint fringe pixels read as a dark halo on a dark terminal, so thin coverage is dropped outright.
     return sum(hits) / len(hits) * cover if cover >= 0.35 else 0.0
 
