@@ -76,12 +76,25 @@ Ghost Code works defensively, on systems you own or are authorised to test.
 
 ## Interface
 
+The input box stays at the bottom of the window the whole time. While the agent
+works you can keep typing: a message sent mid-turn is queued and runs next.
+
+There is one ghost, and it lives in the free space above the box. While the agent
+works it docks beside the status line and acts out the work: looking around while
+it thinks, scanning while it reads, squinting while it searches, bobbing while it
+writes, running while a shell command runs, talking while it answers, and watching
+you while it waits for a permission answer. When there is nothing to do it drifts
+across the empty space, looks around, and settles in the corner for a nap.
+
+Permission questions only take keys while the input is empty, so typing a message
+never answers one by accident.
+
 | Key | Action |
 |---|---|
 | `enter` | Send |
 | `\` then `enter`, or `esc` then `enter` | New line |
 | `shift+tab` | Cycle permission mode |
-| `esc` | Interrupt the model |
+| `esc` | Interrupt the model or a running shell command |
 | `! command` | Run a shell command yourself; the output joins the conversation |
 | `@ path` | Complete a file path |
 | `ctrl+c` twice | Quit |

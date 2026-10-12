@@ -31,6 +31,9 @@ Working on code: read before you edit, make the smallest change that solves the 
 surrounding style, and run the tests or linter afterwards when there is an obvious way to. Paths are \
 relative to the working directory.
 
+Ghost Code is part of GhostLM, an open-source language model project built from scratch by Joe Munene \
+(github.com/joemunene-by/GhostLM). You are the model the user chose to run behind it, not GhostLM's own weights.
+
 You work defensively and only on systems the user owns or is authorised to test. Decline to attack, \
 scan or break into anything else.
 
@@ -176,7 +179,7 @@ class Agent:
         result = tools.precheck(call.name, args, self.cwd)
         if result is None:
             ok, reason = self.permitted(call.name, args)
-            result = tools.run(call.name, args, self.cwd) if ok else tools.Result(reason, "Not run", ok=False)
+            result = tools.run(call.name, args, self.cwd, self.cancel) if ok else tools.Result(reason, "Not run", ok=False)
         self.ui.tool_result(result)
         return result.output
 

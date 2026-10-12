@@ -191,6 +191,50 @@ def test_mascot_frames_keep_their_shape_and_animate():
     assert mascot.intro_frames()[-1] == mascot.render(mascot.grid(reveal=everything))
 
 
+def test_each_kind_of_work_gives_the_ghost_its_own_moves():
+    activities = ["think", "read", "search", "write", "run", "guard", "talk", "ask"]
+    reels = {a: [mascot.working_frame(a, t) for t in range(80)] for a in activities}
+    for name, reel in reels.items():
+        assert all(len(f) == 6 and all(len(line) == 11 for line in f) for f in reel), name
+        assert len({str(f) for f in reel}) >= 3, f"{name} barely moves"
+    assert len({str(reel) for reel in reels.values()}) == len(activities), "two activities look the same"
+    moods = {str(mascot.pose("think", t)) for t in (0, 20, 40, 60)}
+    assert len(moods) == 4, "thinking should rotate through four moods"
+
+
+def test_status_holds_a_quick_activity_long_enough_to_be_seen(monkeypatch):
+    from ghostlm.code import ui
+    clock = [100.0]
+    monkeypatch.setattr(ui.time, "time", lambda: clock[0])
+    status = ui.Status()
+    clock[0] += 2
+    status.set("read")
+    assert status.activity == "read"
+    clock[0] += 0.1
+    status.set("think")
+    assert status.activity == "read" and status.queued == "think"
+    clock[0] += 1
+    status.fragments(80, 6)
+    assert status.activity == "think"
+
+
+def test_idle_ghost_roams_the_free_space_then_naps_in_the_corner():
+    spots = [mascot.idle(t, 60, 10) for t in range(mascot.IDLE_LOOP)]
+    assert all(0 <= x <= 60 and 0 <= y <= 10 for x, y, _, _ in spots)
+    assert max(x for x, _, _, _ in spots) == 60 and len({y for _, y, _, _ in spots}) > 3
+    x, y, pose, caption = mascot.idle(260, 60, 10)
+    assert (x, y) == (0, 10) and pose["blink"] and caption[0] == "", "asleep in the bottom corner"
+    assert any("Z" in line for t in range(232, 296) for line in mascot.idle(t, 60, 10)[3])
+    assert mascot.idle(5, 0, 0)[:2] == (0, 0), "no room to roam still works"
+
+
+def test_stage_draws_exactly_one_ghost_at_the_requested_spot():
+    from ghostlm.code import ui
+    rows = "".join(text for _, text in ui.stage(9, 4, 3, mascot.frame(0), [])).split("\n")
+    assert len(rows) == 10 and rows[0] == rows[2] == "" and rows[3].startswith(" " * 5)
+    assert sum(1 for row in rows if row.strip()) == 6
+
+
 def test_cli_picks_a_coder_model_first():
     from ghostlm.code.cli import pick_model
     assert pick_model(["llama3", "qwen2.5-coder:14b", "qwen3:8b"]) == "qwen2.5-coder:14b"

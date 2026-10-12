@@ -8,7 +8,10 @@ import json
 import os
 import platform
 import re
+import signal
 import subprocess
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -216,14 +219,23 @@ def edit_file(args: dict, cwd: Path) -> Result:
                   f"{_plural(removed, 'removal')}", diff)
 
 
-def bash(args: dict, cwd: Path) -> Result:
+def bash(args: dict, cwd: Path, cancel: threading.Event | None = None) -> Result:
     timeout = int(args.get("timeout") or 120)
-    try:
-        proc = subprocess.run(args["command"], shell=True, cwd=cwd, capture_output=True, text=True,
-                              timeout=timeout, stdin=subprocess.DEVNULL)
-    except subprocess.TimeoutExpired:
-        return Result(f"Command timed out after {timeout}s.", f"Timed out after {timeout}s", ok=False)
-    out = (proc.stdout + proc.stderr).strip()
+    proc = subprocess.Popen(args["command"], shell=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, stdin=subprocess.DEVNULL, start_new_session=True)
+    deadline = time.time() + timeout
+    while True:
+        try:
+            out, _ = proc.communicate(timeout=0.1)
+            break
+        except subprocess.TimeoutExpired:
+            stopped = cancel is not None and cancel.is_set()
+            if stopped or time.time() > deadline:
+                os.killpg(proc.pid, signal.SIGTERM)
+                proc.wait()
+                why = "Interrupted by the user" if stopped else f"Timed out after {timeout}s"
+                return Result(f"{why}.", why, ok=False)
+    out = out.strip()
     body = out or "(no output)"
     if proc.returncode:
         body += f"\n[exit code {proc.returncode}]"
@@ -388,12 +400,12 @@ def label(name: str, args: dict, cwd: Path) -> str:
     return f"{LABELS.get(name, name)}({detail})"
 
 
-def run(name: str, args: dict, cwd: Path) -> Result:
+def run(name: str, args: dict, cwd: Path, cancel: threading.Event | None = None) -> Result:
     handler = HANDLERS.get(name)
     if handler is None:
         return Result(f"Unknown tool: {name}", "Unknown tool", ok=False)
     try:
-        return handler(args, cwd)
+        return bash(args, cwd, cancel) if name == "bash" else handler(args, cwd)
     except KeyError as e:
         return Result(f"Missing required argument: {e.args[0]}", "Missing argument", ok=False)
     except OSError as e:

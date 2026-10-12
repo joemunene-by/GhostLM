@@ -25,7 +25,7 @@ As of 2026-10-12.
 | **In training** | `ghost-base`, 349M parameters, step 4,373 of 15,000, validation loss 2.76 |
 | **Hardware** | One 16 GB Mac mini M4, training in the background with MLX |
 | **Next** | Four domain experts, merged into a mixture-of-experts model, then chat tuning. All automated |
-| **Tests** | 655, run on Python 3.10 and 3.13 in CI |
+| **Tests** | 659, run on Python 3.10 and 3.13 in CI |
 
 ## What is in the box
 
@@ -232,7 +232,7 @@ ghostbench/         Evaluation suite
 scripts/            Training, data, eval and export CLIs
   background/       Supervisor, phase plan, dashboard
 data/               Collectors, corpus manifests, tokenizers
-tests/              655 tests
+tests/              659 tests
 docs/               Design notes, runbooks, findings
 ```
 

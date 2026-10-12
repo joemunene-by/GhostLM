@@ -1,17 +1,14 @@
-"""Terminal rendering: transcript, live status line, permission prompts. Monochrome by design."""
+"""Terminal rendering: the transcript, plus the status and question state the prompt draws. Monochrome."""
 
 from __future__ import annotations
 
-import os
 import random
-import select
 import sys
 import threading
 import time
 from typing import Callable
 
-from rich.console import Console, Group
-from rich.live import Live
+from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.style import Style
@@ -20,14 +17,8 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
-from ghostlm.code import tools
+from ghostlm.code import mascot, tools
 from ghostlm.code.backend import Reply
-
-try:
-    import termios
-    import tty
-except ImportError:  # Windows: no raw key reading, prompts fall back to typed answers
-    termios = tty = None
 
 THEME = Theme({
     "markdown.code": "bold #f5f5f4 on #262626", "markdown.code_block": "#d4d4d4",
@@ -44,115 +35,116 @@ CODE = ANSISyntaxTheme({
     Name.Function: Style(color="#f5f5f4"), Name.Class: Style(color="#f5f5f4", bold=True),
 })
 BULLET = "●"
+GHOST_ROWS = mascot.ROWS // 2
 VERBS = ["Haunting", "Drifting", "Phasing", "Conjuring", "Materialising", "Whispering", "Lurking", "Hovering",
          "Manifesting", "Flickering", "Rattling chains", "Walking through walls", "Tokenising", "Attending",
          "Sampling", "Decoding", "Unspooling", "Shimmering"]
+LABELS = {"read": "Reading", "search": "Searching", "write": "Writing", "run": "Running", "guard": "Inspecting",
+          "talk": "Answering", "ask": "Waiting for you"}
+TOOL_ACTIVITY = {"Read": "read", "List": "read", "Glob": "read", "Search": "search", "SecretScan": "search",
+                 "Write": "write", "Edit": "write", "Bash": "run", "Check": "guard", "CVE": "guard"}
 WAVE = ["#3d3d3d", "#6b6b6a", "#a8a8a6", "#f5f5f4", "#a8a8a6", "#6b6b6a"]
 
 
-def read_key(timeout: float | None = None) -> str | None:
-    """One keypress from a terminal already in cbreak mode."""
-    fd = sys.stdin.fileno()
-    if timeout is not None and not select.select([fd], [], [], timeout)[0]:
-        return None
-    data = os.read(fd, 32)
-    return {b"\x1b": "esc", b"\x1b[A": "up", b"\x1b[B": "down", b"\r": "enter", b"\n": "enter",
-            b"\x03": "ctrl-c"}.get(data, data.decode(errors="ignore"))
+def stage(height: int, x: int, y: int, ghost: list[list[tuple[str, str]]],
+          lines: list[list[tuple[str, str]]]) -> list[tuple[str, str]]:
+    """The strip above the prompt: the ghost at (x, y) with text lines to its right, row for row."""
+    out = []
+    for row in range(height):
+        i = row - y
+        if 0 <= i < len(ghost):
+            out += [("", " " * (x + 1)), *ghost[i], ("", "   "), *(lines[i] if i < len(lines) else [])]
+        out.append(("", "\n"))
+    return out
 
 
-class cbreak:
-    def __enter__(self):
-        self.fd = sys.stdin.fileno()
-        self.saved = termios.tcgetattr(self.fd)
-        tty.setcbreak(self.fd)
-        return self
-
-    def __exit__(self, *exc):
-        termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
+def idle_stage(width: int, height: int, tick: int) -> list[tuple[str, str]]:
+    """Nothing to do: the ghost wanders the free space, looks around and naps."""
+    x, y, pose, caption = mascot.idle(tick, max(0, width - mascot.COLS - 8), height - GHOST_ROWS)
+    return stage(height, x, y, mascot.render(mascot.grid(**pose)), [[("class:dim", line)] for line in caption])
 
 
-class EscWatcher:
-    """Calls back when Esc is pressed while the model is working."""
-
-    def __init__(self, callback: Callable[[], None]):
-        self.callback, self._stop, self._thread, self._mode = callback, threading.Event(), None, None
-
-    def start(self) -> None:
-        if termios is None or not sys.stdin.isatty():
-            return
-        self._stop.clear()
-        self._mode = cbreak()
-        self._mode.__enter__()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-
-    def stop(self) -> None:
-        if self._thread is None:
-            return
-        self._stop.set()
-        self._thread.join()
-        self._mode.__exit__()
-        self._thread = None
-
-    def _run(self) -> None:
-        while not self._stop.is_set():
-            if read_key(0.1) == "esc":
-                self.callback()
+def intro_stage(height: int, step: int) -> list[tuple[str, str]]:
+    frames = mascot.intro_frames()
+    return stage(height, 0, height - GHOST_ROWS, frames[min(step, len(frames) - 1)], [])
 
 
 class Status:
-    """The live line under the transcript while a reply streams in."""
+    """What the agent is doing during a turn, drawn above the prompt with the ghost acting it out."""
+
+    HOLD = 0.9
 
     def __init__(self):
-        self.started, self.verb, self.text, self.thinking = time.time(), random.choice(VERBS), "", False
+        self.started, self.text, self.verb = time.time(), "", random.choice(VERBS)
+        self.activity, self.since, self.queued = "think", time.time(), None
 
-    def __rich__(self):
+    def set(self, activity: str, now: bool = False) -> None:
+        """Switch activity, letting the current one show for a moment first so quick tools are still seen."""
+        if activity == self.activity:
+            self.queued = None
+        elif now or time.time() - self.since >= self.HOLD:
+            self.activity, self.since, self.queued = activity, time.time(), None
+        else:
+            self.queued = activity
+
+    def fragments(self, width: int, height: int) -> list[tuple[str, str]]:
+        if self.queued and time.time() - self.since >= self.HOLD:
+            self.activity, self.since, self.queued = self.queued, time.time(), None
         tick = int((time.time() - self.started) * 8)
-        line = Text()
-        for i in range(3):
-            line.append("■", style=WAVE[(tick - i) % len(WAVE)])
-        elapsed = int(time.time() - self.started)
-        line.append(f" {'Thinking' if self.thinking and not self.text else self.verb}…", style="bold")
+        label = self.verb if self.activity == "think" else LABELS[self.activity]
         tokens = len(self.text) // 4
-        detail = f"{elapsed}s" + (f" · ↓ {tokens:,} tokens" if tokens else "") + " · esc to interrupt"
-        line.append(f" ({detail})", style="dim")
-        tail = [ln for ln in self.text.splitlines() if ln.strip()][-6:]
-        if not tail:
-            return line
-        return Group(Text("\n".join(f"  {ln[:160]}" for ln in tail), style="dim"), Text(""), line)
+        detail = f"{int(time.time() - self.started)}s" + (f" · ↓ {tokens:,} tokens" if tokens else "")
+        head = [*[(f"fg:{WAVE[(tick - i) % len(WAVE)]}", "■") for i in range(3)], ("bold", f" {label}…"),
+                ("class:dim", f" ({detail} · esc to interrupt)")]
+        tail = [ln for ln in self.text.splitlines() if ln.strip()][-3:] if self.activity == "talk" else []
+        lines = [[], head, [], *[[("class:dim", ln[:max(10, width - 18)])] for ln in tail]]
+        return stage(height, 0, height - GHOST_ROWS, mascot.working_frame(self.activity, tick), lines)
+
+
+class Question:
+    """A permission prompt waiting for the user. The prompt's key bindings answer it."""
+
+    def __init__(self, options: list[str]):
+        self.options, self.selected, self.answered, self.asked = options, 0, threading.Event(), time.time()
+
+    def fragments(self, height: int) -> list[tuple[str, str]]:
+        lines = [[("", "Do you want to proceed?")]]
+        for i, option in enumerate(self.options):
+            chosen = i == self.selected
+            lines.append([("bold" if chosen else "", f"{'❯' if chosen else ' '} {i + 1}. {option}")])
+        lines.append([("class:dim", "enter to confirm · esc to refuse")])
+        tick = int((time.time() - self.asked) * 8)
+        return stage(height, 0, height - GHOST_ROWS, mascot.working_frame("ask", tick), lines)
+
+    def answer(self, index: int) -> None:
+        self.selected = index
+        self.answered.set()
 
 
 class TerminalUI:
-    def __init__(self, on_interrupt: Callable[[], None] = lambda: None):
-        self.console = Console(theme=THEME, highlight=False)
-        self.watcher = EscWatcher(on_interrupt)
-        self.live: Live | None = None
+    """Prints the transcript. The live parts (status, questions) are state the prompt draws from."""
+
+    def __init__(self, on_change: Callable[[], None] = lambda: None):
+        self.console = Console(theme=THEME, highlight=False, force_terminal=True, color_system="truecolor")
+        self.on_change = on_change
         self.status: Status | None = None
+        self.question: Question | None = None
 
     def start_reply(self) -> None:
-        self.status = Status()
-        if self.console.is_terminal:
-            self.console.print()
-            self.live = Live(self.status, console=self.console, refresh_per_second=8, transient=True)
-            self.live.start()
-            self.watcher.start()
+        if self.status:
+            self.status.text = ""
+            self.status.set("think")
 
     def on_text(self, chunk: str) -> None:
         if self.status:
             self.status.text += chunk
+            self.status.set("talk")
 
     def on_thinking(self, chunk: str) -> None:
         if self.status:
-            self.status.thinking = True
+            self.status.set("think")
 
     def end_reply(self, reply: Reply) -> None:
-        self.watcher.stop()
-        if self.live:
-            self.live.stop()
-            self.live = None
-            # The blank line printed before the live region; reclaim it so spacing stays even.
-            self.console.file.write("\x1b[1A\x1b[2K")
-        self.status = None
         if reply.text.strip():
             self.say(reply.text.strip())
 
@@ -164,8 +156,14 @@ class TerminalUI:
         self.console.print()
         self.console.print(grid)
 
+    def echo(self, text: str) -> None:
+        self.console.print()
+        self.console.print(Text.assemble(("❯ ", "#8a8a8a"), text))
+
     def tool_call(self, label: str) -> None:
         name, _, rest = label.partition("(")
+        if self.status:
+            self.status.set(TOOL_ACTIVITY.get(name, "think"))
         self.console.print()
         self.console.print(Text.assemble((BULLET + " ", "#a8a8a6"), (name, "bold"), ("(" + rest, "")),
                            overflow="ellipsis", no_wrap=True)
@@ -195,41 +193,18 @@ class TerminalUI:
         self.console.print(Text.assemble((BULLET + " ", "bold"), (text, "bold")))
 
     def ask(self, title: str, detail: str, options: list[str]) -> int:
-        """Numbered choice. Returns the option index; the last option is always the refusal."""
-        refuse = len(options) - 1
+        """Numbered choice, answered from the prompt. The last option is always the refusal."""
         self.console.print()
         self.console.print(Panel(Text(detail), title=title, title_align="left", border_style="#6b6b6a",
                                  padding=(0, 1)))
-        if termios is None or not sys.stdin.isatty():
-            return refuse
-        selected = 0
-
-        def menu():
-            t = Text(" Do you want to proceed?\n")
-            for i, opt in enumerate(options):
-                t.append(f" {'❯' if i == selected else ' '} {i + 1}. {opt}\n", style="bold" if i == selected else "")
-            t.append(" enter to confirm · esc to refuse", style="dim")
-            return t
-
-        with cbreak(), Live(menu(), console=self.console, auto_refresh=False, transient=True) as live:
-            while True:
-                key = read_key()
-                if key in ("esc", "ctrl-c"):
-                    selected = refuse
-                    break
-                if key == "enter":
-                    break
-                if key == "up":
-                    selected = (selected - 1) % len(options)
-                elif key == "down":
-                    selected = (selected + 1) % len(options)
-                elif key and key.isdigit() and 1 <= int(key) <= len(options):
-                    selected = int(key) - 1
-                    break
-                live.update(menu(), refresh=True)
-        if selected:
-            self.console.print(Text(f"  ⎿  {options[selected]}", style="dim"))
-        return selected
+        question = self.question = Question(options)
+        self.on_change()
+        question.answered.wait()
+        self.question = None
+        self.on_change()
+        if question.selected:
+            self.console.print(Text(f"  ⎿  {options[question.selected]}", style="dim"))
+        return question.selected
 
 
 class PlainUI:
