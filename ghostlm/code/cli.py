@@ -188,6 +188,18 @@ class Repl:
     def _rule(self) -> tuple[str, str]:
         return ("class:rule", "─" * shutil.get_terminal_size().columns + "\n")
 
+    def _gap(self, used: int) -> int:
+        """Blank rows needed above the prompt so it rests on the footer at the bottom of the window."""
+        from prompt_toolkit.application import get_app
+        from prompt_toolkit.renderer import HeightIsUnknownError
+        app = get_app()
+        try:
+            above = app.renderer.rows_above_layout
+        except HeightIsUnknownError:
+            return 0
+        typed = app.current_buffer.document.line_count
+        return max(0, shutil.get_terminal_size().lines - above - used - typed - 3)
+
     def _message(self):
         from prompt_toolkit.application import get_app
         done, size = get_app().is_done, shutil.get_terminal_size()
@@ -201,11 +213,10 @@ class Repl:
             tick = 0 if done else int((time.time() - self.started) * 5)
             for ghost_line, text in zip(mascot.frame(tick), info):
                 parts += [("", " "), *ghost_line, ("", "   "), *text, ("", "\n")]
-            # Until the first message is sent, pad so the prompt sits at the bottom of the window.
-            parts.append(("", "\n" * (1 if done else max(1, size.lines - 10))))
+            parts.append(("", "\n"))
         if done:
             return [*parts, ("class:dim", "❯ ")]
-        return [*parts, self._rule(), ("", "❯ ")]
+        return [*parts, ("", "\n" * self._gap(len(mascot.frame(0)) + 1 if self.fresh else 0)), self._rule(), ("", "❯ ")]
 
     def _toolbar(self):
         if self.hint and time.time() - self.last_ctrl_c > 1.5:
