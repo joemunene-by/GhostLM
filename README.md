@@ -208,6 +208,12 @@ ghost
 
 <p align="center"><sub>A real session against a local 8B model (qwen3 on Ollama), played at 3x speed.</sub></p>
 
+The ghost above the input box acts out what the agent is doing, and wanders off for a nap when there is nothing to do.
+
+<p align="center">
+ <img src="assets/ghost_mascot.gif" alt="The Ghost Code mascot thinking, reading, searching, writing, running a command, inspecting security, answering, waiting and idling" width="620">
+</p>
+
 **Export.** Pickle-free safetensors with a SHA-256 and config.
 
 ```bash

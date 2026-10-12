@@ -86,6 +86,8 @@ writes, running while a shell command runs, talking while it answers, and watchi
 you while it waits for a permission answer. When there is nothing to do it drifts
 across the empty space, looks around, and settles in the corner for a nap.
 
+![The ghost in each of its activities](../assets/ghost_mascot.gif)
+
 Permission questions only take keys while the input is empty, so typing a message
 never answers one by accident.
 
