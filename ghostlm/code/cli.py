@@ -269,9 +269,9 @@ class Repl:
         elif self.ui.status:
             live = self.ui.status.fragments(width, height)
         elif self.fresh and alive < 0.9:
-            live = intro_stage(height, int(alive * 16))
+            live = intro_stage(height, alive)
         else:
-            live = idle_stage(width, height, int((time.time() - self.idle_since) * 8))
+            live = idle_stage(width, height, time.time() - self.idle_since)
         return [*top, *live, *queued, self._rule(), ("", "❯ ")]
 
     def _toolbar(self):
@@ -389,7 +389,7 @@ class Repl:
                 self.session.prompt(
                     lambda: FormattedText(self._message()), bottom_toolbar=lambda: FormattedText(self._toolbar()),
                     placeholder=lambda: FormattedText([("class:placeholder", PLACEHOLDER if self.fresh else "")]),
-                    refresh_interval=0.125)
+                    refresh_interval=0.06)
         except (EOFError, KeyboardInterrupt):
             pass
         self.agent.cancel.set()

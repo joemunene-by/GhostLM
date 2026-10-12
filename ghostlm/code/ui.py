@@ -35,7 +35,7 @@ CODE = ANSISyntaxTheme({
     Name.Function: Style(color="#f5f5f4"), Name.Class: Style(color="#f5f5f4", bold=True),
 })
 BULLET = "●"
-GHOST_ROWS = mascot.ROWS // 2
+GHOST_ROWS = mascot.CANVAS_ROWS
 VERBS = ["Haunting", "Drifting", "Phasing", "Conjuring", "Materialising", "Whispering", "Lurking", "Hovering",
          "Manifesting", "Flickering", "Rattling chains", "Walking through walls", "Tokenising", "Attending",
          "Sampling", "Decoding", "Unspooling", "Shimmering"]
@@ -46,27 +46,32 @@ TOOL_ACTIVITY = {"Read": "read", "List": "read", "Glob": "read", "Search": "sear
 WAVE = ["#3d3d3d", "#6b6b6a", "#a8a8a6", "#f5f5f4", "#a8a8a6", "#6b6b6a"]
 
 
-def stage(height: int, x: int, y: int, ghost: list[list[tuple[str, str]]],
-          lines: list[list[tuple[str, str]]]) -> list[tuple[str, str]]:
-    """The strip above the prompt: the ghost at (x, y) with text lines to its right, row for row."""
+def stage(height: int, x: float, y: float, pose: dict, lines: list[list[tuple[str, str]]]) -> list[tuple[str, str]]:
+    """The strip above the prompt: the ghost at (x, y) with text lines to its right, row for row.
+
+    x and y may be fractional. The whole part picks the character cell and the remainder is drawn
+    inside the ghost's canvas, which is what makes it glide instead of hopping a cell at a time.
+    """
+    y = min(max(y, 0.0), max(0.0, height - GHOST_ROWS))
+    col, row = int(x), int(y)
+    ghost = mascot.draw(pose, fx=x - col, fy=(y - row) * 2)
     out = []
-    for row in range(height):
-        i = row - y
+    for r in range(height):
+        i = r - row
         if 0 <= i < len(ghost):
-            out += [("", " " * (x + 1)), *ghost[i], ("", "   "), *(lines[i] if i < len(lines) else [])]
+            out += [("", " " * (col + 1)), *ghost[i], ("", "  "), *(lines[i] if i < len(lines) else [])]
         out.append(("", "\n"))
     return out
 
 
-def idle_stage(width: int, height: int, tick: int) -> list[tuple[str, str]]:
+def idle_stage(width: int, height: int, t: float) -> list[tuple[str, str]]:
     """Nothing to do: the ghost wanders the free space, looks around and naps."""
-    x, y, pose, caption = mascot.idle(tick, max(0, width - mascot.COLS - 8), height - GHOST_ROWS)
-    return stage(height, x, y, mascot.render(mascot.grid(**pose)), [[("class:dim", line)] for line in caption])
+    x, y, pose, caption = mascot.idle(t, max(0, width - mascot.CANVAS_COLS - 8), height - GHOST_ROWS)
+    return stage(height, x, y, pose, [[("class:dim", line)] for line in caption])
 
 
-def intro_stage(height: int, step: int) -> list[tuple[str, str]]:
-    frames = mascot.intro_frames()
-    return stage(height, 0, height - GHOST_ROWS, frames[min(step, len(frames) - 1)], [])
+def intro_stage(height: int, t: float) -> list[tuple[str, str]]:
+    return stage(height, 0, height - GHOST_ROWS, mascot.intro(t), [])
 
 
 class Status:
@@ -90,7 +95,8 @@ class Status:
     def fragments(self, width: int, height: int) -> list[tuple[str, str]]:
         if self.queued and time.time() - self.since >= self.HOLD:
             self.activity, self.since, self.queued = self.queued, time.time(), None
-        tick = int((time.time() - self.started) * 8)
+        elapsed = time.time() - self.started
+        tick = int(elapsed * 8)
         label = self.verb if self.activity == "think" else LABELS[self.activity]
         tokens = len(self.text) // 4
         detail = f"{int(time.time() - self.started)}s" + (f" · ↓ {tokens:,} tokens" if tokens else "")
@@ -98,7 +104,7 @@ class Status:
                 ("class:dim", f" ({detail} · esc to interrupt)")]
         tail = [ln for ln in self.text.splitlines() if ln.strip()][-3:] if self.activity == "talk" else []
         lines = [[], head, [], *[[("class:dim", ln[:max(10, width - 18)])] for ln in tail]]
-        return stage(height, 0, height - GHOST_ROWS, mascot.working_frame(self.activity, tick), lines)
+        return stage(height, 0, height - GHOST_ROWS, mascot.pose(self.activity, elapsed), lines)
 
 
 class Question:
@@ -113,8 +119,7 @@ class Question:
             chosen = i == self.selected
             lines.append([("bold" if chosen else "", f"{'❯' if chosen else ' '} {i + 1}. {option}")])
         lines.append([("class:dim", "enter to confirm · esc to refuse")])
-        tick = int((time.time() - self.asked) * 8)
-        return stage(height, 0, height - GHOST_ROWS, mascot.working_frame("ask", tick), lines)
+        return stage(height, 0, height - GHOST_ROWS, mascot.pose("ask", time.time() - self.asked), lines)
 
     def answer(self, index: int) -> None:
         self.selected = index
