@@ -157,7 +157,7 @@ def test_code_outline_flags_risks_and_hides_credentials():
     assert "sk-abcdefghijklmnop" not in text and "value hidden" in text
 
 
-def test_page_logo_matches_the_mascot_grid_and_hides_scrollbars():
+def test_page_logo_matches_the_mascot_grid_and_scrollbars_are_styled():
     import re
 
     from ghostlm.app.server import STATIC
@@ -165,4 +165,4 @@ def test_page_logo_matches_the_mascot_grid_and_hides_scrollbars():
     page = (STATIC / "index.html").read_text()
     rows = re.findall(r'"([.#]{11})"', page.split("const GHOST = [")[1].split("];")[0])
     assert rows == ["".join("#" if cell else "." for cell in line) for line in mascot.grid()]
-    assert "scrollbar-width: none" in page and "::-webkit-scrollbar { display: none; }" in page
+    assert "scrollbar-width: thin" in page and "::-webkit-scrollbar-thumb" in page

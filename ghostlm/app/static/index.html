@@ -12,9 +12,15 @@
     --radius: 18px;
   }
   * { box-sizing: border-box; }
-  /* Panels still scroll; the bars are hidden so the glass stays clean. */
-  * { scrollbar-width: none; -ms-overflow-style: none; }
-  *::-webkit-scrollbar { display: none; }
+  /* A slim glass scrollbar: invisible at rest, a soft thumb while the pointer is over the panel. */
+  * { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+  *:hover, *:focus-within { scrollbar-color: rgba(255,255,255,0.20) transparent; }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track, *::-webkit-scrollbar-corner { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: transparent; border-radius: 99px; border: 3px solid transparent; background-clip: padding-box; }
+  *:hover::-webkit-scrollbar-thumb { background-color: rgba(255,255,255,0.18); }
+  *::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,0.38); }
+  *::-webkit-scrollbar-thumb:active { background-color: rgba(255,255,255,0.55); }
   html, body { height: 100%; }
   body {
     margin: 0; background: var(--bg); color: var(--fg);
