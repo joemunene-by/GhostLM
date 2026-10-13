@@ -155,3 +155,14 @@ def test_code_outline_flags_risks_and_hides_credentials():
     assert "This is Python code." in text and "It imports `subprocess` and `flask`." in text
     assert "runs shell commands" in text and "SQL injection" in text and "hardcoded credential" in text
     assert "sk-abcdefghijklmnop" not in text and "value hidden" in text
+
+
+def test_page_logo_matches_the_mascot_grid_and_hides_scrollbars():
+    import re
+
+    from ghostlm.app.server import STATIC
+    from ghostlm.code import mascot
+    page = (STATIC / "index.html").read_text()
+    rows = re.findall(r'"([.#]{11})"', page.split("const GHOST = [")[1].split("];")[0])
+    assert rows == ["".join("#" if cell else "." for cell in line) for line in mascot.grid()]
+    assert "scrollbar-width: none" in page and "::-webkit-scrollbar { display: none; }" in page

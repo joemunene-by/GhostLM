@@ -29,6 +29,8 @@ off the public internet.
   input and output, and a security check for risky calls and hardcoded credentials.
 - Lets you delete chats: a cross on each one in the sidebar, and "Delete others" (or "Delete all"
   when no chat is open) at the top of the list. Both ask first.
+- Shows the token ghost as its logo: in the sidebar, floating on the welcome screen, and beside each
+  reply, where it bobs while an answer is streaming. Scrollbars are hidden; every panel still scrolls.
 - Keeps chats on the server (`~/Library/Application Support/GhostLM/chats`), so
   every device sees the same history.
 - Offers `ghost-small-gen` (downloaded from Hugging Face) and the current best
