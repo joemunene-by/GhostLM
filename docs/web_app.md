@@ -23,6 +23,14 @@ off the public internet.
 - For exact-ID hits, shows a "From the sources" card that quotes the record's
   opening sentences with its citation. Model text cites passages as `[n]`;
   clicking a citation highlights the source.
+- Explains pasted code by reading it. For a message that contains a program, retrieval is skipped
+  (it would only match keywords against security references) and the answer is an outline taken
+  from the code itself: language, functions and what each one does, constants, control flow,
+  input and output, and a security check for risky calls and hardcoded credentials.
+- Lets you delete chats: a cross on each one in the sidebar, and "Delete others" (or "Delete all"
+  when no chat is open) at the top of the list. Both ask first.
+- Shows the token ghost as its logo: in the sidebar, floating on the welcome screen, and beside each
+  reply, where it bobs while an answer is streaming. Scrollbars are slim and translucent, and only show while the pointer is over a panel.
 - Keeps chats on the server (`~/Library/Application Support/GhostLM/chats`), so
   every device sees the same history.
 - Offers `ghost-small-gen` (downloaded from Hugging Face) and the current best

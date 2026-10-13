@@ -76,6 +76,17 @@ def create_app(engine: Optional[Engine] = None, chat_dir: Path = DEFAULT_CHAT_DI
         chat_path(chat_id).unlink(missing_ok=True)
         return {"ok": True}
 
+    @app.delete("/api/chats")
+    def delete_chats(keep: Optional[str] = None):
+        """Delete every saved chat, except the one named by ``keep``."""
+        kept = chat_path(keep) if keep else None
+        removed = 0
+        for p in chat_dir.glob("*.json"):
+            if p != kept:
+                p.unlink(missing_ok=True)
+                removed += 1
+        return {"ok": True, "removed": removed}
+
     @app.get("/api/training")
     def training():
         try:
@@ -105,6 +116,8 @@ def create_app(engine: Optional[Engine] = None, chat_dir: Path = DEFAULT_CHAT_DI
                         turn["tools"].append(ev)
                     elif ev["type"] == "facts":
                         turn["facts"] = ev["facts"]
+                        if ev.get("label"):
+                            turn["facts_label"] = ev["label"]
                     elif ev["type"] == "notice":
                         turn["notice"] = ev["text"]
                     elif ev["type"] == "done":
