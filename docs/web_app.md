@@ -27,6 +27,8 @@ off the public internet.
   (it would only match keywords against security references) and the answer is an outline taken
   from the code itself: language, functions and what each one does, constants, control flow,
   input and output, and a security check for risky calls and hardcoded credentials.
+- Lets you delete chats: a cross on each one in the sidebar, and "Delete others" (or "Delete all"
+  when no chat is open) at the top of the list. Both ask first.
 - Keeps chats on the server (`~/Library/Application Support/GhostLM/chats`), so
   every device sees the same history.
 - Offers `ghost-small-gen` (downloaded from Hugging Face) and the current best

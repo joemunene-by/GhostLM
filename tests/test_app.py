@@ -75,6 +75,18 @@ def test_chat_streams_saves_and_continues(tmp_path):
     assert client.get(f"/api/chats/{chat_id}").status_code == 404
 
 
+def test_delete_others_keeps_the_named_chat_and_delete_all_clears_everything(tmp_path):
+    client = TestClient(create_app(engine=FakeEngine(), chat_dir=tmp_path))
+    ids = []
+    for question in ("What is CVE-2021-44228?", "What is CWE-79?", "Explain T1059"):
+        with client.stream("POST", "/api/chat", json={"message": question}) as r:
+            ids.append(_events(r)[0]["id"])
+    assert client.delete("/api/chats", params={"keep": ids[1]}).json() == {"ok": True, "removed": 2}
+    assert [c["id"] for c in client.get("/api/chats").json()] == [ids[1]]
+    assert client.delete("/api/chats", params={"keep": "../etc"}).status_code == 400
+    assert client.delete("/api/chats").json()["removed"] == 1 and client.get("/api/chats").json() == []
+
+
 def test_rejects_bad_input(tmp_path):
     client = TestClient(create_app(engine=FakeEngine(), chat_dir=tmp_path))
     assert client.post("/api/chat", json={"message": "  "}).status_code == 400

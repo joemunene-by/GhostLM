@@ -45,6 +45,18 @@
   .chat-item { padding: 8px 10px; border-radius: 10px; cursor: pointer; color: var(--muted); font-size: 14px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .2s, color .2s; }
   .chat-item:hover, .chat-item.active { background: var(--glass-2); color: var(--fg); }
+  .chat-item { display: flex; align-items: center; gap: 6px; }
+  .chat-item .title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .chat-item .del { flex: none; width: 22px; height: 22px; border: 0; border-radius: 7px; background: transparent;
+    color: var(--faint); font-size: 15px; line-height: 1; cursor: pointer; opacity: 0; padding: 0;
+    display: flex; align-items: center; justify-content: center; transition: opacity .2s, background .2s, color .2s; }
+  .chat-item:hover .del, .chat-item.active .del, .chat-item .del:focus-visible { opacity: 1; }
+  .chat-item .del:hover { background: rgba(255,255,255,0.14); color: var(--fg); }
+  .chats-head { display: flex; align-items: center; justify-content: space-between; }
+  .linkish { border: 0; background: transparent; color: var(--faint); font-size: 11px; letter-spacing: .04em; cursor: pointer;
+    padding: 2px 4px; border-radius: 6px; transition: color .2s; }
+  .linkish:hover { color: var(--fg); }
+  @media (hover: none) { .chat-item .del { opacity: 1; } }
   .model-desc { color: var(--faint); font-size: 12px; margin-top: 6px; }
   .toggle { display: flex; align-items: center; justify-content: space-between; font-size: 14px; color: var(--muted); }
   .switch { width: 38px; height: 22px; border-radius: 99px; background: var(--glass-2); border: 1px solid var(--line); position: relative; cursor: pointer; transition: background .2s; }
@@ -117,7 +129,7 @@
   <aside class="panel side" id="side">
     <div class="brand"><span class="dot"></span>GhostLM <button class="menu" style="margin-left:auto" onclick="toggle('side')">Close</button></div>
     <button class="primary" id="new">New chat</button>
-    <div class="label">Chats</div>
+    <div class="chats-head"><div class="label">Chats</div><button class="linkish" id="clear" hidden></button></div>
     <div class="chats" id="chats"></div>
     <div>
       <div class="label" style="margin-bottom:6px">Model</div>
@@ -219,9 +231,34 @@ function addMessage(role, html, tools, facts, notice, factsLabel) {
 
 async function loadChats() {
   const list = await (await fetch("/api/chats")).json();
-  $("chats").innerHTML = list.map(c => `<div class="chat-item ${c.id === chatId ? "active" : ""}" data-id="${c.id}" title="${esc(c.title)}">${esc(c.title)}</div>`).join("")
+  const others = list.filter(c => c.id !== chatId).length;
+  $("clear").hidden = !others;
+  $("clear").textContent = chatId && others < list.length ? "Delete others" : "Delete all";
+  $("chats").innerHTML = list.map(c => `<div class="chat-item ${c.id === chatId ? "active" : ""}" data-id="${c.id}" title="${esc(c.title)}"><span class="title">${esc(c.title)}</span><button class="del" title="Delete this chat" aria-label="Delete chat">&times;</button></div>`).join("")
     || '<div class="model-desc" style="padding:0 6px">No chats yet.</div>';
-  $("chats").querySelectorAll(".chat-item").forEach(el => el.onclick = () => openChat(el.dataset.id));
+  $("chats").querySelectorAll(".chat-item").forEach(el => {
+    el.onclick = () => openChat(el.dataset.id);
+    el.querySelector(".del").onclick = e => { e.stopPropagation(); deleteChat(el.dataset.id, el.title); };
+  });
+}
+
+function resetView() { chatId = null; emptyState(); renderSources([]); }
+
+async function deleteChat(id, title) {
+  if (!confirm(`Delete "${title}"? This can't be undone.`)) return;
+  await fetch("/api/chats/" + id, { method: "DELETE" });
+  if (id === chatId) resetView();
+  loadChats();
+}
+
+async function deleteOthers() {
+  const keeping = chatId && $("clear").textContent === "Delete others";
+  const n = $("chats").querySelectorAll(".chat-item").length - (keeping ? 1 : 0);
+  const what = keeping ? `the ${n} other chat${n === 1 ? "" : "s"}` : `all ${n} chat${n === 1 ? "" : "s"}`;
+  if (!confirm(`Delete ${what}? This can't be undone.`)) return;
+  await fetch("/api/chats" + (keeping ? "?keep=" + chatId : ""), { method: "DELETE" });
+  if (!keeping) resetView();
+  loadChats();
 }
 
 async function openChat(id) {
@@ -290,7 +327,8 @@ function grow() { const t = $("input"); t.style.height = "auto"; t.style.height 
 $("input").addEventListener("input", grow);
 $("input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ask(); } });
 $("send").onclick = () => ask();
-$("new").onclick = () => { chatId = null; emptyState(); renderSources([]); loadChats(); $("side").classList.remove("show"); };
+$("new").onclick = () => { resetView(); loadChats(); $("side").classList.remove("show"); };
+$("clear").onclick = deleteOthers;
 
 async function training() {
   try {
