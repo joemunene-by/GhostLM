@@ -190,15 +190,16 @@ function emptyState() {
     <div class="suggest">${ideas.map(q => `<button onclick="ask(this.textContent)">${q}</button>`).join("")}</div></div>`;
 }
 
-function factsHtml(facts) {
+function factsHtml(facts, label) {
   if (!facts || !facts.length) return "";
-  return `<div class="facts"><div class="label">Answer from the sources</div>${facts.map(f =>
-    `<div class="fact">${esc(f.text)} <span class="cite" data-n="${f.cite}">${f.cite}</span></div>`).join("")}</div>`;
+  const code = t => esc(t).replace(/`([^`]+)`/g, "<code>$1</code>");
+  return `<div class="facts"><div class="label">${esc(label || "Answer from the sources")}</div>${facts.map(f =>
+    `<div class="fact">${code(f.text)}${f.cite ? ` <span class="cite" data-n="${f.cite}">${f.cite}</span>` : ""}</div>`).join("")}</div>`;
 }
 
 const ATTEMPT = '<details class="attempt"><summary>GhostLM\'s own attempt (experimental)</summary><div class="bubble"></div></details>';
 
-function addMessage(role, html, tools, facts, notice) {
+function addMessage(role, html, tools, facts, notice, factsLabel) {
   if ($("messages").querySelector(".empty")) $("messages").innerHTML = "";
   const el = document.createElement("div");
   el.className = "msg " + role;
@@ -208,7 +209,7 @@ function addMessage(role, html, tools, facts, notice) {
   } else {
     const note = notice ? `<div class="notice">${esc(notice)}</div>` : "";
     const attempt = html === null ? "" : ATTEMPT;
-    el.innerHTML = `<div class="who">GhostLM</div>${chips}<div class="pre">${factsHtml(facts)}${note}</div>${attempt}`;
+    el.innerHTML = `<div class="who">GhostLM</div>${chips}<div class="pre">${factsHtml(facts, factsLabel)}${note}</div>${attempt}`;
     if (html) el.querySelector(".attempt .bubble").innerHTML = html;
   }
   $("messages").appendChild(el);
@@ -228,7 +229,7 @@ async function openChat(id) {
   chatId = c.id; $("messages").innerHTML = "";
   c.turns.forEach(t => { addMessage("user", esc(t.user));
     const smallTalk = t.notice && !t.model;
-    addMessage("assistant", smallTalk ? null : renderAnswer(t.assistant), t.tools, t.facts, t.notice); });
+    addMessage("assistant", smallTalk ? null : renderAnswer(t.assistant), t.tools, t.facts, t.notice, t.facts_label); });
   renderSources(c.turns.length ? c.turns[c.turns.length - 1].sources : []);
   $("side").classList.remove("show"); loadChats();
 }
@@ -270,7 +271,7 @@ async function ask(text) {
         else if (ev.type === "tool") { tools.push(ev); msg.querySelector(".tools")?.remove(); pre.insertAdjacentHTML("beforebegin", `<div class="tools">${tools.map(t => `<span class="chip">${esc(t.name)} ${esc(t.detail)}</span>`).join("")}</div>`); }
         else if (ev.type === "notice") { pre.insertAdjacentHTML("beforeend", `<div class="notice">${esc(ev.text)}</div>`); }
         else if (ev.type === "sources") { renderSources(ev.passages); }
-        else if (ev.type === "facts") { pre.insertAdjacentHTML("afterbegin", factsHtml(ev.facts)); }
+        else if (ev.type === "facts") { pre.insertAdjacentHTML("afterbegin", factsHtml(ev.facts, ev.label)); }
         else if (ev.type === "token") { answer += ev.text; bubble.innerHTML = renderAnswer(answer) + '<span class="caret"></span>'; $("messages").scrollTop = $("messages").scrollHeight; }
         else if (ev.type === "error") { pre.insertAdjacentHTML("beforeend", `<div class="error">${esc(ev.message)}</div>`); msg.querySelector(".attempt")?.remove(); }
         else if (ev.type === "done") {

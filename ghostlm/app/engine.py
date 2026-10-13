@@ -14,6 +14,7 @@ import numpy as np
 import torch
 
 from ghostlm import identity
+from ghostlm.app import codeview
 from ghostlm.config import GhostLMConfig
 from ghostlm.model import GhostLM
 from ghostlm.rag import HybridRetriever, extract_ids
@@ -25,6 +26,7 @@ STOP_STRINGS = ("\nQuestion:", "\n\nQuestion", "<|ghost_eos|>")
 # BGE-small cosine on this index: greetings and off-topic text score about 0.64-0.71,
 # real questions 0.75-0.90.
 MIN_DENSE_SCORE = 0.73
+CODE_LABEL = "What the code does (read from the code itself)"
 MIN_SENTENCE_SCORE = 0.6
 SMALL_TALK = re.compile(r"^(hi|hey|hello|yo|sup|thanks|thank you|ok|okay|cool|nice|bye|good (morning|evening|night))\b",
                         re.I)
@@ -239,9 +241,12 @@ class Engine:
             small = ctx <= 512
             k, passage_chars, max_new_tokens = (2, 320, 160) if small else (4, 600, 256)
 
+            # A pasted program is answered by reading it. Retrieval would only match its keywords
+            # against security references and quote something unrelated.
+            code = codeview.looks_like_code(question)
             for ident in extract_ids(question):
                 yield {"type": "tool", "name": "exact_lookup", "detail": ident}
-            passages = self.retrieve(question, k=k) if use_retrieval else []
+            passages = self.retrieve(question, k=k) if use_retrieval and not code else []
             yield {"type": "sources", "passages": [
                 {"source": p["source"], "ref": p["ref"], "match": p["match"],
                  "score": round(p["score"], 3), "text": _trim(p["text"], 900)} for p in passages]}
@@ -251,7 +256,11 @@ class Engine:
                 quoted = " ".join(f["text"] for f in facts)
                 facts += [f for f in best_sentences(question, passages, self.retriever.embed)
                           if f["text"] not in quoted]
-            if facts:
+            if code:
+                facts = [{"text": line} for line in codeview.outline(question)]
+                yield {"type": "tool", "name": "read_code", "detail": codeview.language(question) or "code"}
+                yield {"type": "facts", "facts": facts, "label": CODE_LABEL}
+            elif facts:
                 yield {"type": "facts", "facts": facts}
             elif use_retrieval:
                 yield {"type": "notice", "text": "I couldn't find anything relevant in my sources for that."}

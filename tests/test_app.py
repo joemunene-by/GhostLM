@@ -101,3 +101,45 @@ def test_best_sentences_picks_relevant_and_skips_questions():
     out = best_sentences("XSS", passages, embed)
     assert [f["text"] for f in out] == ["XSS lets attackers inject script into pages users view."]
     assert out[0]["cite"] == 1
+
+
+JAVA = """explain this code (import java.util.Scanner; public class Library { static final int MAX_BOOKS = 10;
+static int available = MAX_BOOKS; public static void main(String[] args) { Scanner input = new Scanner(System.in);
+int choice; do { System.out.println("1. Borrow Book"); choice = input.nextInt(); switch (choice) { case 1: borrow();
+break; case 2: System.out.println("Thank you for using the library system."); break; default:
+System.out.println("Invalid choice."); } } while (choice != 2); } static void borrow() { if (available > 0) {
+available--; System.out.println("Book borrowed successfully."); } else { System.out.println("None left."); } } })"""
+
+
+def test_code_detection_ignores_ordinary_questions():
+    from ghostlm.app import codeview
+    assert codeview.looks_like_code(JAVA)
+    assert codeview.looks_like_code("import os\ndef f(path):\n    data = open(path).read()\n    total = len(data)\n"
+                                    "    for line in data.splitlines():\n        total += 1\n    return total\n")
+    for question in ("How does SQL injection work?", "What is CVE-2021-44228?", "explain this code",
+                     "Explain ATT&CK T1059.001 and how PowerShell is used; what mitigations exist for it in detail?"):
+        assert not codeview.looks_like_code(question), question
+
+
+def test_code_outline_reads_structure_and_each_function():
+    from ghostlm.app import codeview
+    text = "\n".join(codeview.outline(JAVA))
+    assert "This is Java code defining `Library`." in text
+    assert "It has 2 functions: `main` and `borrow`." in text
+    assert "It imports `java.util.Scanner`." in text and "`the`" not in text
+    assert '`borrow` checks `available > 0`, takes 1 from `available` and prints "Book borrowed successfully.".' in text
+    assert "`main` reads input, loops, calls `borrow`" in text
+    assert "`MAX_BOOKS` = `10`" in text and "a switch with 2 cases and a default" in text
+    assert "no risky calls stand out" in text
+
+
+def test_code_outline_flags_risks_and_hides_credentials():
+    from ghostlm.app import codeview
+    code = ("import subprocess\nfrom flask import request\nAPI_KEY = \"sk-abcdefghijklmnop\"\ndef ping():\n"
+            "    host = request.args.get(\"host\")\n    if host:\n"
+            "        return subprocess.run(f\"ping {host}\", shell=True)\n"
+            "    cur.execute(\"SELECT * FROM users WHERE name = '\" + name + \"'\")\n")
+    text = "\n".join(codeview.outline(code))
+    assert "This is Python code." in text and "It imports `subprocess` and `flask`." in text
+    assert "runs shell commands" in text and "SQL injection" in text and "hardcoded credential" in text
+    assert "sk-abcdefghijklmnop" not in text and "value hidden" in text
