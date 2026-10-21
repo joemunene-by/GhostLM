@@ -12,6 +12,7 @@ from typing import Protocol
 
 from ghostlm.code import tools
 from ghostlm.code.backend import Backend, Cancelled, Reply
+from ghostlm.code.mcp import Registry
 
 MODES = ["default", "accept edits", "plan"]
 MAX_STEPS = 50
@@ -78,14 +79,21 @@ def project_instructions(cwd: Path) -> str:
     return ""
 
 
+def external_label(name: str, args: dict) -> str:
+    """How an MCP call reads in the transcript, e.g. REA(inspect_signature Firefox.app)."""
+    server, _, tool = name.partition("_")
+    target = next((args[k] for k in ("path", "input_path") if isinstance(args.get(k), str)), "")
+    return f"{server.upper()}({tool}{' ' + Path(target).name if target else ''})"
+
+
 def bash_rule(command: str) -> str:
     """Session allow-rules for bash match on the first two words, e.g. 'git status'."""
     return " ".join(command.split()[:2])
 
 
 class Agent:
-    def __init__(self, backend: Backend, ui: UI, cwd: Path, mode: str = "default"):
-        self.backend, self.ui, self.cwd, self.mode = backend, ui, cwd.resolve(), mode
+    def __init__(self, backend: Backend, ui: UI, cwd: Path, mode: str = "default", mcp: Registry | None = None):
+        self.backend, self.ui, self.cwd, self.mode, self.mcp = backend, ui, cwd.resolve(), mode, mcp
         self.allowed: set[str] = set()
         self.allow_all = False
         self.cancel = threading.Event()
@@ -94,8 +102,9 @@ class Agent:
         self.reset()
 
     def reset(self) -> None:
-        self.messages = [{"role": "system",
-                          "content": SYSTEM + "\n" + environment(self.cwd) + project_instructions(self.cwd)}]
+        hints = self.mcp.hints() if self.mcp else ""
+        self.messages = [{"role": "system", "content": SYSTEM + (hints and "\n" + hints + "\n") + "\n"
+                          + environment(self.cwd) + project_instructions(self.cwd)}]
 
     def cycle_mode(self) -> str:
         self.mode = MODES[(MODES.index(self.mode) + 1) % len(MODES)]
@@ -103,7 +112,7 @@ class Agent:
 
     def permitted(self, name: str, args: dict) -> tuple[bool, str]:
         """Decide whether a call may run, asking the user when the mode requires it."""
-        if name in tools.READ_ONLY or self.allow_all:
+        if name in tools.READ_ONLY or self.allow_all or (self.mcp and self.mcp.read_only(name)):
             return True, ""
         if self.mode == "plan":
             return False, PLAN_NOTE
@@ -136,7 +145,7 @@ class Agent:
         for _ in range(MAX_STEPS):
             self.ui.start_reply()
             try:
-                reply = self.backend.chat(self.messages, tools.SPECS, self.ui.on_text, self.ui.on_thinking,
+                reply = self.backend.chat(self.messages, self.specs(), self.ui.on_text, self.ui.on_thinking,
                                           self.cancel)
             except Cancelled:
                 self.ui.end_reply(Reply())
@@ -165,6 +174,9 @@ class Agent:
         self.ui.notice(f"Stopped after {MAX_STEPS} steps. Say 'continue' to keep going.")
         return final
 
+    def specs(self) -> list[dict]:
+        return tools.SPECS + (self.mcp.specs() if self.mcp else [])
+
     def _execute(self, call) -> str:
         try:
             args = json.loads(call.arguments or "{}")
@@ -175,11 +187,17 @@ class Agent:
             result = tools.Result(f"Could not parse the tool arguments: {e}", "Invalid arguments", ok=False)
             self.ui.tool_result(result)
             return result.output
-        self.ui.tool_call(tools.label(call.name, args, self.cwd))
-        result = tools.precheck(call.name, args, self.cwd)
+        external = bool(self.mcp and self.mcp.owns(call.name))
+        self.ui.tool_call(external_label(call.name, args) if external else tools.label(call.name, args, self.cwd))
+        result = None if external else tools.precheck(call.name, args, self.cwd)
         if result is None:
             ok, reason = self.permitted(call.name, args)
-            result = tools.run(call.name, args, self.cwd, self.cancel) if ok else tools.Result(reason, "Not run", ok=False)
+            if not ok:
+                result = tools.Result(reason, "Not run", ok=False)
+            elif external:
+                result = self.mcp.call(call.name, args, self.cwd, self.cancel)
+            else:
+                result = tools.run(call.name, args, self.cwd, self.cancel)
         self.ui.tool_result(result)
         return result.output
 
