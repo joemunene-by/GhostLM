@@ -480,8 +480,9 @@ def test_mcp_call_resolves_paths_and_reports_errors(fake_mcp, tmp_path):
 
 
 def test_mcp_opens_a_path_given_to_a_tool_that_works_on_the_open_target(fake_mcp, tmp_path):
-    result = fake_mcp.call("fake_active", {"path": "/bin/ls"}, tmp_path)
-    assert result.ok and result.output == "active on /bin/ls"
+    (tmp_path / "app").write_text("x")
+    result = fake_mcp.call("fake_active", {"path": "app"}, tmp_path)
+    assert result.ok and result.output == f"active on {(tmp_path / 'app').resolve()}"
 
 
 def test_agent_runs_read_only_mcp_tools_without_asking(fake_mcp, tmp_path):
