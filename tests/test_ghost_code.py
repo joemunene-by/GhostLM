@@ -411,3 +411,93 @@ def test_ollama_messages_use_object_arguments_and_tool_names():
         {"role": "tool", "tool_call_id": "c1", "content": "x = 1"}])
     assert out[0]["tool_calls"] == [{"function": {"name": "read_file", "arguments": {"path": "a.py"}}}]
     assert out[1] == {"role": "tool", "content": "x = 1", "tool_name": "read_file"}
+
+
+FAKE_MCP = r'''
+import json, sys
+TOOLS = [
+    {"name": "inspect", "description": "Inspect a file. " + "Long detail. " * 80,
+     "inputSchema": {"$schema": "x", "type": "object", "examples": [{}],
+                     "properties": {"path": {"type": "string", "pattern": ".*", "description": "Where."}},
+                     "required": ["path"]}},
+    {"name": "hidden", "description": "Not allowed.", "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "active", "description": "Acts on the opened file.", "inputSchema": {"type": "object", "properties": {}}},
+]
+opened = ""
+for line in sys.stdin:
+    msg = json.loads(line)
+    if "id" not in msg or "method" not in msg:
+        continue
+    method, args = msg["method"], msg.get("params", {}).get("arguments", {})
+    if method == "initialize":
+        result = {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}, "serverInfo": {"name": "fake"}}
+    elif method == "tools/list" and not msg["params"].get("cursor"):
+        print(json.dumps({"jsonrpc": "2.0", "id": 999, "method": "ping"}), flush=True)
+        result = {"tools": TOOLS[:1], "nextCursor": "2"}
+    elif method == "tools/list":
+        result = {"tools": TOOLS[1:]}
+    elif msg["params"]["name"] == "active":
+        result = {"content": [{"type": "text", "text": "active on " + opened if not args else "unexpected args"}]}
+    elif args.get("path", "").endswith("bad"):
+        result = {"isError": True, "content": [{"type": "text", "text": '{"error":{"message":"Bad input"}}'}]}
+    else:
+        opened = args["path"]
+        result = {"content": [{"type": "text", "text": "seen " + args["path"]}]}
+    print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": result}), flush=True)
+'''
+
+
+@pytest.fixture
+def fake_mcp(tmp_path):
+    import sys
+
+    from ghostlm.code.mcp import Registry
+
+    script = tmp_path / "fake_mcp.py"
+    script.write_text(FAKE_MCP)
+    reg = Registry({"fake": {"command": [sys.executable, str(script)], "tools": ["inspect", "active"],
+                             "read_only": True, "opener": "inspect", "hint": "fake_* tools inspect files."}})
+    yield reg
+    reg.close()
+
+
+def test_mcp_tools_are_paged_filtered_and_slimmed(fake_mcp):
+    specs = fake_mcp.specs()
+    assert [s["function"]["name"] for s in specs] == ["fake_inspect", "fake_active"]
+    fn = specs[0]["function"]
+    assert len(fn["description"]) <= 300 and "$schema" not in fn["parameters"]
+    assert "pattern" not in fn["parameters"]["properties"]["path"]
+
+
+def test_mcp_call_resolves_paths_and_reports_errors(fake_mcp, tmp_path):
+    (tmp_path / "real").write_text("x")
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    ok = fake_mcp.call("fake_inspect", {"path": "link"}, tmp_path)
+    assert ok.ok and ok.output == f"seen {(tmp_path / 'real').resolve()}"
+    bad = fake_mcp.call("fake_inspect", {"path": "bad"}, tmp_path)
+    assert not bad.ok and bad.summary == "Bad input"
+    assert not fake_mcp.owns("fake_hidden") and not fake_mcp.owns("read_file")
+
+
+def test_mcp_opens_a_path_given_to_a_tool_that_works_on_the_open_target(fake_mcp, tmp_path):
+    result = fake_mcp.call("fake_active", {"path": "/bin/ls"}, tmp_path)
+    assert result.ok and result.output == "active on /bin/ls"
+
+
+def test_agent_runs_read_only_mcp_tools_without_asking(fake_mcp, tmp_path):
+    ui = FakeUI()
+    agent = Agent(FakeBackend(call("fake_inspect", path="/bin/ls"), Reply(text="done")), ui, tmp_path, mcp=fake_mcp)
+    assert agent.run_turn("inspect ls") == "done"
+    assert ui.calls == ["FAKE(inspect ls)"] and not ui.asked
+    assert "fake_* tools inspect files." in agent.messages[0]["content"]
+    assert agent.backend.seen[1][-1]["content"].startswith("seen /")
+
+
+def test_rea_is_used_only_when_installed(monkeypatch):
+    from ghostlm.code import mcp
+
+    monkeypatch.setattr(mcp.shutil, "which", lambda name: None)
+    assert mcp.configured({}) == {}
+    monkeypatch.setattr(mcp.shutil, "which", lambda name: "/usr/bin/rea")
+    assert list(mcp.configured({})) == ["rea"]
+    assert mcp.configured({"mcp": {}}) == {}
