@@ -115,6 +115,7 @@ never answers one by accident.
 | `/audit` | Security audit of this machine |
 | `/scan` | Security scan of this folder |
 | `/init` | Have the agent write a `GHOST.md` for the project |
+| `/mcp` | Connected tool servers and their tools |
 | `/exit` | Quit |
 
 ## Permissions
@@ -147,6 +148,41 @@ contents are added to the system prompt.
 skips `.git`, `node_modules`, virtual environments and build folders. Tool output
 over 20,000 characters is truncated.
 
+## MCP servers and REA
+
+Ghost Code can also use tools from MCP servers over stdio. If
+[REA](https://github.com/morluto/rea) is installed (`npm install --global rea-agents`),
+it is connected automatically with a curated set of its static inspectors:
+`open_binary`, `inspect_signature`, `inspect_macho`, `inspect_plist`,
+`inspect_electron_fuses`, `inspect_go_binary`, `inspect_rust_binary`,
+`inspect_pe_resources`, `inspect_with_objdump` and `inspect_android_package`.
+They need no Hopper, Ghidra or IDA and never run the target, so they are treated
+as read-only. They answer questions such as "how is this app signed and what
+entitlements does it have?" or "can this Electron app be hijacked with
+`ELECTRON_RUN_AS_NODE`?".
+
+REA has over 200 tools and megabytes of schema, far more than a local 8B model
+can take in, which is why only these are offered. To choose differently, or to add
+other servers, set `mcp` in `config.json`; `"mcp": {}` turns them all off.
+
+```json
+{
+  "mcp": {
+    "rea": {
+      "command": ["rea", "--mcp"],
+      "tools": ["open_binary", "inspect_signature", "inspect_electron_fuses"],
+      "read_only": true,
+      "opener": "open_binary"
+    }
+  }
+}
+```
+
+`tools` limits what the model sees, `read_only` lets the calls run without asking,
+and `opener` names the tool that selects a target, so a call that passes a path to
+a tool working on the open target opens it first. Paths are made absolute and
+symlinks resolved before they reach the server.
+
 ## Files
 
 State lives in `~/.ghostcode/` (override with `GHOST_HOME`): `config.json`, prompt
@@ -159,6 +195,7 @@ State lives in `~/.ghostcode/` (override with `GHOST_HOME`): `config.json`, prom
 | `ghostlm/code/cli.py` | Prompt, slash commands, `--print` mode |
 | `ghostlm/code/agent.py` | The loop, permission modes, system prompt |
 | `ghostlm/code/tools.py` | Tool definitions and handlers |
+| `ghostlm/code/mcp.py` | MCP client and the REA preset |
 | `ghostlm/code/backend.py` | Streaming chat client |
 | `ghostlm/code/ui.py` | Transcript, status line, permission prompt |
 | `ghostlm/code/mascot.py` | The animated token ghost |

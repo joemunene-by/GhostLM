@@ -19,6 +19,7 @@ from rich.text import Text
 from ghostlm.code import __version__, tools
 from ghostlm.code.agent import MODES, Agent
 from ghostlm.code.backend import Backend, BackendError
+from ghostlm.code.mcp import Registry, configured
 from ghostlm.code.ui import GHOST_ROWS, PlainUI, Status, TerminalUI, idle_stage, intro_stage
 
 HOME = Path(os.environ.get("GHOST_HOME", Path.home() / ".ghostcode"))
@@ -32,6 +33,7 @@ COMMANDS = {
     "/status": "model, endpoint, mode and context size",
     "/audit": "security audit of this machine (read-only)",
     "/scan": "scan this folder for secrets and risky code",
+    "/mcp": "show connected tool servers such as REA",
     "/init": "write a GHOST.md describing this project",
     "/exit": "quit",
 }
@@ -371,6 +373,9 @@ class Repl:
             say(f"Model: {agent.backend.model} at {agent.backend.base_url}")
             say(f"Mode: {agent.mode} · {len(agent.messages)} messages · about {agent.tokens:,} tokens in context")
             say(f"Working directory: {agent.cwd}")
+        elif name == "/mcp":
+            for line in agent.mcp.status() if agent.mcp else ["No MCP servers configured"]:
+                say(line)
         elif name in AGENT_COMMANDS:
             self.turn(AGENT_COMMANDS[name])
         else:
@@ -434,8 +439,10 @@ def main(argv: list[str] | None = None) -> None:
 
     backend = build_backend(args)
     cwd = Path.cwd()
+    servers = configured(load_config())
+    mcp = Registry(servers) if servers else None
     if args.print:
-        agent = Agent(backend, PlainUI(args.verbose), cwd, args.mode)
+        agent = Agent(backend, PlainUI(args.verbose), cwd, args.mode, mcp)
         agent.allow_all = args.allow_all
         try:
             print(agent.run_turn(prompt))
@@ -443,7 +450,7 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(f"ghost: {e}")
         return
 
-    agent = Agent(backend, None, cwd, args.mode)
+    agent = Agent(backend, None, cwd, args.mode, mcp)
     agent.allow_all = args.allow_all
 
     agent.ui = ui = TerminalUI()
