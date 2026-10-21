@@ -54,8 +54,10 @@ RESUME_COOLDOWN_S = 5 * 60
 STOP_TIMEOUT_S = 15 * 60
 KEEP_CHECKPOINTS = 1
 
-# wine/cellar games show up as wineserver or *.exe processes.
-GAME_PATTERN = re.compile(r"wineserver|wine64-preloader|wine-preloader|\.exe(\s|$)", re.I)
+# A wine/cellar game is a Windows-path *.exe outside C:\windows: Wine's own services
+# (services.exe, winedevice.exe, wineserver) linger after a game quits, and native Mac
+# binaries can end in .exe too.
+GAME_PATTERN = re.compile(r"^(?![a-z]:\\windows\\)[a-z]:\\.*\.exe(\s|$)", re.I)
 
 DEFAULT_CONFIG = {
     "max_steps": 15_000,
@@ -137,7 +139,7 @@ def notify(msg: str) -> None:
 
 def game_running() -> bool:
     out = subprocess.run(["ps", "-axo", "command"], capture_output=True, text=True).stdout
-    return any(GAME_PATTERN.search(line) for line in out.splitlines())
+    return any(GAME_PATTERN.search(line.strip()) for line in out.splitlines())
 
 
 MEM = {"low_since": None, "ok_since": None, "paused": False, "free": None}
