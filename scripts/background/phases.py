@@ -179,18 +179,26 @@ def finalize_run(ckpt_dir: Path, keep: tuple = ()) -> Path | None:
     return final
 
 
-def drop_spent_after_router(cfg: dict, root: Path) -> float:
-    """Delete what nothing reads once the router's final.pt exists; returns GB freed.
+def drop_spent(cfg: dict, root: Path) -> float:
+    """Delete BTX files as soon as nothing downstream reads them; returns GB freed.
 
-    That is each branch's final.pt, the pre_decay.pt the branches started from, and
-    the unrouted merged.pt. Chat SFT writes ~12GB checkpoints, so the room matters.
+    pre_decay.pt goes once every branch has its final.pt (it is also in the Hub
+    backup), the branch finals once merged.pt exists, and merged.pt once the router
+    has its final.pt. Freeing each early keeps the router and chat SFT peaks in budget.
     """
     btx = btx_config(cfg)
-    ck = root / "checkpoints"
-    if not btx or not (ck / MOE_RUN / "final.pt").exists():
+    if not btx:
         return 0.0
-    spent = [ck / f"btx_{d}" / "final.pt" for d in btx["branches"]]
-    spent += [ck / PRETRAIN_RUN / "pre_decay.pt", ck / MOE_RUN / "merged.pt"]
+    ck = root / "checkpoints"
+    branch_finals = [ck / f"btx_{d}" / "final.pt" for d in btx["branches"]]
+    merged = ck / MOE_RUN / "merged.pt"
+    spent = []
+    if all(p.exists() for p in branch_finals) or merged.exists():
+        spent.append(ck / PRETRAIN_RUN / "pre_decay.pt")
+    if merged.exists() or (ck / MOE_RUN / "final.pt").exists():
+        spent += branch_finals
+    if (ck / MOE_RUN / "final.pt").exists():
+        spent.append(merged)
     freed = 0
     for p in spent:
         if p.exists():
