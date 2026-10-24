@@ -74,20 +74,29 @@ def test_finalize_keeps_weights_only_final_and_requested_files(tmp_path):
     assert sorted(p.name for p in tmp_path.iterdir()) == ["final.pt", "pre_decay.pt"]
 
 
-def test_spent_btx_files_go_only_once_the_router_final_exists(tmp_path):
+def test_spent_btx_files_go_as_soon_as_nothing_downstream_reads_them(tmp_path):
     ck = tmp_path / "checkpoints"
-    spent = [ck / f"btx_{d}" / "final.pt" for d in phases.DEFAULT_BTX["branches"]]
-    spent += [ck / phases.PRETRAIN_RUN / "pre_decay.pt", ck / phases.MOE_RUN / "merged.pt"]
+    pre_decay, merged = ck / phases.PRETRAIN_RUN / "pre_decay.pt", ck / phases.MOE_RUN / "merged.pt"
+    finals = [ck / f"btx_{d}" / "final.pt" for d in phases.DEFAULT_BTX["branches"]]
     kept = [ck / phases.PRETRAIN_RUN / "final.pt", ck / phases.MOE_RUN / "best_model.pt"]
-    for p in spent + kept:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(b"x" * 1000)
-    assert phases.drop_spent_after_router(CFG, tmp_path) == 0.0
-    assert all(p.exists() for p in spent)
+
+    def make(*paths):
+        for p in paths:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"x" * 1000)
+
+    make(pre_decay, *kept, *finals[:-1])
+    assert phases.drop_spent(CFG, tmp_path) == 0.0 and pre_decay.exists()
+    make(finals[-1])
+    assert phases.drop_spent(CFG, tmp_path) == 1000 / 1e9 and not pre_decay.exists()
+    assert all(p.exists() for p in finals)
+    make(merged)
+    assert phases.drop_spent(CFG, tmp_path) == 4000 / 1e9 and merged.exists()
+    assert not any(p.exists() for p in finals)
     (ck / phases.MOE_RUN / "final.pt").touch()
-    assert phases.drop_spent_after_router(CFG, tmp_path) == 6000 / 1e9
-    assert not any(p.exists() for p in spent) and all(p.exists() for p in kept)
-    assert phases.drop_spent_after_router(dict(sup.DEFAULT_CONFIG), tmp_path) == 0.0
+    assert phases.drop_spent(CFG, tmp_path) == 1000 / 1e9 and not merged.exists()
+    assert all(p.exists() for p in kept)
+    assert phases.drop_spent(dict(sup.DEFAULT_CONFIG), tmp_path) == 0.0
 
 
 def test_advance_phase_resets_counters_and_finishes_at_the_end(monkeypatch):

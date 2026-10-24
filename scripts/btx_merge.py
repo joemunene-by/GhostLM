@@ -78,7 +78,10 @@ def main() -> int:
         branches.append((name, torch.load(path, map_location="cpu", weights_only=False, mmap=True)))
     out = merge(branches, args.top_k, args.seed)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    torch.save(out, args.out)
+    # Written atomically: the supervisor treats an existing merged.pt as a finished merge.
+    tmp = Path(args.out).with_name(Path(args.out).name + ".tmp")
+    torch.save(out, tmp)
+    tmp.replace(args.out)
     n = sum(v.numel() for k, v in out["model_state_dict"].items() if k != "lm_head.weight")
     print(f"merged {len(branches)} branches ({', '.join(out['btx']['experts'])}) -> {args.out}: "
           f"{n / 1e6:.0f}M parameters, top-{out['config']['n_experts_active']} routing")
