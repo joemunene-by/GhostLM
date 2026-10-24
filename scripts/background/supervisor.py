@@ -57,7 +57,10 @@ KEEP_CHECKPOINTS = 1
 # A wine/cellar game is a Windows-path *.exe outside C:\windows: Wine's own services
 # (services.exe, winedevice.exe, wineserver) linger after a game quits, and native Mac
 # binaries can end in .exe too.
-GAME_PATTERN = re.compile(r"^(?![a-z]:\\windows\\)[a-z]:\\.*\.exe(\s|$)", re.I)
+GAME_PATTERN = re.compile(r"^(?![a-z]:\\windows\\)[a-z]:\\.*?([^\\]+\.exe)(\s|$)", re.I)
+# Store clients idle in the background without a game; a game they start runs as its own .exe.
+LAUNCHERS = {"steam.exe", "steamwebhelper.exe", "steamservice.exe", "steamerrorreporter.exe",
+             "epicgameslauncher.exe", "epicwebhelper.exe"}
 
 DEFAULT_CONFIG = {
     "max_steps": 15_000,
@@ -139,7 +142,11 @@ def notify(msg: str) -> None:
 
 def game_running() -> bool:
     out = subprocess.run(["ps", "-axo", "command"], capture_output=True, text=True).stdout
-    return any(GAME_PATTERN.search(line.strip()) for line in out.splitlines())
+    for line in out.splitlines():
+        m = GAME_PATTERN.search(line.strip())
+        if m and m.group(1).lower() not in LAUNCHERS:
+            return True
+    return False
 
 
 MEM = {"low_since": None, "ok_since": None, "paused": False, "free": None}
