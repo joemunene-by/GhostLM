@@ -626,6 +626,10 @@ def main() -> None:
                 log_event(f"phase {phase['name']} finished at step {step}")
                 notify(f"{phase['name']} finished at step {step:,}.")
                 advance_phase(cfg, state)
+                # Start over so the launch below sees the new phase; falling through relaunched the
+                # finished one from scratch with no checkpoint left to resume.
+                save_state(state)
+                continue
             elif code != 0 and not reason:
                 # Restart the cooldown clock so the crash backoff below is actually waited out.
                 clear_since = time.time()
