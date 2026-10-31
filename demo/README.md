@@ -1,6 +1,5 @@
 ---
 title: GhostLM
-emoji: 🔐
 colorFrom: purple
 colorTo: gray
 sdk: gradio
