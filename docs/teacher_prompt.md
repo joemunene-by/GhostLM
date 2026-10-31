@@ -39,4 +39,4 @@ Example (passage pid p123: "CAPEC-322: TCP (ISN) Greatest Common Divisor Probe. 
 {"pid": "p123", "type": "answer", "question": "How does the TCP ISN greatest common divisor probe fingerprint an operating system?", "answer": "It sends several TCP SYN packets to an open port and analyzes the Initial Sequence Number in each SYN/ACK reply to find the smallest value the host uses when incrementing sequence numbers [1]. Because operating systems and versions increment sequence numbers by different values, that result is compared against a database of OS behaviors to identify the OS type or version [1]."}
 {"pid": "p123", "type": "unanswerable", "question": "What ports does the Mirai botnet scan for Telnet access?", "answer": "My sources don't cover that."}
 
-Start now with BATCHES = 5.
+Start now with BATCHES = 40.
