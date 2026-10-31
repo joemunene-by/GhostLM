@@ -124,7 +124,9 @@ class ChatTokenizerBase:
         Format: <|ghost_user|>{content}<|ghost_end|><|ghost_assistant|>{content}<|ghost_end|>...
         The loss mask is 1 on assistant content tokens and the assistant's trailing
         end marker (so the model learns to stop), and 0 everywhere else (user
-        prompts and role markers themselves).
+        prompts and role markers themselves). An assistant turn with
+        ``"train": false`` is encoded as context but masked out, for
+        conversations that deliberately show a wrong answer being corrected.
 
         Args:
             turns: List of {"role": "user"|"assistant", "content": str} dicts,
@@ -151,12 +153,13 @@ class ChatTokenizerBase:
                 ids.append(end_id)
                 mask.append(0)
             elif role == "assistant":
+                supervised = int(turn.get("train", True))
                 ids.append(assistant_id)
                 mask.append(0)
                 ids.extend(content_ids)
-                mask.extend([1] * len(content_ids))
+                mask.extend([supervised] * len(content_ids))
                 ids.append(end_id)
-                mask.append(1)
+                mask.append(supervised)
             else:
                 raise ValueError(f"Unknown role: {role!r}")
 
