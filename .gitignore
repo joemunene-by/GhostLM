@@ -78,3 +78,5 @@ wandb/
 
 # Teacher-written SFT batches (scripts/teacher_sft.py)
 data/teacher/
+data/chat_gen/
+data/chat_reviewed/
