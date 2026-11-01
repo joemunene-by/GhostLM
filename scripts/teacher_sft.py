@@ -25,6 +25,8 @@ from pathlib import Path
 
 import numpy as np
 
+from teacher_http import DEFAULT_MODELS, ask_http
+
 ROOT = Path(__file__).resolve().parent.parent
 TEACHER = ROOT / "data/teacher"
 QUEUE, OUT = TEACHER / "queue", TEACHER / "out"
@@ -184,6 +186,9 @@ def _rules() -> str:
 
 def _ask(model: str, prompt: str, timeout: int) -> str:
     import subprocess
+    backend, _, name = model.partition("/")
+    if backend in DEFAULT_MODELS:
+        return ask_http(backend, name, prompt, timeout)
     try:
         out = subprocess.run(["opencode", "run", "-m", model, prompt], capture_output=True,
                              text=True, timeout=timeout, cwd=ROOT).stdout
@@ -286,7 +291,8 @@ def main() -> int:
     sub.add_parser("status")
     sub.add_parser("merge")
     r = sub.add_parser("run", help="generate batches unattended through `opencode run`")
-    r.add_argument("--model", default="opencode/mimo-v2.6-flash-free")
+    r.add_argument("--model", default="opencode/mimo-v2.6-flash-free",
+                   help="opencode/<id>, or groq/<id> to go through the Groq API")
     r.add_argument("--batches", type=int, default=10)
     r.add_argument("--reverse", action="store_true", help="work from the last batch backwards")
     args = p.parse_args()

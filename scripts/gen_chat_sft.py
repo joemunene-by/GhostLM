@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Broad chat SFT conversations written by a teacher model through `opencode run` or `codex exec`.
+"""Broad chat SFT conversations written by a teacher model through `opencode run`, `codex exec` or the Groq API.
 
     python scripts/gen_chat_sft.py run [--workers 3] [--rounds 4]   # resumable
     python scripts/gen_chat_sft.py status
@@ -21,6 +21,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+from teacher_http import DEFAULT_MODELS, ask_http, last_model
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "data/chat_gen"
@@ -237,9 +239,12 @@ def work(job: dict) -> int:
         prompt += f"\n\nThis is variation set {job['round'] + 1}: pick less obvious subtopics than a first attempt would."
     kept = []
     for attempt in range(3):
-        convs = [c for c in parse(ask(prompt)) if valid(c)]
+        raw = ask(prompt)
+        convs = [c for c in parse(raw) if valid(c)]
         if convs:
             break
+        print(f"{time.strftime('%H:%M:%S')} empty attempt {attempt + 1} for {job['key']}: "
+              f"{len(raw)} chars, {len(parse(raw))} parsed", flush=True)
         time.sleep(20 * (attempt + 1))
     if not convs:
         # Usually the free tier's usage limit; wait it out rather than burn through the job list.
@@ -251,7 +256,8 @@ def work(job: dict) -> int:
                 continue
             seen.add(first)
             kept.append(json.dumps({"turns": [{"role": t["role"], "content": t["content"].strip()} for t in c["turns"]],
-                                    "source": f"gen_{job['area']}", "job": job["key"], "teacher": BACKEND},
+                                    "source": f"gen_{job['area']}", "job": job["key"],
+                                    "teacher": f"{BACKEND}:{last_model()}" if BACKEND in DEFAULT_MODELS else BACKEND},
                                    ensure_ascii=False))
         if kept:
             with (OUT / f"{job['area']}.jsonl").open("a") as f:
@@ -290,12 +296,14 @@ def main() -> None:
     p.add_argument("cmd", choices=["run", "status"])
     p.add_argument("--workers", type=int, default=3)
     p.add_argument("--rounds", type=int, default=4)
-    p.add_argument("--backend", choices=["opencode", "codex"], default="opencode")
+    p.add_argument("--backend", choices=["opencode", "codex", *DEFAULT_MODELS], default="opencode")
+    p.add_argument("--model", help="model id for the backend (default depends on the backend)")
     p.add_argument("--task", choices=["broad", "multiturn"], default="broad")
     p.add_argument("--reverse", action="store_true", help="work from the end of the job list, so two backends don't overlap")
     a = p.parse_args()
-    global BACKEND, REVERSE, TASK
+    global BACKEND, REVERSE, TASK, MODEL
     BACKEND, REVERSE, TASK = a.backend, a.reverse, a.task
+    MODEL = a.model or DEFAULT_MODELS.get(BACKEND, MODEL)
     if a.cmd == "status":
         return status(a.rounds)
     # Jobs that failed are not marked done, so later passes pick them up again.
