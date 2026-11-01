@@ -289,11 +289,14 @@ def train_command(cfg: dict, phase: dict | None = None) -> list:
 
 def seconds_per_step(state: dict) -> float | None:
     samples = state.get("rate_samples", [])
-    rates = sorted((t1 - t0) / (s1 - s0) for (t0, s0), (t1, s1) in zip(samples, samples[1:]) if s1 > s0)
-    if not rates:
+    pairs = [(t1 - t0, s1 - s0) for (t0, s0), (t1, s1) in zip(samples, samples[1:]) if s1 > s0]
+    if not pairs:
         return None
-    # median, so a pause or freeze between two samples can't inflate the speed and ETA
-    return rates[len(rates) // 2]
+    # Samples land once a minute, so single pairs are quantised to 60 or 120 s and their
+    # median is wrong; average over the window instead, after dropping freezes.
+    median_dt = sorted(dt for dt, _ in pairs)[len(pairs) // 2]
+    kept = [(dt, ds) for dt, ds in pairs if dt <= 3 * median_dt]
+    return sum(dt for dt, _ in kept) / sum(ds for _, ds in kept)
 
 
 def record_rate(state: dict, training: bool) -> None:
