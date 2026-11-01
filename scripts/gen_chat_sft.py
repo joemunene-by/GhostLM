@@ -120,6 +120,18 @@ MULTITURN_KINDS = [
     "a student working through the topic step by step, each turn building on the last",
 ]
 
+REASONING_KINDS = [
+    "a triage scenario: an alert, log excerpt or symptom is described and the user asks what is going on and what to do first",
+    "a which-is-it question with several plausible candidates (which attack, protocol, flag, cause or technique fits these facts)",
+    "a root-cause question: something broke or was breached and the user asks why, given a few concrete clues",
+    "a CTF-style puzzle or an encoding, hashing or permission-bits question that is solved by working through it",
+    "a small estimate or calculation the user needs for a real decision (capacity, exposure window, rate, probability, cost)",
+]
+
+REASONING_RULES = """
+
+Every conversation in this set is a reasoning task: {kind}. GhostLM's reply works the answer out in the open: two to five short steps, each a sentence that uses a specific fact from the question or from GhostLM's knowledge and moves the analysis forward, then one final sentence that states the conclusion and the single most useful next action. No step may be padding, hedging or a restatement of the question. Never write 'let me think', 'wait' or a correction; the steps must be right the first time. If the facts given are not enough to decide, the conclusion says exactly which fact is missing."""
+
 PERSONAS = ["a student", "a SOC analyst", "a software developer", "a sysadmin", "a curious non-technical person",
             "a pentester", "a teacher", "a startup founder", "a data scientist", "a hobbyist"]
 
@@ -152,6 +164,15 @@ EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿]")
 
 def jobs(rounds: int) -> list:
     out = []
+    if TASK == "reasoning":
+        for area in ("cybersec", "math", "code"):
+            for topic in AREAS[area]:
+                for ki, kind in enumerate(REASONING_KINDS):
+                    for r in range(rounds):
+                        out.append({"area": f"reasoning_{area}", "topic": topic, "style": kind, "round": r,
+                                    "key": f"reasoning_{area}|{topic}|{ki}|{r}"})
+        random.Random(0).shuffle(out)
+        return out
     if TASK == "multiturn":
         for topic in AREAS["cybersec"]:
             for ki, kind in enumerate(MULTITURN_KINDS):
@@ -236,6 +257,11 @@ def work(job: dict) -> int:
     rng = random.Random(job["key"])
     prompt = RULES.format(n=PER_JOB, area=job["area"], topic=job["topic"], style=job["style"],
                           persona=rng.choice(PERSONAS))
+    if TASK == "reasoning":
+        prompt = prompt.replace(f"Write {PER_JOB} different", "Write 4 different").replace(
+            f"Output exactly {PER_JOB} lines", "Output exactly 4 lines").replace(
+            f"Style of the user's first message: {job['style']}. ", "")
+        prompt += REASONING_RULES.format(kind=job["style"])
     if TASK == "multiturn":
         prompt = prompt.replace(f"Write {PER_JOB} different", "Write 4 different").replace(
             f"Output exactly {PER_JOB} lines", "Output exactly 4 lines").replace(
@@ -305,7 +331,7 @@ def main() -> None:
     p.add_argument("--rounds", type=int, default=4)
     p.add_argument("--backend", choices=["opencode", "codex", *DEFAULT_MODELS], default="opencode")
     p.add_argument("--model", help="model id for the backend (default depends on the backend)")
-    p.add_argument("--task", choices=["broad", "multiturn"], default="broad")
+    p.add_argument("--task", choices=["broad", "multiturn", "reasoning"], default="broad")
     p.add_argument("--reverse", action="store_true", help="work from the end of the job list, so two backends don't overlap")
     a = p.parse_args()
     global BACKEND, REVERSE, TASK, MODEL
