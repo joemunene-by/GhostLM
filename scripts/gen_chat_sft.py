@@ -197,19 +197,26 @@ def valid(conv) -> bool:
 
 
 def parse(text: str) -> list:
-    convs = []
-    for line in ANSI.sub("", text).splitlines():
-        line = line.strip()
-        if line.startswith("{") and line.endswith("}"):
-            try:
-                convs.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
+    """Every JSON object with a turns list, wherever it sits: one per line, fenced, or pretty-printed."""
+    text = ANSI.sub("", text)
+    decoder = json.JSONDecoder()
+    convs, pos = [], 0
+    while (pos := text.find("{", pos)) != -1:
+        try:
+            obj, end = decoder.raw_decode(text, pos)
+        except json.JSONDecodeError:
+            pos += 1
+            continue
+        if isinstance(obj, dict) and isinstance(obj.get("turns"), list):
+            convs.append(obj)
+        pos = end
     return convs
 
 
 def ask(prompt: str, timeout: int = 300) -> str:
     try:
+        if BACKEND in DEFAULT_MODELS:
+            return ask_http(BACKEND, MODEL, prompt, timeout)
         if BACKEND == "opencode":
             return subprocess.run(["opencode", "run", "-m", MODEL, prompt], capture_output=True, text=True,
                                   timeout=timeout, cwd=ROOT).stdout
