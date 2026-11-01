@@ -195,7 +195,7 @@ claude mcp add ghostlm -- python3 scripts/mcp_server.py --checkpoint <checkpoint
 python -m ghostlm.agent --query "Explain T1059" --checkpoint <checkpoint.pt>
 ```
 
-**Ghost Code.** A terminal agent for securing your machine and your code, in the style of Claude Code. `/audit` checks the machine (firewall, disk encryption, open ports, remote access, startup items, accounts, SSH), `/scan` checks a project for leaked secrets and risky code, and it reads, edits and runs things with your approval. It works with any tool-capable model behind an OpenAI-compatible endpoint. See [docs/ghost_code.md](docs/ghost_code.md).
+**Ghost Code.** A terminal agent for securing your machine and your code, in the style of Claude Code. `/audit` checks the machine (firewall, disk encryption, open ports, remote access, startup items, accounts, SSH), `/scan` checks a project for leaked secrets and risky code, and it reads, edits and runs things with your approval. It is built to run on GhostLM. Until the chat and agent training phases finish there is no GhostLM checkpoint that can drive it, so Ghost Code is not yet available for use. During training it is exercised against a stand-in local model through any OpenAI-compatible endpoint. See [docs/ghost_code.md](docs/ghost_code.md).
 
 ```bash
 pip install -e '.[code]'
@@ -206,7 +206,7 @@ ghost
  <img src="assets/ghost_code_demo.gif" alt="Ghost Code scanning a project, finding three hardcoded secrets and fixing a command injection" width="760">
 </p>
 
-<p align="center"><sub>A real session against a local 8B model (qwen3 on Ollama), played at 3x speed.</sub></p>
+<p align="center"><sub>A test run made to check that the agent works before GhostLM can drive it: a real session against a stand-in local 8B model (qwen3 on Ollama), played at 3x speed.</sub></p>
 
 The ghost above the input box acts out what the agent is doing, and wanders off for a nap when there is nothing to do.
 

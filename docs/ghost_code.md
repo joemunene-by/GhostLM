@@ -4,11 +4,18 @@ A terminal agent for securing your machine and your code. It audits the computer
 runs on, scans projects for leaked secrets and risky code, and reads, edits and runs
 things in the folder you start it in, asking before it changes anything.
 
-It talks to any OpenAI-compatible endpoint, so the model can be a local one served
-by Ollama, the GhostLM agent server, vLLM, or a hosted API. With a local model,
-nothing about your machine leaves it.
+Ghost Code is built to run on GhostLM. The chat and agent training phases are not
+finished yet, so there is no GhostLM checkpoint that can drive it and Ghost Code is not
+yet available for use. While GhostLM trains, the agent is tested against a stand-in
+model: it talks to any OpenAI-compatible endpoint, so that can be a local model served
+by Ollama, vLLM, or a hosted API. With a local model, nothing about your machine
+leaves it.
 
 ![Ghost Code scanning a project](../assets/ghost_code_demo.gif)
+
+The recording above is one of those tests, a real session against a local 8B model
+(qwen3 on Ollama), made to check that the agent loop, the tools and the permission
+prompts work before GhostLM takes over.
 
 ```bash
 pip install -e '.[code]'
@@ -29,11 +36,12 @@ installed model, preferring one with "coder" in its name.
 | Model | `--model` | `GHOST_MODEL` | `model` |
 | API key | | `GHOST_API_KEY` | `api_key` |
 
-The model must support tool calling. To use a GhostLM checkpoint, serve it with
-`python -m ghostlm.agent.server --checkpoint <checkpoint.pt> --port 8000` and pass
-`--base-url http://localhost:8000/v1`. The small GhostLM checkpoints are not yet
-strong enough to drive an agent loop; a tool-capable model of 7B parameters or more
-is a realistic floor.
+The model must support tool calling. Once a GhostLM chat checkpoint exists, serve it
+with `python -m ghostlm.agent.server --checkpoint <checkpoint.pt> --port 8000` and
+pass `--base-url http://localhost:8000/v1`; that becomes the default when the
+checkpoint ships. The pretrain-only checkpoints available today cannot drive an agent
+loop, which is why the tests use a stand-in tool-capable model of 7B parameters or
+more.
 
 Ollama's OpenAI endpoint cannot set the context length and silently truncates at
 4,096 tokens, so when the endpoint is Ollama, `ghost` uses its native API and asks for
