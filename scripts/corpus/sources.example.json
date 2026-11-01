@@ -1,0 +1,14 @@
+[
+  {"name": "fineweb_edu", "type": "hf", "dataset": "HuggingFaceFW/fineweb-edu", "subset": "sample-100BT",
+   "split": "train", "text_field": "text", "domain": "general_web", "max_tokens": 60e9,
+   "min_chars": 300, "max_symbol_frac": 0.3},
+  {"name": "finemath", "type": "hf", "dataset": "HuggingFaceTB/finemath", "subset": "finemath-4plus",
+   "split": "train", "text_field": "text", "domain": "math", "max_tokens": 10e9},
+  {"name": "starcoder_python", "type": "hf", "dataset": "bigcode/starcoderdata", "subset": "python",
+   "split": "train", "text_field": "content", "domain": "code", "max_tokens": 15e9, "max_symbol_frac": 0.6,
+   "token": "HF_TOKEN_HERE"},
+  {"name": "wikipedia_en", "type": "hf", "dataset": "wikimedia/wikipedia", "subset": "20231101.en",
+   "split": "train", "text_field": "text", "domain": "knowledge", "max_tokens": 5e9},
+  {"name": "ghostlm_cybersec", "type": "jsonl", "path": "data/processed/train.jsonl", "text_field": "text",
+   "domain": "cybersec", "min_chars": 100}
+]
