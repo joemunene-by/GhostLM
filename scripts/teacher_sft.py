@@ -96,8 +96,8 @@ def build_queue(n_batches: int, seed: int) -> None:
                     "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n")
                 rows = []
     print(f"wrote {written} batches of {BATCH_SIZE} to {QUEUE}")
-    print("sources:", dict(Counter(json.loads(l)["source"] for p in QUEUE.glob("batch_*.jsonl")
-                                   for l in p.read_text().splitlines()).most_common()))
+    print("sources:", dict(Counter(json.loads(line)["source"] for p in QUEUE.glob("batch_*.jsonl")
+                                   for line in p.read_text().splitlines()).most_common()))
 
 
 def validate(batch: str) -> tuple[list, list]:
@@ -108,7 +108,7 @@ def validate(batch: str) -> tuple[list, list]:
         return [], [f"no queue file {queue_path}"]
     if not out_path.exists():
         return [], [f"no output file yet: write {out_path}"]
-    passages = {json.loads(l)["pid"]: json.loads(l) for l in queue_path.read_text().splitlines() if l.strip()}
+    passages = {json.loads(line)["pid"]: json.loads(line) for line in queue_path.read_text().splitlines() if line.strip()}
     accepted, errors, covered, unanswerable, skipped = [], [], set(), 0, 0
     for n, line in enumerate(out_path.read_text().splitlines(), 1):
         if not line.strip():
@@ -256,7 +256,7 @@ def merge() -> None:
             continue
         accepted, errors = validate(num)
         rejected += len(errors)
-        passages = {json.loads(l)["pid"]: json.loads(l) for l in qp.read_text().splitlines() if l.strip()}
+        passages = {json.loads(line)["pid"]: json.loads(line) for line in qp.read_text().splitlines() if line.strip()}
         for r in accepted:
             # Re-check batches validated before these rules existed, and keep each question once.
             if (r["question"] in EXAMPLE_QUESTIONS or r["question"] in seen_questions
