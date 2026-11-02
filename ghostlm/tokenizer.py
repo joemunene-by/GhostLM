@@ -28,6 +28,12 @@ import tiktoken
 import torch
 
 
+# Serve the GPT-2 BPE files from a committed in-repo cache so loading the
+# tokenizer never touches the network, even on a fresh clone or a reboot
+# during an internet outage. An explicit TIKTOKEN_CACHE_DIR still wins.
+_GPT2_TIKTOKEN_CACHE = Path(__file__).resolve().parent.parent / "data" / "tokenizer" / "gpt2_tiktoken"
+os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(_GPT2_TIKTOKEN_CACHE))
+
 _DIGIT_PIECES = re.compile(r"( ?\d)")
 
 
@@ -302,9 +308,6 @@ class GhostTokenizer(ChatTokenizerBase):
                 GPT-2 BPE otherwise merges "1234" and "1235" inconsistently.
                 Uses only existing GPT-2 tokens, so the vocabulary is unchanged.
         """
-        # tiktoken caches the GPT-2 BPE files in the OS temp dir, which macOS
-        # purges after a few idle days; the next start then needs the network.
-        os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(Path.home() / ".cache/ghostlm/tiktoken"))
         self._encoder = tiktoken.get_encoding("gpt2")
         self.digit_split = digit_split
         self._vocab_size = self._encoder.n_vocab
