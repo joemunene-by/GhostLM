@@ -318,8 +318,8 @@ def test_digit_split_tokenizer_is_lossless_and_only_changes_numbers():
 
 def test_tokenizer_uses_a_persistent_tiktoken_cache(monkeypatch):
     import os
-    from pathlib import Path
-    from ghostlm.tokenizer import GhostTokenizer
+    from ghostlm.tokenizer import GhostTokenizer, _GPT2_TIKTOKEN_CACHE
     monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
     GhostTokenizer()
-    assert os.environ["TIKTOKEN_CACHE_DIR"] == str(Path.home() / ".cache/ghostlm/tiktoken")
+    assert os.environ["TIKTOKEN_CACHE_DIR"] == str(_GPT2_TIKTOKEN_CACHE)
+    assert _GPT2_TIKTOKEN_CACHE.is_dir() and any(_GPT2_TIKTOKEN_CACHE.iterdir())
