@@ -3,7 +3,7 @@
 # A power cut takes a nohup process with it; launchd starts this one again at login and
 # restarts it after a crash, but lets a clean exit (job list finished) stand.
 # Usage: scripts/background/install_gen.sh [--uninstall] [task]
-# task is one of the generator's --task values (broad, multiturn, reasoning); broad is the default
+# task is one of the generator's --task values (broad, multiturn, reasoning) or judge; broad is the default
 # and keeps the original label and log name, every other task gets its own agent and log.
 set -e
 ROOT="${0:A:h:h:h}"
@@ -14,6 +14,9 @@ done
 if [[ "$TASK" == "broad" ]]; then
   LABEL=com.ghostlm.gen
   LOGNAME=gen_chat_groq.log
+elif [[ "$TASK" == "judge" ]]; then
+  LABEL=com.ghostlm.judge
+  LOGNAME=judge_chat.log
 else
   LABEL="com.ghostlm.gen-$TASK"
   LOGNAME="gen_chat_groq_$TASK.log"
@@ -37,6 +40,18 @@ if [[ -e "$LOG" ]] && ! xattr -p com.apple.macl "$LOG" >/dev/null 2>&1; then
   mv "$LOG" "$LOG.$(date +%Y%m%d%H%M%S).old"
 fi
 
+if [[ "$TASK" == "judge" ]]; then
+  ARGS="		<string>$ROOT/scripts/judge_chat.py</string>
+		<string>run</string><string>--loop</string>"
+else
+  ARGS="		<string>$ROOT/scripts/gen_chat_sft.py</string>
+		<string>run</string>
+		<string>--backend</string><string>groq</string>
+		<string>--task</string><string>$TASK</string>
+		<string>--workers</string><string>1</string>
+		<string>--rounds</string><string>4</string>"
+fi
+
 cat > "$PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -46,12 +61,7 @@ cat > "$PLIST" <<PLIST
 	<key>ProgramArguments</key>
 	<array>
 		<string>$ROOT/.venv/bin/python</string>
-		<string>$ROOT/scripts/gen_chat_sft.py</string>
-		<string>run</string>
-		<string>--backend</string><string>groq</string>
-		<string>--task</string><string>$TASK</string>
-		<string>--workers</string><string>1</string>
-		<string>--rounds</string><string>4</string>
+$ARGS
 	</array>
 	<key>WorkingDirectory</key><string>$ROOT</string>
 	<key>RunAtLoad</key><true/>

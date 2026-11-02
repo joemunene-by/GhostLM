@@ -44,11 +44,34 @@ def done_ids() -> set[str]:
     return set(DONE.read_text().split()) if DONE.exists() else set()
 
 
+JUDGE = ROOT / "data/chat_judge/judgements.jsonl"
+JUDGE_ORDER = {"drop": 0, "suspect": 1, "clean": 2}
+
+
+def judgements() -> dict:
+    """Pre-review judge flags by id (scripts/judge_chat.py); advisory only, a human still reads every line."""
+    if not JUDGE.exists():
+        return {}
+    out = {}
+    for line in JUDGE.read_text().splitlines():
+        if line.strip():
+            j = json.loads(line)
+            out[j["id"]] = {"flag": j["flag"], "issues": j.get("issues", []), "judge": j.get("judge", "")}
+    return out
+
+
 def cmd_next(n: int, out: Path, skip: int) -> None:
-    done = done_ids()
-    todo = [r for r in raw_records() if r["id"] not in done][skip:skip + n]
+    done, judged = done_ids(), judgements()
+    todo = [r for r in raw_records() if r["id"] not in done]
+    for r in todo:
+        if r["id"] in judged:
+            r["judge"] = judged[r["id"]]
+    # Flagged conversations first, so a reviewer who runs out of time has read the risky ones.
+    todo.sort(key=lambda r: JUDGE_ORDER.get(r.get("judge", {}).get("flag"), 3))
+    todo = todo[skip:skip + n]
     out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in todo))
-    print(f"wrote {len(todo)} conversations to {out}")
+    flags = {k: sum(1 for r in todo if r.get("judge", {}).get("flag") == k) for k in JUDGE_ORDER}
+    print(f"wrote {len(todo)} conversations to {out} (judge flags {flags}, unjudged {len(todo) - sum(flags.values())})")
 
 
 def cmd_apply(path: Path) -> None:
@@ -93,8 +116,12 @@ def cmd_status() -> None:
     counts = {f.stem: sum(1 for line in f.read_text().splitlines() if line.strip()) for f in sorted(REVIEWED.glob("*.jsonl"))
               if f.name != DROPS.name} if REVIEWED.exists() else {}
     drops = sum(1 for _ in DROPS.open()) if DROPS.exists() else 0
+    pending = {r["id"] for r in raw} - done
+    judged = judgements()
+    flags = {k: sum(1 for i in pending if judged.get(i, {}).get("flag") == k) for k in JUDGE_ORDER}
     print(f"raw {len(raw)}, reviewed {len(done & {r['id'] for r in raw})}, "
           f"approved {sum(counts.values())} {counts}, dropped {drops}")
+    print(f"unreviewed {len(pending)}, judged {len(pending & set(judged))} {flags}")
 
 
 def main() -> None:
